@@ -39,11 +39,46 @@ cd AutoTradeSys
 git remote add upstream https://github.com/Blave-TW/blave-agent.git
 git config rerere.enabled true      # 記住解過的衝突，同樣的衝突下次自動套用
 git switch custom                   # 切到日常工作 branch
-
-# 上游要求的 gitleaks 秘密掃描 hook（需在本機實際執行）
-uv tool install pre-commit          # 或 pipx install pre-commit
-pre-commit install
 ```
+
+### 秘密掃描（gitleaks 原生 hook）
+
+上游 README 要求 `pre-commit install`，但上游的 gitleaks hook 要用 Go 從原始碼建置、
+必須連 `proxy.golang.org`；本機的 HiNet DNS 會把 `golang.org` 導到過濾頁，建置失敗後
+每次 commit 都會被擋。因此改用**原生 git hook 直接呼叫 Homebrew 預編譯的 gitleaks**，
+掃描指令與上游 hook 相同（`gitleaks git --pre-commit --staged --redact --verbose`）。
+
+`.git/hooks/` 不進版控，每次重新 clone 都要再裝一次：
+
+```bash
+brew install gitleaks
+cat > .git/hooks/pre-commit <<'EOF'
+#!/bin/sh
+# commit 前用 gitleaks 掃 staged 內容（原生 hook，不經 pre-commit 框架、不需 Go）
+# 安裝方式見 docs/fork-workflow.md §2；誤報處理見 §6 FAQ
+
+case ",${SKIP:-}," in
+  *,gitleaks,*) echo "gitleaks: 依 SKIP 設定跳過掃描" >&2; exit 0 ;;
+esac
+
+GITLEAKS=$(command -v gitleaks || true)
+for p in /opt/homebrew/bin/gitleaks /usr/local/bin/gitleaks; do
+  [ -z "$GITLEAKS" ] && [ -x "$p" ] && GITLEAKS=$p
+done
+
+if [ -z "$GITLEAKS" ]; then
+  echo "gitleaks: 找不到執行檔，commit 已中止（請先 brew install gitleaks）" >&2
+  exit 1
+fi
+
+exec "$GITLEAKS" git --pre-commit --staged --redact --verbose --no-banner
+EOF
+chmod +x .git/hooks/pre-commit
+```
+
+- **不要再執行 `pre-commit install`**：它會接管 `.git/hooks/pre-commit`，又回到建置失敗、commit 被擋的狀況。
+- 上游 `.pre-commit-config.yaml` 釘選 gitleaks `v8.30.1`；Homebrew 會隨 `brew upgrade` 更新，偶爾用 `gitleaks version` 對照即可。
+- hook 會自己找 `/opt/homebrew/bin` 與 `/usr/local/bin`，GUI git 工具（`PATH` 沒有 Homebrew）也能正常掃描。
 
 確認：
 
@@ -51,6 +86,7 @@ pre-commit install
 git remote -v                       # 應看到 origin 與 upstream
 git branch -vv                      # custom 應追蹤 origin/custom
 git config --get rerere.enabled     # 應為 true
+git hook run pre-commit             # 應顯示 no leaks found
 ```
 
 GitHub 網頁設定（一次性）：
@@ -156,7 +192,7 @@ git push -u origin feat/<主題>
 ### PR 檢查清單
 
 - [ ] 已讀上游 `AGENTS.md`、`examples/README.md`、`references/lib.md`（上游 README 要求）
-- [ ] 已執行 `pre-commit install`，commit 時 gitleaks 有跑過
+- [ ] 已安裝 §2 的 gitleaks 原生 hook，commit 時有跑過（取代上游 README 的 `pre-commit install`，掃描指令相同）
 - [ ] 跑過相關測試（`tests/` 一個契約一個檔）
 - [ ] 一個 PR 只做一件事；說明修改原因、影響範圍、測試方式
 - [ ] diff 中**沒有**策略、`.env`、`manager/*.json`、下單紀錄、API key
@@ -184,6 +220,14 @@ git push origin --delete feat/<主題>
 **Q：Fork 是 public，策略會不會外洩？**
 上游 `.gitignore` 已排除 `.env`、`strategies/*`（範本除外）、`allocators/*`、`manager/*.json` 等。
 **不要用 `git add -f`** 強制加入這些檔案，也不要修改 `.gitignore` 的這些規則。
+
+**Q：commit 被 gitleaks 擋下來？**
+先看輸出的 `File`、`Line`、`RuleID` 判斷是不是真的 key（秘密值已遮蔽為 `REDACTED`）。
+
+- 真的是 key：`git restore --staged <file>` 移出 staged，把 key 改放 `.env`。
+  這把 key 若曾出現在任何已 push 的 commit（本 repo 是 public），立即到交易所／服務商撤銷並重新產生。
+- 誤報：在該行加 `gitleaks:allow` 註解；不方便改該行時，把輸出中的 `Fingerprint` 加進 repo 根目錄的 `.gitleaksignore`。
+- 確認是誤報但急著 commit：`SKIP=gitleaks git commit`（或 `git commit --no-verify`，會跳過所有 hook）。
 
 **Q：出現 `.git/index.lock: File exists`？**
 先確認沒有其他 git 程式在執行，再刪除殘留的 lock 檔：`rm .git/index.lock`。
