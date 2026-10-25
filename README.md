@@ -1,4 +1,4 @@
-<!-- ===== AutoTradeSys fork 說明（以下 Blave Agent 原始 README 保持不動）===== -->
+<!-- ===== AutoTradeSys fork 說明（上游 README 只保留授權政策與測試依賴的段落，見文末）===== -->
 
 # AutoTradeSys
 
@@ -18,6 +18,8 @@
 
 - 2026-10-25：從上游 `main` 建立 fork（upstream commit: `c355089a`）
 - 2026-10-25：新增本 fork 說明區塊與 [`docs/fork-workflow.md`](docs/fork-workflow.md)（fork 維護流程）
+- 2026-10-25：移除上游 README 的 Blave 品牌與產品介紹（logo、下載連結、示範影片、功能介紹、雲端方案等）；
+  保留授權與政策段落，以及上游測試依賴的語言切換列與「Updating an existing workspace」一節
 
 詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
 
@@ -28,97 +30,14 @@
 
 ---
 
-<!-- ===== 以下為上游 Blave Agent 原始 README ===== -->
+<!-- ===== 以下為上游 Blave Agent README 的原文段落（授權政策與測試依賴，依原文保留）===== -->
 
-<div align="center">
+以下為上游 Blave Agent README 的原文段落，依原文保留：
 
-<img src="docs/icon.png" width="80" alt="">
-
-# Blave Agent
-
-**Quant Workspace for AI Agents**<br>
-Build, backtest and trade strategies live with Claude Code or Codex. Free and open source.
-
-<a href="https://github.com/Blave-TW/blave-agent/releases"><img src="https://img.shields.io/github/v/release/Blave-TW/blave-agent?filter=desktop-*&label=latest&color=555" alt="Latest release"></a>
+- `License`、`Code Signing Policy`：授權、商標與開源政策。Code Signing Policy 描述的是上游官方版本的簽章流程，不適用於本 fork。
+- 語言切換列、`Updating an existing workspace`：上游測試（`tests/check_readme_translations.py`、`tests/check_cloud_handoff_reference.py`）會檢查這兩處。
 
 **English** | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md) | [Português](README.pt.md) | [Tiếng Việt](README.vi.md)
-
-<a href="https://download.blave.org/desktop/mac/Blave-universal.dmg"><img src="docs/readme-dl-mac.en.png" alt="Download for Mac" width="228"></a>&nbsp;&nbsp; <a href="https://download.blave.org/desktop/win/Blave-Setup.exe"><img src="docs/readme-dl-win.en.png" alt="Download for Windows" width="228"></a>
-
-</div>
-
-https://github.com/user-attachments/assets/7b33edb7-9c65-4e19-854a-40295c6e8b74
-
-<p align="center"><a href="https://blave.org/docs/en">Docs</a></p>
-
-## What You Get
-
-- **All your strategies in one app.** Backtest, trades, parameter scan and saved versions for each.
-- **Backtests that flag overfitting.** MCPT p-value, parameter plateau and walk-forward.
-- **Real fees by default.** A fee of 0 gets a warning.
-- **Auto-trading already wired up.** Binance, OKX, Bybit, BingX, Gate.io, plus Taiwan index futures on Windows.
-- **Paper trading.** No keys needed.
-- **Ideas from the web.** The agent reads a few sites and brings back three you can backtest.
-- **Pick your AI.** Claude Code, Codex, a DeepSeek key, or Blave AI.
-
-![A BTC breakout strategy in the app](docs/readme-backtest.png)
-
-<p align="center">⭐ If this saves you a weekend of wiring, star the repo. It helps other traders find it.</p>
-
-<a id="quick-start"></a>
-
-## Quick Start
-
-1. Download for [macOS](https://download.blave.org/desktop/mac/Blave-universal.dmg) or [Windows](https://download.blave.org/desktop/win/Blave-Setup.exe) and open it.
-2. Pick your AI.
-3. Describe an idea:
-
-> Backtest BTCUSDT on the 4h chart: long when SMA 20 crosses above SMA 60, flat when it crosses back. 0.05% fee per side.
-
-<details><summary>Platform notes</summary>
-
-macOS 13+ (universal build) or Windows 10/11 x64. The Windows installer is not code-signed yet: choose More info › Run anyway.
-
-</details>
-
-<details><summary>Build from source</summary>
-
-You need Node.js 22.12+ and Python 3 on your `PATH`.
-
-```
-git clone https://github.com/Blave-TW/blave-agent.git
-cd blave-agent/shell
-npm install
-npm start
-```
-
-On Windows, run `npm.cmd install` and `npm.cmd start` in PowerShell.
-
-</details>
-
-## Safety
-
-- **Only you allocate funds or resume trading.** The agent can only stop it.
-- **Every order is checked with the exchange** and logged to `state/audit.jsonl`.
-- **A backtest describes the past.** Trading can lose all of your money.
-
-Exchanges and keys: [docs](https://blave.org/docs/en/exchange_api) · Data sources: [crypto](https://blave.org/docs/en/data_crypto), [Taiwan stocks](https://blave.org/docs/en/data_twstock)
-
-## Run It in the Cloud (Paid)
-
-Keep strategies running with your computer off, and talk to them from the web or Telegram. [Plans](https://blave.org/agent/en)
-
-## News
-
-Every version: [Releases](https://github.com/Blave-TW/blave-agent/releases). Watch › Releases to get notified.
-
-## For Developers
-
-<details><summary>Repository layout, tests, contributing</summary>
-
-Start with `AGENTS.md`, then `examples/README.md` and `references/lib.md`. One test file per contract in `tests/`. Before a PR, run the tests that cover your change and `pre-commit install`.
-
-</details>
 
 ## License
 
@@ -133,28 +52,6 @@ The Windows build is not code-signed yet: we have applied to the [SignPath Found
 ---
 
 ## For maintainers and existing machines
-
-<details>
-<summary>Releasing the runtime</summary>
-
-### Releasing the runtime
-
-```
-cd blave-agent
-export BLAVE_S3_KEY=... BLAVE_S3_SECRET=... BLAVE_S3_REGION=... BLAVE_S3_BUCKET=...
-python publish.py            # dry-run, no credentials needed
-python publish.py publish    # real upload; the fleet picks it up within ~6 minutes
-```
-
-Before publishing, bump `runtime/VERSION` and move the Unreleased lines in `runtime/CHANGELOG.md` under the new version. Packaging takes the unit files declared in `jobs.json` from `../api/blave_agent/systemd/`, so **the api checkout must sit next to this repo**; if it is missing, the run fails on the spot with the full path.
-
-The history of `runtime/` was merged in from the api repo as a subtree on 2026-09-18 (165 commits). Because it was a merge and not a rename, `git log -- runtime/` shows only that merge; for the full history use `git log HEAD^2` (files are at root paths on that line, e.g. `agent_turn.py`).
-
-Fresh installs are handled automatically by the provisioning script — no manual steps needed.
-
-**Bump `VERSION` (date, `YYYY-MM-DD`, add `-b`/`-c` for same-day repushes) in the same commit as any change machines should pick up** — the platform compares each machine's reported VERSION against this repo's to light the web "update available" indicator; an unbumped push is invisible to users.
-
-</details>
 
 ### Updating an existing workspace
 

@@ -166,7 +166,31 @@ git push origin custom
    # Licensed under the Apache License, Version 2.0
    ```
 
-4. `README.md` 開頭的 fork 說明區塊是唯一刻意修改的上游檔案；若上游改動 README 開頭而衝突，保留 fork 說明區塊，其餘採用上游版本。
+4. `README.md` 已改寫為 fork 專用版本，上游內容只保留下列原文段落（其餘品牌與產品介紹已移除）：
+
+   | 保留段落 | 原因 |
+   |---|---|
+   | `License`、`Code Signing Policy` | 授權、商標與開源政策 |
+   | 語言切換列（`**English** \| [繁體中文](README.zh-TW.md) \| …`） | `tests/check_readme_translations.py` 硬性檢查 |
+   | `### Updating an existing workspace` 整節 | `tests/check_cloud_handoff_reference.py` 讀這一節，缺少會 crash |
+
+   上游只要改 README 幾乎都會衝突，處理方式固定：
+
+   ```bash
+   git checkout --ours README.md            # 保留 fork 版本
+   git diff HEAD...MERGE_HEAD -- README.md  # 看上游這次改了 README 哪些地方
+   ```
+
+   上游若改到上表任一段落，把該段手動同步成新原文；其餘改動（產品介紹、下載連結等）一律不帶進來。
+   同步完跑一次兩支測試確認通過：
+
+   ```bash
+   python3 tests/check_readme_translations.py
+   python3 tests/check_cloud_handoff_reference.py
+   ```
+
+   `check_readme_translations.py` 會印出 intro、What You Get、Quick Start、Safety 的 drift 警告，
+   這是刻意移除這些段落造成的，exit code 仍為 0，可以忽略；出現 `FAIL` 才需要處理。
 
 ---
 
