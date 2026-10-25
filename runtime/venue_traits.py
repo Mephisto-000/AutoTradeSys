@@ -1,3 +1,7 @@
+# Modified by Mephisto-000 on 2026-10-25: sinopac (永豐金) is auto-wired as a TW-stock spot venue
+#   (new trait tw_stock_spot); runtime/venue_traits.py carries the same bytes.
+# Original work: Copyright 2025-2026 WuChi Technology Company Limited
+# Licensed under the Apache License, Version 2.0
 """Which venues break the crypto auto-wire contract, and how.
 
 Every branch in manager/, lib/ and runtime/ that behaves differently for a
@@ -25,6 +29,9 @@ account currency). Trait meanings:
   lots_close_partial flatten closes its lots through close_position_partial
                      (not place_contract_market_order)
   close_needs_fill   flatten books a close as done only on a confirmed fill
+  tw_stock_spot      TW stocks routed here are cash shares, like on paper:
+                     spot keys, never short, held as is while the TWSE
+                     session is shut (lib.portfolio, lib.execute)
   reference          the onboarding doc chat binding points to
   label              the broker's name in user-facing messages
   cred_env           the venue's own .env names that do not follow the
@@ -38,6 +45,7 @@ account currency). Trait meanings:
 
 CAPITAL = "capital"
 PRESIDENT = "president"
+SINOPAC = "sinopac"
 
 TRAITS = {
     CAPITAL: {
@@ -52,9 +60,10 @@ TRAITS = {
         "reference": "references/capital-broker.md",
         "label": "群益",
     },
-    "sinopac": {
-        "auto_wire": False,
+    # auto-wired (lib/venue_wiring) through its spot layer: lib/order_sinopac + lib/account_sinopac
+    SINOPAC: {
         "perp": False,
+        "tw_stock_spot": True,
         "reference": "references/sinopac-broker.md",
         "label": "永豐金",
     },

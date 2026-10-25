@@ -7,6 +7,7 @@ Complete reference strategies — read one before writing the same kind. These a
 - `tw2317_broker_zscore/` — Type A, Taiwan stock (2317) broker-flow z-score, contrarian; `scan.py` = the canonical **three-or-more-parameter** scan (pairwise coordinate descent, two rounds, one `scan.json`)
 - `cl_sma/` — Type A, WTI crude oil with NYMEX settlement exit; uses `fetch_db_kline` + `settlement_signals_from_db()`
 - `tsmc_ma/` — Type A, Taiwan stock (2330) SMA crossover
+- `tw_sinopac_ma/` — Type A, Taiwan ETF (0050) 60m SMA crossover on SinoPac (永豐金) kbars (`lib/sinopac_data.fetch_sinopac_kbars`, adjusted); trades live through the SinoPac spot venue (`references/sinopac-broker.md`) — AutoTradeSys fork
 - `txf_ma_1m/` — Type A, Taiwan Index Futures (TXF) 1m SMA crossover
 - `tw100_foreign_zscore/` — Type C, Taiwan 100-stock portfolio, foreign institutional z-score
 - `twstock_momentum/` — Type C, Taiwan stock momentum, top-N equal weight

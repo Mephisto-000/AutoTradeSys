@@ -1,3 +1,4 @@
+# Modified by Mephisto-000 on 2026-10-25: the tw_sinopac_ma example's expectation.
 """lib/quality_check.py › blave_data_need — does a strategy need the Blave data key on the desktop.
 No network. The api stores the answer per library listing (scripts/marketplace_admin.py publish);
 the desktop library groups "usable without a card" on it.
@@ -187,6 +188,7 @@ EXPECT = {
     "strategies/TEMPLATE_A.py": False, "strategies/TEMPLATE_C.py": False,
     "examples/btc_sma_cross/strategy.py": False,      # fetch_kline
     "examples/tsmc_ma/strategy.py": False,            # fetch_twstock_price_adj: public CDN on the desktop
+    "examples/tw_sinopac_ma/strategy.py": False,      # SinoPac kbars (+ public CDN factors) — fork
     "examples/twstock_momentum/strategy.py": False,   # fetch_twstock_price_adj_batch from 2015: public CDN
     "examples/btc_ti_5min/strategy.py": True,         # fetch_taker_intensity
     "examples/cl_sma/strategy.py": True,              # fetch_db_kline

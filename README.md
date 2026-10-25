@@ -20,6 +20,13 @@
 - 2026-10-25：新增本 fork 說明區塊與 [`docs/fork-workflow.md`](docs/fork-workflow.md)（fork 維護流程）
 - 2026-10-25：移除上游 README 的 Blave 品牌與產品介紹（logo、下載連結、示範影片、功能介紹、雲端方案等）；
   保留授權與政策段落，以及上游測試依賴的語言切換列與「Updating an existing workspace」一節
+- 2026-10-25：新增永豐金證券（Shioaji）台股回測與自動下單 — 使用說明見 [`docs/sinopac.md`](docs/sinopac.md)
+  - 新增：`lib/sinopac_session.py`、`lib/account_sinopac.py`、`lib/sinopac_data.py`、`manager/sinopac_setup.py`、
+    `tools/sinopac_deploy.py`、`examples/tw_sinopac_ma/`、`docs/sinopac.md`、`tests/check_sinopac_*.py`、`tests/sinopac_fake.py`
+  - 修改（檔頭已註明）：`lib/order_sinopac.py`、`lib/venue_traits.py`（與 `runtime/venue_traits.py` 相同）、`lib/portfolio.py`、
+    `lib/execute.py`、`runtime/agent_turn.py`、`shell/renderer/trade.js`、`references/sinopac-broker.md`、`references/lib.md`、
+    `examples/README.md`，以及配合的既有測試（`tests/check_venue_traits.py`、`check_restart_stop_order_gate.py`、
+    `check_capital_flatten_identity.py`、`check_position_detail.py`、`check_state_read_retry.py`、`check_blave_data_need.py`）
 
 詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
 

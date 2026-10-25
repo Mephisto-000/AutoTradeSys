@@ -1,3 +1,6 @@
+// Modified by Mephisto-000 on 2026-10-25: TR_VENUE_CCY_OTHER lists sinopac (TWD) for the SinoPac spot venue.
+// Original work: Copyright 2025-2026 WuChi Technology Company Limited
+// Licensed under the Apache License, Version 2.0
 /* 自動下單頁、連接交易所的框、頂列切換器與狀態句(模擬交易版)。
    基準是雲端工作頁的自動下單頁(web/app/main/templates/agent/workspace.html 的 renderPfHead /
    buildExecControl / buildAmountTable / buildPositionsSection / buildOrderLogSection / renderOverTab),
@@ -1587,7 +1590,7 @@ const cxPresListed = () => PRES_LOCAL_ON || CXF.venue === "president";
 const CAPL_LOCAL_ON = false;
 const cxCaplListed = () => CAPL_LOCAL_ON || CXF.venue === CAPITAL;
 // 不在 CX_VENUES 裡的帳戶(lib/account_paper.py、account_capital.py、account_president.py)
-const TR_VENUE_CCY_OTHER = { paper: "USDT", capital: "TWD", president: "TWD" };
+const TR_VENUE_CCY_OTHER = { paper: "USDT", capital: "TWD", president: "TWD", sinopac: "TWD" };   // sinopac: AutoTradeSys fork 2026-10-25
 // 讀不到帳戶幣時的退路:那家的固定幣別;自訂交易所查不到 = null(畫面不帶幣別、不出倍數,改講 tr.ccyUnknown)
 function trVenueCcy(id) {
   if (Object.prototype.hasOwnProperty.call(TR_VENUE_CCY_OTHER, id)) return TR_VENUE_CCY_OTHER[id];

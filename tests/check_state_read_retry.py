@@ -1,3 +1,4 @@
+# Modified by Mephisto-000 on 2026-10-25: exemptions for the SinoPac .env reads.
 """Windows: reading a state file while another process's os.replace swaps it (or Defender scans it)
 raises PermissionError Errno 13 at open() (third interpreter round: lib/execute.load_state on
 strategies/<name>/state.json, a bare json.load(open(path))). The reconciler, reporters and workers
@@ -195,6 +196,8 @@ EXEMPT = [
      'helper', "the retry helper's own open, or the half-updated-workspace fallback"),
     ('lib/validation.py', 'load_json', 'path',
      'helper', "the retry helper's own open, or the half-updated-workspace fallback"),
+    ('lib/sinopac_data.py', '_read_env', 'path',
+     'env', '.env for the SinoPac keys; unreadable → no keys, the login fails loudly (fork 2026-10-25)'),
     ('lib/venue.py', '_bound_ids', 'os.path.join(cl.WORKSPACE, ".env")',
      'env', '.env read by its only replacer, or a loud failure'),
     ('lib/venue_wiring.py', '_read_lines', 'path',
@@ -234,6 +237,8 @@ EXEMPT = [
      'code', 'code / doc / VERSION text, not a state file'),
     ('manager/wait_for_bar.py', '_tw_stock_daily', 'f"strategies/{name}/strategy.py"',
      'code', 'code / doc / VERSION text, not a state file'),
+    ('manager/sinopac_setup.py', '_read_lines', 'ENV_PATH',
+     'agent', 'the user-run SinoPac setup CLI: an error reaches the user, who runs it again (fork 2026-10-25)'),
     ('manager/wait_for_bar.py', '_us_stock_daily', 'f"strategies/{name}/strategy.py"',
      'code', 'code / doc / VERSION text, not a state file'),
     ('manager/wait_for_bar.py', 'load_json', 'path',

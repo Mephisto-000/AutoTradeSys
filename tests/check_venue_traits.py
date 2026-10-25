@@ -1,3 +1,4 @@
+# Modified by Mephisto-000 on 2026-10-25: SinoPac's own files and its auto-wire.
 """Taiwan-broker branches go through lib/venue_traits.py — no network.
 
 1. Enumeration: every string constant equal to a TW broker id in manager/,
@@ -33,7 +34,8 @@ TABLES = {"lib/venue_traits.py", "runtime/venue_traits.py"}
 OWN = {
     "capital": {"lib/order_capital.py", "lib/account_capital.py", "lib/capital_worker.py",
                 "lib/capital_vault.py", "runtime/capital_connect.py", "runtime/capital_local.py"},
-    "sinopac": {"lib/order_sinopac.py"},
+    "sinopac": {"lib/order_sinopac.py", "lib/account_sinopac.py", "lib/sinopac_session.py",
+                "lib/sinopac_data.py"},
     "president": {"lib/order_president.py", "lib/account_president.py", "lib/president_worker.py",
                   "lib/president_vault.py"},
 }
@@ -85,8 +87,10 @@ from manager import close_symbol, reconciler  # noqa: E402
 check(set(reconciler._HAND_WIRED) == set(venue_traits.venues("hand_wired")),
       "reconciler._HAND_WIRED covers exactly the hand_wired venues",
       (sorted(reconciler._HAND_WIRED), sorted(venue_traits.venues("hand_wired"))))
-check(venue_wiring._NON_AUTO == {"sinopac", "president", "capital"}, "venue_wiring._NON_AUTO",
+# sinopac (永豐金) is auto-wired as a TW-stock spot venue (AutoTradeSys fork, 2026-10-25)
+check(venue_wiring._NON_AUTO == {"president", "capital"}, "venue_wiring._NON_AUTO",
       venue_wiring._NON_AUTO)
+check(venue_traits.venues("tw_stock_spot") == {"sinopac"}, "tw_stock_spot venues")
 check(close_symbol._NOT_PERP == {"capital", "sinopac", "president"}, "close_symbol._NOT_PERP",
       close_symbol._NOT_PERP)
 check(venue_traits.venues("hand_wired") == {"capital", "president"}, "hand_wired venues")

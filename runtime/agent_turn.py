@@ -1,3 +1,6 @@
+# Modified by Mephisto-000 on 2026-10-25: scheduled turns also refuse manager/sinopac_setup.py (SCHED_TRADE_MANAGER).
+# Original work: Copyright 2025-2026 WuChi Technology Company Limited
+# Licensed under the Apache License, Version 2.0
 """
 Agent loop, spec item 1: one process per turn ("每輪 spawn"), no persistent
 agent process.
@@ -1236,17 +1239,18 @@ def _sched_guard_hooks(options):
 # 而 publish 的指令字串裡會整段塞進新聞原文——所以網路工具只認指令位置(同 crontab 守門)、`.env` 前面不能是字或點
 # (www.env.go.jp)、order 模組逐一列(`order_\w+` 會誤擋 order_flow)。
 # 會下單 / 平倉 / 換 key 的模組整個擋(報告流程一個都不 import);清單由測試從 import 關係列舉對齊,新模組漏列會紅。
+# (Modified by Mephisto-000 on 2026-10-25: manager/sinopac_setup.py — writes .env, sends a simulation order — is blocked too.)
 SCHED_ORDER_LIB = "order_(?:binance|bingx|bybit|capital|gateio|okx|paper|president|sinopac|stockcoin|TEMPLATE)"
 # 這幾個名字不會出現在敘事裡,光出現就擋;execute / venue / portfolio 是一般英文字,只在 lib. 之後或 from lib import 裡擋
 SCHED_TRADE_BARE = SCHED_ORDER_LIB + "|venue_wiring|capital_vault|capital_worker|president_vault|president_worker"
 SCHED_TRADE_LIB = SCHED_TRADE_BARE + "|execute|venue|portfolio"
 SCHED_TRADE_RUNTIME = "command_listener|local_daemon|web_bridge|capital_connect|capital_local|president_connect|president_test_order"
 SCHED_TRADE_MANAGER = ("close_symbol|flatten|stop_strategy|reconciler|run_strategy|start_reconciler\\w*|manager|seed_ledger"
-                       "|update_workspace|wait_for_bar")
+                       "|update_workspace|wait_for_bar|sinopac_setup")
 # 換目錄(`cd manager && python3 close_symbol.py`,Bash 的 cwd 跨呼叫保留)就沒有 manager/ 前綴:夠獨特的名字光出現就擋,
 # 一般英文字(flatten 撞 numpy 的 .flatten()、reconciler、manager)只在接副檔名或被 import 時擋
 SCHED_TRADE_MANAGER_BARE = ("close_symbol|stop_strategy|seed_ledger|start_reconciler\\w*|run_strategy|update_workspace"
-                            "|wait_for_bar|reconciler_supervisor")
+                            "|wait_for_bar|reconciler_supervisor|sinopac_setup")
 _NET_MODS = r"requests|urllib\d?|socket|http|httpx|aiohttp|ftplib|smtplib"
 SCHED_BASH_DENY_RE = re.compile(
     r"(?<![\w.])\.env\b|\b(?:read_env|load_dotenv)\b|/proc/[\w-]+/environ\b"

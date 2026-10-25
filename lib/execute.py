@@ -1,3 +1,7 @@
+# Modified by Mephisto-000 on 2026-10-25: the paper TW-stock size gates (TWD floor, 1.05 shares)
+#   also apply to a tw_stock_spot broker (永豐金).
+# Original work: Copyright 2025-2026 WuChi Technology Company Limited
+# Licensed under the Apache License, Version 2.0
 import importlib.util
 import json
 import logging
@@ -639,8 +643,11 @@ def _paper_tw_sizes(vid, order, env, sym, floor):
     """A TW stock on paper: its diffs are TWD, not USD, and it trades whole
     shares. (floor in TWD, one share), the entry gate at 1.05 shares like a
     lot — else a residual under one share is re-sent, floored to 0, every
-    round. No rate: one share alone. None for anything else."""
-    if vid != "paper":
+    round. No rate: one share alone. None for anything else.
+    A tw_stock_spot broker (永豐金, lib.venue_traits) the same, its floor
+    already TWD (the account's own currency)."""
+    from lib import venue_traits
+    if vid != "paper" and not venue_traits.has(vid, "tw_stock_spot"):
         return None
     try:
         from lib.paper_data import is_tw_stock, usd_rate
@@ -650,7 +657,7 @@ def _paper_tw_sizes(vid, order, env, sym, floor):
         return None
     share = float(order.get_spot_price(env, sym))
     try:
-        floor_twd = floor * usd_rate("TWD", env)
+        floor_twd = floor * usd_rate("TWD", env) if vid == "paper" else float(floor)
     except Exception:
         floor_twd = 0.0
     return max(floor_twd, share * 1.05), share
@@ -667,10 +674,11 @@ def _paper_tw_reduce_gate(symbol, floor):
         from lib.portfolio import split_key
         env = vw.read_env()
         vid = vw.detect_venue(env)
-        if vid != "paper":
+        from lib import venue_traits
+        if vid != "paper" and not venue_traits.has(vid, "tw_stock_spot"):
             return None
         import importlib as _il
-        tw = _paper_tw_sizes(vid, _il.import_module("lib.order_paper"), env, split_key(symbol)[0], floor)
+        tw = _paper_tw_sizes(vid, _il.import_module(f"lib.order_{vid}"), env, split_key(symbol)[0], floor)
         return tw[0] if tw else None
     except Exception as e:
         logging.warning(f"[execute] TW reduce gate unavailable for {symbol} ({e})")

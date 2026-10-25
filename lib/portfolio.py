@@ -1,3 +1,7 @@
+# Modified by Mephisto-000 on 2026-10-25: paper's TW-stock rules (spot keys, never short, held
+#   while the TWSE session is shut) also apply to a venue with the tw_stock_spot trait (永豐金).
+# Original work: Copyright 2025-2026 WuChi Technology Company Limited
+# Licensed under the Apache License, Version 2.0
 import glob, hashlib, inspect, json, logging, math, os, re, time
 from datetime import datetime, timedelta, timezone
 
@@ -324,11 +328,18 @@ def _seed_key(symbol, venue):
 _CURRENT = object()  # "the venue this machine trades on" — see book_venue()
 
 
+def _tw_spot_venue(exchange):
+    """paper, or a broker whose TW stocks are cash shares (lib.venue_traits
+    tw_stock_spot: 永豐金) — the venues _paper_tw_market and the TW session
+    hold below apply to."""
+    return exchange == 'paper' or venue_traits.has(exchange, 'tw_stock_spot')
+
+
 def _paper_tw_market(exchange, sym, market):
     """A TW stock on paper is held as cash shares whatever the strategy's
     MARKET says (Wei 10-17): spot pays the full price from cash, no leverage,
     no short — what a real 現股 account can do."""
-    return 'spot' if exchange == 'paper' and _tw_stock(sym) else market
+    return 'spot' if _tw_spot_venue(exchange) and _tw_stock(sym) else market
 
 
 def _tw_stock(sym):
@@ -413,7 +424,10 @@ def _paper_tw_closed_keys(target, diff_actual):
         if not is_tw_stock(split_key(k)[0]):
             continue
         venue = (target.get(k) or {}).get('exchange') or (diff_actual.get(k) or {}).get('exchange')
-        if (venue or book_venue()) == 'paper':
+        venue = venue or book_venue()
+        # a broker's TW stock is a spot key (_paper_tw_market); a plain key there is
+        # a native-unit row this hold never covered
+        if venue == 'paper' or (_tw_spot_venue(venue) and split_key(k)[1] == 'spot'):
             keys.add(k)
     if not keys:
         return set()
@@ -3071,7 +3085,7 @@ def aggregate_portfolio():
                 if w != w:  # NaN
                     w = 0.0
                 m = _paper_tw_market(exchange, sym, market)
-                if w < 0 and (m == 'spot' or (exchange == 'paper' and _tw_stock(sym))):
+                if w < 0 and (m == 'spot' or (_tw_spot_venue(exchange) and _tw_stock(sym))):
                     # this strategy's own short intent must not cancel another
                     # strategy's long on the same coin — spot cannot short, nor
                     # can a TW stock on paper (Wei 10-17: a short is a close)
@@ -3127,7 +3141,7 @@ def aggregate_portfolio():
                 gated = True
 
         contribution = amount * position
-        if contribution < 0 and exchange == 'paper' and _tw_stock(symbol):
+        if contribution < 0 and _tw_spot_venue(exchange) and _tw_stock(symbol):
             # Wei 10-17: paper never shorts a TW stock — a short signal is flat,
             # and does not cancel another strategy's long on the same stock
             contribution = 0.0

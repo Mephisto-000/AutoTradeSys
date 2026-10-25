@@ -1,3 +1,4 @@
+# Modified by Mephisto-000 on 2026-10-25: the no-account-lib case hides SinoPac's new account lib.
 """群益 leg of 全部平倉 under an identity that can't log in to SKCOM — no network,
 no exchange, no Windows needed (the identity check is mocked).
 
@@ -266,9 +267,23 @@ run_flatten(True, BOOK)
 check("ETHUSDT" in zeroed and not any(e[1] == "fooex" for e in errors),
       f"key without any lib → sweep still runs ({sorted(zeroed)})")
 EXTRA_ENV.clear()
-# a venue that can trade (order lib) but can't be read (no account lib)
+# a venue that can trade (order lib) but can't be read (no account lib). SinoPac ships
+# both since the AutoTradeSys fork's spot layer (2026-10-25): its account lib is hidden here,
+# from flatten's file check and from book_account_check's import (which would otherwise
+# read it and write state/ + manager/ledger_seed.json into the repo, flatten's cwd)
 EXTRA_ENV.update(SINOPAC_API_KEY="x", SINOPAC_SECRET_KEY="x")
-run_flatten(True, BOOK)
+_real_isfile, _real_acct = os.path.isfile, sys.modules.get("lib.account_sinopac")
+os.path.isfile = lambda p_: (False if str(p_).replace(os.sep, "/").endswith("lib/account_sinopac.py")
+                             else _real_isfile(p_))
+sys.modules["lib.account_sinopac"] = None   # import → ImportError, as with no file
+try:
+    run_flatten(True, BOOK)
+finally:
+    os.path.isfile = _real_isfile
+    if _real_acct is None:
+        sys.modules.pop("lib.account_sinopac", None)
+    else:
+        sys.modules["lib.account_sinopac"] = _real_acct
 check("ETHUSDT" not in zeroed and ("*", "sinopac") in [e[:2] for e in errors],
       f"order lib without account lib → no sweep + visible error ({sorted(zeroed)}, {errors})")
 EXTRA_ENV.clear()

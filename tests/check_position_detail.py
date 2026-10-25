@@ -1,3 +1,4 @@
+# Modified by Mephisto-000 on 2026-10-25: account_sinopac exempt (spot-only, get_positions is []).
 """Per-position details (entry price, unrealized PnL, margin, leverage) reach account.json — no network.
 
 What it protects: the 自動下單 › 部位 table shows each position's 開倉均價 / 未實現損益 /
@@ -285,8 +286,9 @@ check(entry["ok"] is True and wire is not None
                                            "leverage": 10.0},
       f"read_venue: positions keyed by symbol with the details, NaN margin dropped ({pos})")
 
-# ── every account lib names all four details (exempt: none)
-EXEMPT = set()
+# ── every account lib names all four details (exempt: account_sinopac — a spot-only stock
+# account: get_positions is always [], the shares are holdings; AutoTradeSys fork 2026-10-25)
+EXEMPT = {"account_sinopac"}
 for path in sorted(glob.glob(os.path.join(ROOT, "lib", "account_*.py"))):
     name = os.path.basename(path)[:-3]
     if name == "account_TEMPLATE" or name in EXEMPT:

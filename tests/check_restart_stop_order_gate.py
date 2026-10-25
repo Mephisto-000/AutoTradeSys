@@ -1,3 +1,4 @@
+# Modified by Mephisto-000 on 2026-10-25: SinoPac's chokepoint is _send_order.
 """After a machine restart NO order leaves this machine through lib/order_* —
 entries and closes alike, from any caller (reconciler, TWAP/chase, Type B
 strategies calling the lib directly, ad-hoc scripts) — until 啟動下單 removes
@@ -48,7 +49,7 @@ def check(cond, msg):
 CHOKE = {
     "binance": "_request", "bingx": "_request", "bybit": "_request",
     "gateio": "_request", "okx": "_request",
-    "paper": "_gate", "capital": "_send", "sinopac": "place_odd_lot_order",
+    "paper": "_gate", "capital": "_send", "sinopac": "_send_order",
     "president": "_send", "stockcoin": "_request",
 }
 HTTP = {"binance", "bingx", "bybit", "gateio", "okx", "stockcoin"}
