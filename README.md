@@ -1,3 +1,35 @@
+<!-- ===== AutoTradeSys fork 說明（以下 Blave Agent 原始 README 保持不動）===== -->
+
+# AutoTradeSys
+
+個人量化交易工作區，基於 [Blave Agent](https://github.com/Blave-TW/blave-agent) 修改而成。
+
+> **說明（Attribution）**
+> 本專案 fork 自 [Blave-TW/blave-agent](https://github.com/Blave-TW/blave-agent)，
+> 原始著作權屬於吾集科技股份有限公司（WuChi Technology Company Limited），
+> 依 [Apache License 2.0](./LICENSE) 授權。原始的 [LICENSE](./LICENSE) 與 [NOTICE](./NOTICE) 均保留於本 repo。
+>
+> 本專案**並非** Blave 官方版本，也未獲得 Blave 或吾集科技的背書或支援。
+> 「Blave」名稱與 logo 為 Blave 的商標，本專案僅以「based on Blave Agent」的方式事實性引用。
+
+## 修改聲明（Modifications）
+
+本 fork 相對於上游有以下修改，所有修改過的檔案皆已在檔案開頭註明：
+
+- 2026-10-25：從上游 `main` 建立 fork（upstream commit: `c355089a`）
+- 2026-10-25：新增本 fork 說明區塊與 [`docs/fork-workflow.md`](docs/fork-workflow.md)（fork 維護流程）
+
+詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
+
+## 免責聲明（Disclaimer）
+
+本專案依「現狀（AS IS）」提供，不附帶任何明示或默示的保證。
+量化交易有虧損風險，任何策略、回測結果或程式輸出都不構成投資建議，使用者需自行承擔交易結果。
+
+---
+
+<!-- ===== 以下為上游 Blave Agent 原始 README ===== -->
+
 <div align="center">
 
 <img src="docs/icon.png" width="80" alt="">
