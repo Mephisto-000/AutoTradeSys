@@ -1,4 +1,4 @@
-// Modified by Mephisto-000 on 2026-10-25/26: SinoPac (永豐金) spot venue — TR_VENUE_CCY_OTHER (TWD); listed in this computer's connect dialog under 台股 (API Key + Secret Key, simulation first); label; unbind names.
+// Modified by Mephisto-000 on 2026-10-25/26: SinoPac (永豐金) spot venue — TR_VENUE_CCY_OTHER (TWD); listed in this computer's connect dialog under 台股 (API Key + Secret Key, simulation first); label; unbind names; holdings valued in TWD with 現股／交割戶 labels; SinoPac's simulation environment marked 模擬 (not 真錢); 下單方式 note (no chase); tray label.
 // Original work: Copyright 2025-2026 WuChi Technology Company Limited
 // Licensed under the Apache License, Version 2.0
 /* 自動下單頁、連接交易所的框、頂列切換器與狀態句(模擬交易版)。
@@ -1366,8 +1366,12 @@ function envCloudKind(st) {
   if (c.code !== "OK" || !c.machine) return "unreach";
   return ["none", "starting", "stopped", "running"].indexOf(c.machine.state) >= 0 ? c.machine.state : "none";
 }
-// 錢的記號:連了模擬帳戶 = paper,連了真的交易所 = real,沒連 = null
-function envMoney(st) { const id = trVenueIds(st && st.report)[0] || null; return !id ? null : id === "paper" ? "paper" : "real"; }
+// 錢的記號:連了模擬帳戶 = paper,連了真的交易所 = real,沒連 = null。
+// 券商自己的模擬環境(永豐金 SINOPAC_LIVE 沒開;報告 venues.<id>.simulation,AutoTradeSys fork)不動真錢:也是 paper
+function envMoney(st) {
+  const r = st && st.report, id = trVenueIds(r)[0] || null, v = id && r.venues ? r.venues[id] : null;
+  return !id ? null : id === "paper" || (!!v && v.simulation === true) ? "paper" : "real";
+}
 // 不是人按的暫停(對帳器 / 健檢 / 停機保護自己踩的):切換器上要出紅記號叫人
 function envAutoHalt(st) {
   const h = st && st.report && st.report.halt;
@@ -1555,7 +1559,7 @@ function trBurstOn(burst, now) { return !!burst && burst.until > now; }
 const envName = (env) => (env === "cloud" ? t("env.cloud") : t("env.local"));
 const envMoneyText = (m) => (m === "real" ? t("tr.mode.real") : m === "paper" ? t("tr.mode.paper") : "");
 // 頂列記號與視窗標題用的那個詞(Wei 0.0.6):模擬 = 「模擬」記號,真的交易所 = 交易所名(Binance / OKX…),不再寫「真錢」
-const envVenueText = (money, venue) => (money === "paper" ? t("tr.mode.paper") : money === "real" ? trVenueLabel(venue, true) : "");
+const envVenueText = (money, venue) => (money === "paper" ? (venue && venue !== "paper" ? t("tr.mode.simOf", { venue: trVenueLabel(venue, true) }) : t("tr.mode.paper")) : money === "real" ? trVenueLabel(venue, true) : "");   // 券商模擬環境:「永豐金證券（模擬）」(AutoTradeSys fork)
 // 同步的畫面函式借另一邊的狀態跑一次(過場檢查永遠看本機那一份)
 function trWith(bag, fn) { const prev = TR; TR = bag; try { return fn(); } finally { TR = prev; } }
 const TR_POLL_OPEN = 4000, TR_POLL_IDLE = 15000, TR_POLL_PENDING = 2500, TR_CONFIRM_MS = 60000;
@@ -1619,7 +1623,8 @@ function trVenueLabel(id, short) {
 function trIsPaper() { return trVenueId() === PAPER; }
 /* 存金額框的〔模擬〕／〔實盤〕(同網頁 pfIsPaper):只綁模擬交易才寫模擬;綁了任何一家真的交易所就是實盤——
    只看排第一的那家(trIsPaper)時,統一＋模擬同綁會把送到統一的真錢單標成模擬(設計稽核 r2 M2) */
-function trCfPaperOnly() { const ids = trVenueIds(trReport() || {}); return ids.length > 0 && ids.every((id) => id === PAPER); }
+// 券商自己的模擬環境(報告 venues.<id>.simulation,永豐金;AutoTradeSys fork)也不動真錢:記號同模擬
+function trCfPaperOnly() { const r = trReport() || {}, ids = trVenueIds(r); return ids.length > 0 && ids.every((id) => id === PAPER || (!!r.venues[id] && r.venues[id].simulation === true)); }
 // 部位表判斷交不交易用(trTradesSym):台灣期貨券商 "tw"、連接框那五家與模擬交易 "crypto"、其他(自訂交易所、沒綁)null
 // 永豐(sinopac)也是 null:runtime 沒有事前擋非台股標的的規則,差額與拒單都要畫出來,不藏(AutoTradeSys fork)
 function trVenueKind(id) { return !id ? null : trTwBroker(id) ? "tw" : id === PAPER ? "paper" : Object.prototype.hasOwnProperty.call(CX_VENUES, id) ? "crypto" : null; }
@@ -1754,7 +1759,7 @@ function trPushLabels() {
     ev_machine_restart_stopped: t("tr.ov.evRestartStopped"), ev_machine_restart_stopped_n: t("tm.evRestartStoppedNote"),
     // 選單列兩行狀態、app 選單「顯示」兩項與官網、結束攔截多的那一句、通知標題的前綴(主行程:traytext.js / main.js)
     lang: LANG, stLocal: t("tm.stLocal"), stLocalOnly: t("tm.stLocalOnly"), noAccount: t("tr.noAccount"), runningZ: t("tr.runningZ"), stCloud: t("tm.stCloud"), stOn: t("tm.stOn"), stPaused: t("tm.stPaused"), stUnknown: t("tm.stUnknown"), stMayTrade: t("tm.stMayTrade"), stNotStarted: t("tr.notStarted"),
-    moneyPaper: t("tr.mode.paper"), moneyReal: t("tr.mode.real"), venueCapital: t("cap.venue"), venuePresident: t("pres.venue"), pauseLocal: t("tm.pauseLocal"), quitCloudNote: t("tm.quitCloudNote"),
+    moneyPaper: t("tr.mode.paper"), moneyReal: t("tr.mode.real"), venueCapital: t("cap.venue"), venuePresident: t("pres.venue"), venueSinopac: t("sino.venue"), pauseLocal: t("tm.pauseLocal"), quitCloudNote: t("tm.quitCloudNote"),
     // Binance 金鑰重查的通知(主行程 binanceNotify):這些事件只會來自這台電腦,{where} 在這裡就填好;{ip} 留給主行程填
     key_ipTitle: t("tm.key.ipTitle", { where: t("env.local") }), key_ipBody: t("tm.key.ipBody", { ip: "{ip}" }), key_rejTitle: t("tm.key.rejTitle", { where: t("env.local") }),
     key_rejSameIpBody: t("tm.key.rejSameIpBody"), key_rejUnknownBody: t("tm.key.rejUnknownBody"),
@@ -2527,7 +2532,8 @@ function trAskRelease(opener) {
     return;
   }
   // 會平倉:主鈕是安全的「先不要」(焦點與 Esc 都在它),次鈕是破壞性的平掉並解除。逐筆列出要平的部位(§3.3 方案 A)
-  const x1 = k.kind === "x1", paper = trIsPaper(), extra = document.createDocumentFragment();
+  // paper 只管記號:券商自己的模擬環境(venues.<id>.simulation,永豐金;AutoTradeSys fork)也標模擬
+  const x1 = k.kind === "x1", paper = trIsPaper() || (!!r.venues && Object.keys(r.venues).some((v) => !!r.venues[v] && r.venues[v].simulation === true)), extra = document.createDocumentFragment();
   if (k.rows) {
     if (k.at != null) extra.appendChild(trEl("p", "cf-sub", t("tr.relReadAt", { time: trRelTime(k.at, Date.now()) })));
     const dl = trEl("dl", "cf-rows"), shown = k.rows.length > 6 ? k.rows.slice(0, 5) : k.rows;
@@ -2708,7 +2714,8 @@ function trAskStart(opener, presOk) {
   // 照什麼、多少錢下單(設計 A6):跟自動下單 › 部位表底合計同一個格式(trPlanTotal),讀已存配置
   const pl = trPlanLine(trStored()), plan = pl ? [pl] : [], dc = trDeferredCloseLine(r), dcl = dc ? [dc] : [];
   confirmBox(trCloudBox(Object.assign({
-    title: t("tr.start"), mark: paper ? t("tr.mode.paper") : real ? t("tr.mode.real") : null, markKind: real ? "real" : "paper", opener,
+    // 券商自己的模擬環境(永豐金沒開實盤;envMoney 回 paper,AutoTradeSys fork):不是 Blave 模擬交易,但一樣不動真錢,記號照模擬
+    title: t("tr.start"), mark: paper || envMoney(TR.st) === "paper" ? t("tr.mode.paper") : real ? t("tr.mode.real") : null, markKind: real ? "real" : "paper", opener,
     lead: trBothReal(),
     keep: notes.keep, details: notes.details,   // 細節一律收合:展開時整框在 1366 寬就出捲軸(設計稽核 desktop-10-08 #3)
   }, canWait ? {
@@ -4376,8 +4383,10 @@ function trPaintAssets() {
     if (tag) c.appendChild(trEl("span", "mkt-tag", tag));
     // 數量不再接幣名:第一欄就是那個幣(價值欄的 USDT 是換算單位,留著)
     const n = Number(h.amount), qc = trEl("td", "n", isFinite(n) ? n.toLocaleString("en-US", { maximumFractionDigits: 8 }) : "—");
-    const val = trFmt2(h.usdt_value), vc = trEl("td", "n", val == null ? "—" : val);
-    if (val != null) vc.appendChild(trEl("span", "ccy", "USDT"));   // usdt_value 本身就是 USDT 計價
+    // usdt_value 本身就是 USDT 計價;永豐金(台股現股,AutoTradeSys fork)的 lib/account_sinopac 在這一欄放帳戶幣 TWD:照實寫、整數(同上面淨值的 TWD 規則)
+    const twdV = (h.venue || ids[0]) === "sinopac";
+    const val = twdV ? trTwd(h.usdt_value) : trFmt2(h.usdt_value), vc = trEl("td", "n", val == null ? "—" : val);
+    if (val != null) vc.appendChild(trEl("span", "ccy", twdV ? "TWD" : "USDT"));
     tr.append(c, qc, vc); tb.appendChild(tr);
   });
   tbl.appendChild(tb); scroll.appendChild(tbl); box.appendChild(scroll);
@@ -4390,6 +4399,7 @@ function trAcctLabel(k) {
     spot: t("tr.acct.spot"), fund: t("tr.acct.fund"), funding: t("tr.acct.fund"),
     cross_margin: t("tr.acct.crossMargin"), isolated_margin: t("tr.acct.isoMargin"),
     earn: t("tr.acct.earn"), options: t("tr.acct.options"), trading_bots: t("tr.acct.bots"),
+    stock: t("tr.acct.stock"), cash: t("tr.acct.cash"),   // 永豐金 lib/account_sinopac 的持股與交割戶餘額(AutoTradeSys fork)
   };
   return Object.prototype.hasOwnProperty.call(L, k) ? L[k] : String(k);
 }
@@ -4481,7 +4491,10 @@ function trPaintSet() {
   // 一列:交易所名 + 錢記號 + 連線狀態;右邊兩顆動作。雲端第一刀唯讀:兩顆都不能按(說明在標題下那一行)
   const row = trEl("div", "cx-row");
   const nm = trEl("span", "n", trVenueLabel(id, true)); nm.title = nm.textContent; row.appendChild(nm);
-  if (id && id !== PAPER) row.appendChild(trEl("span", "mode real", t("tr.mode.real")));   // 模擬以外都是真錢
+  // 模擬以外都是真錢;券商自己的模擬環境(永豐金 SINOPAC_LIVE 沒開,報告 venues.<id>.simulation;AutoTradeSys fork)不動真錢:
+  // 跟模擬交易一樣不掛記號(「模擬」只留頂列記號與確認框標題),頂列寫「永豐金證券（模擬）」
+  const simV = !!id && !!r.venues && !!r.venues[id] && r.venues[id].simulation === true;
+  if (id && id !== PAPER && !simV) row.appendChild(trEl("span", "mode real", t("tr.mode.real")));
   // 三態:讀得到帳戶 = 綠點;讀過而失敗 = 紅記號;還沒讀過(剛綁上那幾秒)= 圓環 + 「串接中…」(.cx-wait 那組,spec-desktop-006 §1.3 D)
   // 群益在雲端開通中(spec w-row-pending):讀帳失敗是預期的,不畫紅;靜態實心點 +「開通中」+「繼續」回到清單
   // 統一在這台電腦開通中(d-row-pending)同一個長相:讀帳失敗是預期的(worker 還沒寫第一份快照)
@@ -4600,11 +4613,14 @@ function trExecSection(box, r, id) {
   const tw = trTwBroker(id), cur = trExecCurrent(r, id);
   const isTwap = cur.indexOf("twap:") === 0, busy = !!S.sending.execution;
   // TWAP／限價追價的原理收進區段標籤的 tooltip(稽核 W3)
-  const how = tw ? null : isTwap ? t("tr.exec.noteTwap") : cur === "chase" ? t("tr.exec.noteChase") : null;
+  // 永豐金(AutoTradeSys fork)沒有追價用的限價單介面:限價追價改以市價送出,它的原理說明不適用(下面另有一行講)
+  const sino = id === "sinopac";
+  const how = tw ? null : isTwap ? t("tr.exec.noteTwap") : cur === "chase" && !sino ? t("tr.exec.noteChase") : null;
   box.appendChild(trSec(how ? trTipLabel("label", t("tr.exec"), how) : trEl("span", "label", t("tr.exec"))));
   const row = trEl("div", "tr-exec"), w = trEl("span", "f-selw"), sel = trEl("select", "f-input"); sel.id = "tr-exec-sel";
   sel.setAttribute("aria-label", t("tr.exec"));
-  const opts = ["market", "twap", "chase"].concat(cur.indexOf("custom:") === 0 ? [cur] : [], tw ? [] : ["custom-ask"]);   // 統一／群益不列入口(同網頁)
+  // 統一／群益不列入口(同網頁);永豐金不列限價追價(會變成市價),已經設成追價的照樣列出來才看得到現況
+  const opts = ["market", "twap"].concat(sino && cur !== "chase" ? [] : ["chase"], cur.indexOf("custom:") === 0 ? [cur] : [], tw ? [] : ["custom-ask"]);
   opts.forEach((k) => { const o = trEl("option", "", k === "market" ? t("tr.exec.market") : k === "twap" ? t("tr.exec.twap") : k === "chase" ? t("tr.exec.chase")
     : k === "custom-ask" ? t("tr.exec.customAsk") : t("tr.exec.custom", { module: k.slice(7) })); o.value = k; sel.appendChild(o); });
   sel.value = isTwap ? "twap" : cur; sel.disabled = tw || busy;
@@ -4635,6 +4651,7 @@ function trExecSection(box, r, id) {
   else if (S.env === "cloud" && S.exec.edit != null) box.appendChild(trEl("p", "pf-note", t("tr.cloud.pendRow")));
   // 選單停用要講原因;其餘不掛說明行(設定分頁本身就是組合層級)
   if (tw) box.appendChild(trEl("div", "pf-foot tr-exec-note", t("tr.exec.tw")));
+  else if (sino) box.appendChild(trEl("div", "pf-foot tr-exec-note", t("tr.exec.sino")));   // AutoTradeSys fork
 }
 /* 同網頁 chatAskCustomExec:框是空的才放那一句,已有草稿就不覆蓋、只聚焦;**不送出**。
    雲端視角也填本機聊天框(本機 agent 經 blave 工具去改雲端主機),絕不送進雲端——同 trErrAsk */

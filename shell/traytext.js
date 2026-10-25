@@ -1,3 +1,6 @@
+// Modified by Mephisto-000 on 2026-10-26: SinoPac (永豐金) — its simulation environment reads 模擬, its name comes from the renderer (venueSinopac).
+// Original work: Copyright 2025-2026 WuChi Technology Company Limited
+// Licensed under the Apache License, Version 2.0
 // Blave 電腦版 — 視窗之外的字(選單列、結束確認框、系統通知標題)怎麼組(主行程用;設計規格 §1.5、字串表 tm.*)。
 //
 // 有了雲端視角之後,「暫停下單」「自動下單執行中」這些字要講清楚是哪一邊:
@@ -64,7 +67,8 @@ function localLine(st, lastVenue) {
   }
   const ids = Object.keys(r.venues).filter((k) => VENUE_ID.test(k) && venueReady(r.venues[k])).sort();
   if (!ids.length) return { state: "none" };
-  const money = ids.every((k) => k === "paper") ? "paper" : "real";
+  // 券商自己的模擬環境(永豐金沒開實盤,報告 venues.<id>.simulation;AutoTradeSys fork)也不動真錢:同模擬。永豐只在這台電腦,雲端那支不用
+  const money = ids.every((k) => k === "paper" || r.venues[k].simulation === true) ? "paper" : "real";
   const venue = money === "paper" ? "paper" : ids.filter((k) => k !== "paper")[0];
   const line = (state) => ({ money, venue, state });
   const rec = r.reconciler || {}, sup = r.daemon && r.daemon.reconciler;
@@ -92,7 +96,8 @@ function statusLine(tpl, line, labels) {
   // {money} 槽:模擬寫「模擬」記號,真的交易所寫它的名字(沒帶 venue 的舊呼叫端退回「真錢」)。沒有 money 的那幾態(還沒連接交易所…)樣板本來就不帶這一槽
   // 台灣券商的名字要翻(群益 / Capital):字由 renderer 交過來,還沒交就整行不出,不拿 id 首字大寫頂
   const money = !line.money ? "" : line.money === "paper" ? labels.moneyPaper : line.venue === "capital" ? labels.venueCapital
-    : line.venue === "president" ? labels.venuePresident : venueLabel(line.venue) || labels.moneyReal;
+    : line.venue === "president" ? labels.venuePresident : line.venue === "sinopac" ? labels.venueSinopac   // 永豐金證券(AutoTradeSys fork)
+    : venueLabel(line.venue) || labels.moneyReal;
   const state = line.state === "on" ? labels.stOn : line.state === "onZ" ? labels.runningZ : line.state === "paused" ? labels.stPaused
     : line.state === "mayTrade" ? labels.stMayTrade : line.state === "notStarted" ? labels.stNotStarted : line.state === "none" ? labels.noAccount : labels.stUnknown;
   if ((line.money && !money) || !state) return null;

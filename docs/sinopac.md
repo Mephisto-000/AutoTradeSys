@@ -54,13 +54,17 @@ python3 tools/sinopac_deploy.py --apply
 - 版本（VERSION）不一致、或對帳正在進行中時會拒絕。
 - 部署後請**結束並重新開啟 Blave 電腦版**，讓對帳程式載入新程式碼。
 
-### 3. 在電腦版的 Python 安裝 shioaji
+### 3. shioaji（永豐的 Python SDK）
+
+**本 fork 的電腦版會自動安裝**：shioaji 是引擎的選用套件組 `sinopac`（`shell/main.js` 的 `OPTIONAL_DEPS`），
+從本 repo 執行（`cd shell && npm start`）或用本 repo build 的 app 一開啟，就會在背景裝進 `~/Blave/venv`（約 35 MB）。
+裝不起來不會擋住聊天，下次開 app 會再試。
+
+只有在用**官方原版** app（沒有這一組）時才需要手動安裝：
 
 ```bash
-~/Blave/venv/bin/python -m pip install shioaji
+~/Blave/venv/bin/python -m pip install shioaji==1.7.9
 ```
-
-（Blave 電腦版刻意不預裝 shioaji，只有綁永豐的人需要。）
 
 ### 4. 綁定金鑰
 
@@ -190,7 +194,9 @@ BLAVE_MODE=backtest ~/Blave/venv/bin/python strategies/<名稱>/strategy.py
 ## 已知限制
 
 - 電腦版的綁定框只收 API Key 與 Secret Key（模擬模式）；憑證與實盤開關要用終端機工具。雲端主機不支援永豐（框裡的雲端視角不會列出它）。
-- 永豐金的選項與綁定路徑在 app 本體（`shell/`、`runtime/`）裡，`tools/sinopac_deploy.py` 裝不到：要在電腦版看到它，必須從本 repo 執行 app（`cd shell && npm start`）或自行 build。
+- 永豐金的選項、綁定路徑、shioaji 自動安裝、模擬／真錢記號都在 app 本體（`shell/`、`runtime/`）裡，`tools/sinopac_deploy.py` 裝不到：要在電腦版看到它們，必須從本 repo 執行 app（`cd shell && npm start`）或自行 build。
+- 畫面上的模擬／真錢照 `.env` 的 `SINOPAC_LIVE` 判斷（只有 `true` 是真錢），與下單程式同一條規則；永豐模擬環境在頂列寫「永豐金證券（模擬）」。
+- 「限價追價」對永豐不適用（沒有追價用的限價單介面，會改以市價送出），設定分頁的下單方式不列這一項。
 - 實盤的 K 棒排程器（`manager/wait_for_bar.py`）只對 `fetch_twstock_price*` 日 K 認得台股行事曆：用永豐分 K（或日 K）的策略實盤時，收盤後、週末、假日可能收到「K 棒沒到位」通知（上游對台股分 K 的既有限制）。日 K 策略建議訊號照用 `fetch_twstock_price_adj`，下單一樣走永豐。
 - 憑證、密碼、金鑰只存在本機 `.env`；工具不會顯示，也不會寫進任何紀錄。
 - 永豐模擬環境不支援零股；模擬成交方式由永豐決定，不代表實盤成交價。

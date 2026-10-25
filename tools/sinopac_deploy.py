@@ -103,8 +103,9 @@ def main(argv):
     if py:
         ok = subprocess.run([py, "-c", "import shioaji"], capture_output=True).returncode == 0
         if not ok:
-            print(f"\n⚠️ shioaji is not installed in the app's Python — install it once:\n"
-                  f"   {py} -m pip install shioaji")
+            print(f"\n⚠️ shioaji is not installed in the app's Python yet. This fork's desktop build installs it\n"
+                  f"   on its next start (optional package group \"sinopac\"); with the official app, install it once:\n"
+                  f"   {py} -m pip install shioaji==1.7.9")
     return 0
 
 

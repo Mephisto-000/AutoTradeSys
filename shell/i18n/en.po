@@ -1392,6 +1392,21 @@ msgstr "Connects to SinoPac's simulation environment first; no real orders are s
 msgid "cx.fact.sino"
 msgstr "Tick the quote, account and trading permissions on the key (SinoPac keys cannot withdraw)"
 
+# 資產分頁持倉表的帳戶標籤:永豐金的持股與交割戶餘額(AutoTradeSys fork 2026-10-26)
+msgid "tr.acct.stock"
+msgstr "Shares"
+
+msgid "tr.acct.cash"
+msgstr "Settlement cash"
+
+# 頂列記號與視窗標題:券商自己的模擬環境(永豐金沒開實盤;AutoTradeSys fork)
+msgid "tr.mode.simOf"
+msgstr "{venue} (simulation)"
+
+# 設定分頁下單方式下面那一行:永豐金沒有追價用的限價單介面(AutoTradeSys fork)
+msgid "tr.exec.sino"
+msgstr "SinoPac has no limit-order interface for chasing; chase limit would go out at market, so it isn't listed."
+
 msgid "cx.store.q"
 msgstr "Where are my keys stored?"
 

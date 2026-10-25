@@ -1400,6 +1400,21 @@ msgstr "先接永豐的模擬環境，不會送出真實委託。要用真錢，
 msgid "cx.fact.sino"
 msgstr "API 權限勾選行情、帳務、交易（永豐的金鑰沒有提領權限）"
 
+# 資產分頁持倉表的帳戶標籤:永豐金的持股與交割戶餘額(AutoTradeSys fork 2026-10-26)
+msgid "tr.acct.stock"
+msgstr "現股"
+
+msgid "tr.acct.cash"
+msgstr "交割戶"
+
+# 頂列記號與視窗標題:券商自己的模擬環境(永豐金沒開實盤;AutoTradeSys fork)
+msgid "tr.mode.simOf"
+msgstr "{venue}（模擬）"
+
+# 設定分頁下單方式下面那一行:永豐金沒有追價用的限價單介面(AutoTradeSys fork)
+msgid "tr.exec.sino"
+msgstr "永豐金沒有追價用的限價單介面，「限價追價」會改用市價，所以不列出。"
+
 msgid "cx.store.q"
 msgstr "金鑰存在哪？"
 

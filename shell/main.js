@@ -1,4 +1,5 @@
-// Modified by Mephisto-000 on 2026-10-26: cloud-connect refuses local-only venues (SinoPac 永豐金 binds on this computer only).
+// Modified by Mephisto-000 on 2026-10-26: cloud-connect refuses local-only venues (SinoPac 永豐金 binds on this computer only);
+//   shioaji (SinoPac's SDK) installs as an optional package group; tray label venueSinopac.
 // Original work: Copyright 2025-2026 WuChi Technology Company Limited
 // Licensed under the Apache License, Version 2.0
 // Blave 電腦版 — Electron 主行程(v1 骨架)
@@ -1072,14 +1073,18 @@ const ENGINE_PIP_MS = 2700000, PKG_PIP_MS = 5400000, PIP_IDLE_MS = 120000, VENV_
 // 清單裡沒被點名的一律是核心(裝不起來就擋聊天)。美股資料(yfinance 與它的相依)只有美股功能用得到,lib 要在用到時才 import
 // 每組大約要下載多少(MB,只算前面的組沒帶到的檔;pip download 實測 mac arm64:SDK 那條 102、核心 91、美股 13)。只拿來填分段條,
 // 不上畫面:核心那組用 firstRunMB() 扣掉 SDK 那條推,跟著平台變(Windows / 舊 macOS 的 scipy、numpy 比較大)
-const PKG_MB = { core: firstRunMB() - 105, us: 13 };
-const OPTIONAL_DEPS = [{ id: "us", names: ["yfinance", "curl_cffi", "lxml", "peewee", "protobuf", "websockets", "beautifulsoup4", "multitasking", "platformdirs", "pytz"] }];
+// AutoTradeSys fork:永豐金 SDK(shioaji 1.7.9 一個 wheel,pip download 實測 mac arm64 32、x86_64 35、Windows 38 MB)取 35。
+// 第一次安裝也裝它:firstRunMB() 量的是上游那份清單,交給 enginesetup 的總量另外加這一組
+const SINOPAC_MB = 35;
+const PKG_MB = { core: firstRunMB() - 105, us: 13, sinopac: SINOPAC_MB };
+const OPTIONAL_DEPS = [{ id: "us", names: ["yfinance", "curl_cffi", "lxml", "peewee", "protobuf", "websockets", "beautifulsoup4", "multitasking", "platformdirs", "pytz"] },
+  { id: "sinopac", names: ["shioaji"] }];
 let _engineSetup = null;
 function engineSetup() {
   if (!_engineSetup) _engineSetup = require("./enginesetup").createEngineSetup({
     fs, path, spawn: require("child_process").spawn, base: BASE, ws: WS, venvPy: VENV_PY, venvBin: VENV_BIN, win: WIN,
     basePython, envPath: loginShellPath, pyEnv: { ...PY_ENV, ...(WIN ? WIN_PY_ENV : {}) }, copyOfficial, isPackaged: app.isPackaged,
-    sdkPins: SDK_PINS, deps: WORKSPACE_DEPS, lock: WORKSPACE_LOCK_FOR === require("./enginesetup").lockKey(SDK_PINS, WORKSPACE_DEPS) ? WORKSPACE_LOCK : [], optional: OPTIONAL_DEPS, firstRunMB: firstRunMB(), groupMB: PKG_MB, venvMs: VENV_MS, engineMs: ENGINE_PIP_MS, pkgMs: PKG_PIP_MS, idleMs: PIP_IDLE_MS,
+    sdkPins: SDK_PINS, deps: WORKSPACE_DEPS, lock: WORKSPACE_LOCK_FOR === require("./enginesetup").lockKey(SDK_PINS, WORKSPACE_DEPS) ? WORKSPACE_LOCK : [], optional: OPTIONAL_DEPS, firstRunMB: firstRunMB() + SINOPAC_MB, groupMB: PKG_MB, venvMs: VENV_MS, engineMs: ENGINE_PIP_MS, pkgMs: PKG_PIP_MS, idleMs: PIP_IDLE_MS,
     // 開發版量冷快取用:pip 帶 --isolated 不吃 PIP_CACHE_DIR,改由這個變數給 --cache-dir;打包版不認
     pipCacheDir: !app.isPackaged && path.isAbsolute(process.env.BLAVE_PIP_CACHE_DIR || "") ? process.env.BLAVE_PIP_CACHE_DIR : null,
     onChange: (s) => { for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed() && isOurPageUrl(w.webContents.getURL())) w.webContents.send("engine-state", s); },
@@ -1111,8 +1116,9 @@ function engineAbort() { return _engineSetup ? _engineSetup.abort().catch(() => 
 // 這份清單是**列舉出來的**,不是憑印象:用 AST 掃 lib/ manager/ examples/ 與兩支策略
 // 模板(75 個檔)的頂層 import,扣掉標準庫與 workspace 自己的模組,再逐一實際 import。
 // 第一版憑 grep 少了 python-dotenv(lib/runner.py 第一行就要它)與 scipy。
-// 刻意不裝:shioaji(永豐下單 SDK,有綁該券商的人才需要)、comtypes / pythoncom
-// (群益的 COM 介面,只有 Windows 有)。
+// 刻意不裝:comtypes / pythoncom(群益的 COM 介面,只有 Windows 有)。
+// AutoTradeSys fork(2026-10-26):shioaji(永豐金下單 SDK)改成選用那組 sinopac(OPTIONAL_DEPS),排在選用區最前面、yfinance 照舊最後;
+// 1.7.9 沒有必要相依(只有 extras),五個平台都有 cp37-abi3 wheel,間接相依的鎖不變(只換 WORKSPACE_LOCK_FOR)。lib 在用到時才 import。
 // 釘版本:打包版在實機裝到、並跑過一輪回測的那組(隨包 CPython 3.12;arm64 與 x64/Rosetta 都只靠 wheel 裝得起來)。升版要重跑那輪驗證。
 // yfinance(lib/data.py 美股日線的備援)連同它拉進來的九個一起釘,排在最後(選用那組要連續排在最後,測試會抓)。
 // 2026-10-01 驗過:這 17 個加上依賴(34 個)在 mac arm64、mac x86_64、win amd64 都有 cp312 / abi3 / 純 Python wheel
@@ -1123,6 +1129,7 @@ function engineAbort() { return _engineSetup ? _engineSetup.abort().catch(() => 
 const WORKSPACE_DEPS = [
   "pandas==3.0.6", "numpy==2.5.3", "matplotlib==3.11.2", "pyarrow==25.0.1",
   "requests==2.34.2", "python-dotenv==1.2.3", "scipy==1.18.1",
+  "shioaji==1.7.9",
   "curl_cffi==0.16.3", "lxml==6.1.3", "peewee==4.5.2", "protobuf==7.36.2", "websockets==17.1",
   "beautifulsoup4==4.15.0", "multitasking==0.0.13", "platformdirs==4.12.2", "pytz==2026.4",
   "yfinance==1.7.0",
@@ -1133,7 +1140,9 @@ const WORKSPACE_DEPS = [
 // 不是手寫的:SDK_PINS 或 WORKSPACE_DEPS 一換就跑 node tools/lock-deps.js <venv python>(五個平台解出同一組版本才印),整段貼回來。
 // WORKSPACE_LOCK_FOR 對不上現在的 SDK_PINS + WORKSPACE_DEPS 時不帶鎖(退回只釘直接相依,免得舊鎖跟新版衝突裝不起來),閘門測試同時變紅。
 // 沒有 hash:pip 的 hash 模式不吃 -c 裡的 hash,要整串改成 -r 才行(另案)
-const WORKSPACE_LOCK_FOR = "68ee11a232d1";
+// AutoTradeSys fork(2026-10-26):加 shioaji 只換這個 key。lock-deps.js 重解會連帶升 16 個無關的間接相依(10-21 之後的新版),
+// 所以改驗「舊鎖 + 新清單」:五個平台 pip --dry-run -c(清單 + 這份鎖)解出來剛好是這份鎖 + shioaji 1.7.9,一個都沒偏
+const WORKSPACE_LOCK_FOR = "72e28013ea3e";
 const WORKSPACE_LOCK = [
   "annotated-types==0.8.0", "anyio==4.15.1", "attrs==26.1.0", "certifi==2026.7.22", "cffi==2.1.1", "charset-normalizer==3.5.2",
   "click==8.5.0", "contourpy==1.4.0", "cycler==0.12.1", "fonttools==4.66.1", "h11==0.16.0", "httpcore2==2.13.1",
@@ -3759,7 +3768,7 @@ let tmLabels = { running: "Auto trading is running", paperVenue: "Paper trading"
   // 行為跟以前一樣——不拿英文退路硬塞進中文的選單列。app 選單(menu*)例外:退路是 MENU_EN。
   // Binance 金鑰重查(tm.key.*):空的 = renderer 還沒交,那一則通知不發(不拿英文退路塞給中文用戶;下一輪 24 小時重查 verdict 還在,畫面上看得到)
   key_ipTitle: "", key_ipBody: "", key_rejTitle: "", key_rejSameIpBody: "", key_rejUnknownBody: "", key_permTitle: "", key_permBody: "",
-  stLocal: "", stCloud: "", stOn: "", stPaused: "", stUnknown: "", stMayTrade: "", stNotStarted: "", moneyPaper: "", moneyReal: "", venueCapital: "", venuePresident: "",
+  stLocal: "", stCloud: "", stOn: "", stPaused: "", stUnknown: "", stMayTrade: "", stNotStarted: "", moneyPaper: "", moneyReal: "", venueCapital: "", venuePresident: "", venueSinopac: "",
   stLocalOnly: "", noAccount: "", runningZ: "",   // 選單列這台電腦那一行沒在下單也講(0.1.9):「這台電腦：還沒連接交易所」、沒設金額的那一態
   br_captchaTitle: "", br_captcha: "",   // 內建瀏覽器:搜尋要用戶過驗證(browserNotify);空的 = 還沒交字 = 不發
   moveTitle: "", moveBody: "", moveGo: "", moveNo: "",   // 搬到「應用程式」那一問(askMoveToApps):空的 = 還沒交字 = 不問

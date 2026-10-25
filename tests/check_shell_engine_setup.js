@@ -1,3 +1,4 @@
+// Modified by Mephisto-000 on 2026-10-26: OPTIONAL_DEPS gains the sinopac group (shioaji); the install flow below still drives core + us only.
 // 引擎安裝(shell/enginesetup.js;0.1.12 安裝進度 B+C):pip 輸出解析、失敗分類、記號檔接續、每組一條 pip(0.1.28)、重試接著裝、逾時、
 // 快照的狀態轉換、裝好後的背景編譯。
 // 子行程是假的(不跑真的 pip、不連網);檔案寫在臨時目錄,不碰 ~/Blave。
@@ -78,7 +79,9 @@ const MAIN_DEPS = vm.runInNewContext(lit(/const WORKSPACE_DEPS = (\[[\s\S]*?\]);
 const OPT = vm.runInNewContext(lit(/const OPTIONAL_DEPS = (\[[\s\S]*?\]);\n/));
 const SDK = vm.runInNewContext("`" + lit(/const SDK_PINS = `([^`]+)`;/) + "`", { AGENT_SDK: vm.runInNewContext(lit(/const AGENT_SDK = ("[^"]+");/)) });
 const DEPS = E.depGroups(MAIN_DEPS, OPT)[0].pins;   // 核心那組
-const US_IN_MAIN = MAIN_DEPS.filter((p) => !DEPS.includes(p));
+// AutoTradeSys fork(2026-10-26):選用的多一組 sinopac(shioaji)。這支測試的安裝流程照舊只用核心 + 美股那兩組(DEPS17),
+// sinopac 那組的接線另在下面「清單分組」那一段驗
+const US_IN_MAIN = (E.depGroups(MAIN_DEPS, OPT).find((g) => g.id === "us") || { pins: [] }).pins;
 // 美股那組:美股線合進來之後就是 main.js 那一份;還沒合時用 OPTIONAL_DEPS 點名的名字湊一份(版本是假的,只用在假的 pip 上)
 const US = US_IN_MAIN.length ? US_IN_MAIN : OPT[0].names.map((n) => n + "==0.0.1");
 const DEPS17 = [...DEPS, ...US], N = DEPS17.length, NC = DEPS.length, NU = US.length;
@@ -300,7 +303,11 @@ const venvDir = (r) => path.join(r.base, "venv");
   { const pn = (x) => String(x).split("==")[0].toLowerCase().replace(/[-_.]+/g, "-");
     const hit = OPT.flatMap((g) => g.names).filter((n) => MAIN_DEPS.some((p) => pn(p) === pn(n)));
     ok("main.js 的 OPTIONAL_DEPS 每個名字都對得到 WORKSPACE_DEPS 的一個 pin(合併前一個都沒有也算對;只對到一部分 = 打錯字)", hit.length === 0 || hit.length === OPT.flatMap((g) => g.names).length, { hit, names: OPT.flatMap((g) => g.names) });
-    ok("核心那組不是空的、OPTIONAL_DEPS 只有一組 us", DEPS.length > 0 && OPT.length === 1 && OPT[0].id === "us");
+    ok("核心那組不是空的、OPTIONAL_DEPS 是 us 與 sinopac 兩組(sinopac:AutoTradeSys fork 的永豐金 SDK,只點名 shioaji)", DEPS.length > 0 && OPT.length === 2 && OPT[0].id === "us"
+      && OPT[1].id === "sinopac" && JSON.stringify(OPT[1].names) === JSON.stringify(["shioaji"]));
+    { const G = E.depGroups(MAIN_DEPS, OPT), sg = G.find((g) => g.id === "sinopac");
+      ok("sinopac 那組(AutoTradeSys fork):WORKSPACE_DEPS 釘了 shioaji、是選用的(裝不起來不擋聊天)、照 OPTIONAL_DEPS 的順序排在美股那組後面",
+        !!sg && sg.optional === true && sg.pins.length === 1 && /^shioaji==\d+\.\d+\.\d+$/.test(sg.pins[0]) && G.map((g) => g.id).join() === "core,us,sinopac", G.map((g) => [g.id, g.pins.length])); }
     // 選用那組排在清單最後、連續:OPTIONAL_DEPS 漏點一個名字(那個 pin 會靜靜變成核心)時,它夾在選用的中間或後面,這裡就紅
     const firstOpt = MAIN_DEPS.findIndex((p) => !DEPS.includes(p));
     ok("WORKSPACE_DEPS 的排法:核心在前、選用的連續排在最後(漏點名字會被抓到)", firstOpt === -1 || MAIN_DEPS.slice(firstOpt).every((p) => !DEPS.includes(p)), MAIN_DEPS.slice(firstOpt)); }
@@ -590,7 +597,10 @@ const venvDir = (r) => path.join(r.base, "venv");
       && pipCalls(plain).every((c) => !c.args.includes("--cache-dir")) && batches(cd).join("|") === batches(plain).join("|"));
     ok("接線:main.js 只在開發版、絕對路徑時把 BLAVE_PIP_CACHE_DIR 交給 enginesetup;分段條的每組預估 MB(PKG_MB)也交進去",
       /pipCacheDir: !app\.isPackaged && path\.isAbsolute\(process\.env\.BLAVE_PIP_CACHE_DIR \|\| ""\) \? process\.env\.BLAVE_PIP_CACHE_DIR : null,/.test(MAIN_SRC)
-      && /groupMB: PKG_MB,/.test(MAIN_SRC) && /const PKG_MB = \{ core: firstRunMB\(\) - 105, us: 13 \};/.test(MAIN_SRC)); }
+      && /groupMB: PKG_MB,/.test(MAIN_SRC) && /const PKG_MB = \{ core: firstRunMB\(\) - 105, us: 13, sinopac: SINOPAC_MB \};/.test(MAIN_SRC));
+    // AutoTradeSys fork:shioaji 第一次也一起裝,畫面講的總量(eng.size)加上它那一組;firstRunMB() 本身照上游實測不動
+    ok("接線(AutoTradeSys fork):第一次安裝的總量 = firstRunMB() + SINOPAC_MB(shioaji 那一組,30–40 MB)",
+      /firstRunMB: firstRunMB\(\) \+ SINOPAC_MB, groupMB: PKG_MB,/.test(MAIN_SRC) && (() => { const m = /const SINOPAC_MB = (\d+);/.exec(MAIN_SRC); return !!m && +m[1] >= 30 && +m[1] <= 40; })()); }
 
   // 開發版:每次都重拷官方檔(改了 lib/ 重啟就生效)
   { let copies = 0; const d = rig(); await d.S.ensure();

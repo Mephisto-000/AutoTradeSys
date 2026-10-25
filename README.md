@@ -32,6 +32,13 @@
     `shell/i18n/en.po`、`shell/i18n/zh.po`（產生 `shell/renderer/strings.js`）、`runtime/command_listener.py`、`runtime/local_daemon.py`，
     以及配合的既有測試（`tests/check_shell_connect_venues.js`、`check_shell_trade.js`、`check_shell_binance_link.js`、
     `check_local_real_key_gate.py`、`check_desktop_venue_env.py`）
+- 2026-10-26：永豐金畫面修正與 shioaji 自動安裝 — 資產分頁價值改 TWD、「現股／交割戶」標籤；永豐模擬環境標「模擬」不標「真錢」
+  （頂列寫「永豐金證券（模擬）」，判斷同下單程式的 `SINOPAC_LIVE`）；下單方式不列限價追價並加說明；選單列的永豐名稱；
+  shioaji 加進引擎的選用套件組 `sinopac`
+  - 新增：`tests/check_sinopac_shell.js`、`tests/check_sinopac_reporter.py`
+  - 修改（檔頭已註明）：`shell/renderer/trade.js`、`shell/renderer/portfolio.js`、`shell/traytext.js`、`shell/main.js`、
+    `shell/i18n/en.po`、`shell/i18n/zh.po`（產生 `shell/renderer/strings.js`）、`runtime/portfolio_reporter.py`，
+    以及配合的既有測試（`tests/check_shell_engine_setup.js`、`check_usstock_daily.py`）
 
 詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
 

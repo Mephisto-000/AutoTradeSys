@@ -1,3 +1,6 @@
+// Modified by Mephisto-000 on 2026-10-26: the 自動下單中 mode tag reads 模擬 for SinoPac's (永豐金) simulation environment.
+// Original work: Copyright 2025-2026 WuChi Technology Company Limited
+// Licensed under the Apache License, Version 2.0
 /* 策略組合頁(0.1.24;照網頁 web-portfolio-0124 的 #mg_panel 兩個分頁):配置(金額表 + 各商品的總訊號部位,畫在 trade.js 的 poPaintCfg)
    與優化(這支檔:自己的策略清單、方法、跑優化、權重分配、部位大小、套用金額、移動窗格回測)。也放兩頁共用的台指期合約下拉與霧化空狀態。
    跟自動下單頁同一袋狀態(trade.js 的 TR / TR_BAGS):TR.view === "po" 時這一頁看得見,輪詢照 trPaint 走。
@@ -285,7 +288,8 @@ function poPaint() {
   // 頁首常駐「自動下單中・模擬／真錢」:存金額會送單的時候(同存金額框的判準 trCfFiring;spec F4)
   const lv = $("po-live"), fire = trCfFiring(TR.st, TR.pending) && trHasAccount(trReport());
   lv.hidden = !fire;
-  if (fire) { const paper = trIsPaper(); lv.className = "mode " + (paper ? "paper" : "real"); lv.textContent = t("po.live", { mode: t(paper ? "tr.mode.paper" : "tr.mode.real") }); }
+  // 券商自己的模擬環境(永豐金沒開實盤;trade.js envMoney 回 paper,AutoTradeSys fork)也是模擬
+  if (fire) { const paper = trIsPaper() || envMoney(TR.st) === "paper"; lv.className = "mode " + (paper ? "paper" : "real"); lv.textContent = t("po.live", { mode: t(paper ? "tr.mode.paper" : "tr.mode.real") }); }
   if (!TR.poTab) TR.poTab = "cfg";
   const loaded = !!trReport() && TR.listLoaded;
   $("po-tabs").hidden = !loaded;

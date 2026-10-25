@@ -1,3 +1,6 @@
+# Modified by Mephisto-000 on 2026-10-26: venues() marks sinopac (永豐金) "simulation" unless SINOPAC_LIVE=true.
+# Original work: Copyright 2025-2026 WuChi Technology Company Limited
+# Licensed under the Apache License, Version 2.0
 """
 Portfolio reporter: ships the machine's portfolio state to the Blave backend
 (POST /openclaw/agent/portfolio) so the workspace's 投資組合 view can render
@@ -950,7 +953,26 @@ def venues():
             "order": os.path.isfile(os.path.join(lib_root, f"order_{venue_id}.py")),
             "account": os.path.isfile(os.path.join(lib_root, f"account_{venue_id}.py")),
         }
+    if venue_traits.SINOPAC in out:
+        out[venue_traits.SINOPAC]["simulation"] = _sinopac_simulation(lines)
     return out
+
+
+def _sinopac_simulation(lines):
+    """AutoTradeSys fork (2026-10-26): 永豐金 sends real orders only with
+    SINOPAC_LIVE=true — lib/sinopac_session.is_live over lib.venue_wiring.read_env
+    (quotes stripped, the exact name first, then any case). Anything else is
+    SinoPac's simulation environment, which the page marks 模擬, not 真錢."""
+    env = {}
+    for line in lines:
+        s = line.strip()
+        if s and not s.startswith("#") and "=" in s:
+            k, v = s.split("=", 1)
+            env[k.strip()] = v.strip().strip("'\"")
+    live = env.get("SINOPAC_LIVE")
+    if live is None:
+        live = next((v for k, v in env.items() if k.lower() == "sinopac_live"), "")
+    return str(live or "").strip().lower() != "true"
 
 
 def _capital_order_identity_ok():

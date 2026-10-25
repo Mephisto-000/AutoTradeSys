@@ -22,7 +22,7 @@ session per process). Every rule in *Field-Verified Lessons* below is encoded th
 
 | Step | Who | How |
 |---|---|---|
-| Install the SDK | user (agent may show the command) | `~/Blave/venv/bin/python -m pip install shioaji` (desktop; the engine deliberately does not preinstall it) |
+| Install the SDK | automatic in this fork's desktop build | the engine installs `shioaji==1.7.9` as its optional package group `sinopac` (shell/main.js `OPTIONAL_DEPS`) on app start; a failure retries next launch. Only the official app (no such group) needs `~/Blave/venv/bin/python -m pip install shioaji==1.7.9` — the user runs it (the agent may show the command) |
 | API key + CA certificate | user | SinoPac's API management page (Step 1) |
 | Write keys into `.env` | **user only** | the desktop's 選擇下單帳戶 dialog (真實帳戶 → 台股 → 永豐金證券: API key + secret, simulation; the runtime reads the simulation account before writing), or `python3 manager/sinopac_setup.py bind` in a terminal (adds the CA; interactive, never echoes, refuses non-interactive runs) |
 | Simulation API test | user | `python3 manager/sinopac_setup.py api-test` |
