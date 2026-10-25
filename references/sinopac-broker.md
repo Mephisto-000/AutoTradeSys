@@ -24,7 +24,7 @@ session per process). Every rule in *Field-Verified Lessons* below is encoded th
 |---|---|---|
 | Install the SDK | user (agent may show the command) | `~/Blave/venv/bin/python -m pip install shioaji` (desktop; the engine deliberately does not preinstall it) |
 | API key + CA certificate | user | SinoPac's API management page (Step 1) |
-| Write keys into `.env` | **user only** | `python3 manager/sinopac_setup.py bind` in a terminal — interactive, never echoes, refuses non-interactive runs |
+| Write keys into `.env` | **user only** | the desktop's 選擇下單帳戶 dialog (真實帳戶 → 台股 → 永豐金證券: API key + secret, simulation; the runtime reads the simulation account before writing), or `python3 manager/sinopac_setup.py bind` in a terminal (adds the CA; interactive, never echoes, refuses non-interactive runs) |
 | Simulation API test | user | `python3 manager/sinopac_setup.py api-test` |
 | Switch to real orders | **user only** | `python3 manager/sinopac_setup.py live on` (types `LIVE` to confirm; trips HALT first) |
 | Amounts, 啟動下單, 暫停 | user | the 自動下單 page (deployment redline) |
@@ -60,6 +60,14 @@ python3 manager/sinopac_setup.py check     # login, account, CA (live), daily da
 600. It refuses while another venue's key pair is in `.env` (one machine, one trading venue —
 unbind on the 自動下單 page first) and adds `sinopac` to `manager/credentials.ui.json` when that
 manifest exists. `unbind` removes every `sinopac_*` line.
+
+The desktop's connect dialog (2026-10-26) is the other writer: it sends `SINOPAC_API_KEY` +
+`SINOPAC_SECRET_KEY` through the same path as OKX (`venue-connect` → daemon → runtime
+`_local_real_key_gate`, which calls `lib.account_sinopac.get_equity` on the simulation account;
+no write when that read fails). Env names are matched case-insensitively everywhere, so the two
+writers replace each other's lines rather than duplicating them; the page's unbind also removes
+the terminal tool's CA / `SINOPAC_LIVE` / `SINOPAC_BOUND_TS` lines. The dialog never takes the
+certificate: real orders still need `live on` in a terminal.
 
 ## Step 3 — the simulation API test
 

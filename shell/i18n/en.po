@@ -1384,6 +1384,14 @@ msgstr "When you create the key on {venue}: if you set an IP whitelist, add this
 msgid "cx.note.stockcoin"
 msgstr "Create a futures-type key, and move your funds into the futures account in the StockCoin app first. Blave can only read that balance."
 
+# 連接框選永豐金時說明區多一句(AutoTradeSys fork 2026-10-26):先接模擬環境;真錢在終端機開(憑證不經過這個框)
+msgid "cx.note.sinopac"
+msgstr "Connects to SinoPac's simulation environment first; no real orders are sent. To trade real money, run manager/sinopac_setup.py live on in a terminal afterwards (needs your certificate file)."
+
+# 真實帳戶卡的第 2 行事實,永豐版(它的金鑰沒有提領權限;AutoTradeSys fork)
+msgid "cx.fact.sino"
+msgstr "Tick the quote, account and trading permissions on the key (SinoPac keys cannot withdraw)"
+
 msgid "cx.store.q"
 msgstr "Where are my keys stored?"
 
@@ -6940,6 +6948,10 @@ msgstr "the Put/Call Ratio"
 
 msgid "pres.venue"
 msgstr "President Futures"
+
+# 永豐金證券(AutoTradeSys fork 2026-10-26):連接框「台股」組的那一項、帳戶列與頂列的名字
+msgid "sino.venue"
+msgstr "SinoPac Securities"
 
 msgid "pres.title"
 msgstr "Connect President Futures"

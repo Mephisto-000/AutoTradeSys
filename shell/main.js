@@ -1,3 +1,6 @@
+// Modified by Mephisto-000 on 2026-10-26: cloud-connect refuses local-only venues (SinoPac 永豐金 binds on this computer only).
+// Original work: Copyright 2025-2026 WuChi Technology Company Limited
+// Licensed under the Apache License, Version 2.0
 // Blave 電腦版 — Electron 主行程(v1 骨架)
 // 只做三件事:開視窗、偵測本機 agent(IPC)、記住使用者的連結選擇。
 // 引擎 spawn 在第 4 步接,不在這裡。
@@ -3440,6 +3443,7 @@ app.whenReady().then(() => {
     const CC = require("./cloudcmd");
     const built = CC.connectSecrets(a, require("./binance_link").keyShapeOk, Date.now() / 1000);
     if (built.error) return { ok: false, code: built.error, detail: {} };
+    if (CC.localOnly(built.venue)) return { ok: false, code: "BAD_ARGS", detail: {} };   // 永豐只綁在這台電腦(AutoTradeSys fork)
     const r = await cloudCmd().send("credentials", {}, built.secrets);
     const out = CC.interpretConnect(r, built.secrets);
     if (out.ok) { cloudHost().start(); cloudHost().refresh(true).catch(() => {}); }

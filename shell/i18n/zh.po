@@ -1392,6 +1392,14 @@ msgstr "在 {venue} 建金鑰時，有設 IP 白名單的話，把這個 IP 加�
 msgid "cx.note.stockcoin"
 msgstr "金鑰要建成合約類型，並先在 StockCoin App 把資金轉進合約帳戶，Blave 只讀得到那裡的餘額。"
 
+# 連接框選永豐金時說明區多一句(AutoTradeSys fork 2026-10-26):先接模擬環境;真錢在終端機開(憑證不經過這個框)
+msgid "cx.note.sinopac"
+msgstr "先接永豐的模擬環境，不會送出真實委託。要用真錢，之後在終端機執行 manager/sinopac_setup.py live on（需要憑證檔）。"
+
+# 真實帳戶卡的第 2 行事實,永豐版(它的金鑰沒有提領權限;AutoTradeSys fork)
+msgid "cx.fact.sino"
+msgstr "API 權限勾選行情、帳務、交易（永豐的金鑰沒有提領權限）"
+
 msgid "cx.store.q"
 msgstr "金鑰存在哪？"
 
@@ -6954,6 +6962,10 @@ msgstr "Put/Call Ratio"
 
 msgid "pres.venue"
 msgstr "統一期貨"
+
+# 永豐金證券(AutoTradeSys fork 2026-10-26):連接框「台股」組的那一項、帳戶列與頂列的名字
+msgid "sino.venue"
+msgstr "永豐金證券"
 
 msgid "pres.title"
 msgstr "連接統一期貨"

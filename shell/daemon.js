@@ -1,3 +1,6 @@
+// Modified by Mephisto-000 on 2026-10-26: trusted credential set + removable env names for the SinoPac (永豐金) spot venue.
+// Original work: Copyright 2025-2026 WuChi Technology Company Limited
+// Licensed under the Apache License, Version 2.0
 /* 本機常駐程式(runtime/local_daemon.py)在外殼這一側的宿主:起它、把簽章 secret 經 stdin 交給它、
    寫指令檔、讀 ack 與狀態檔。設計:blave-canon output/specs/desktop-local-daemon-design-2026-09.md。
 
@@ -54,6 +57,7 @@ const TRUSTED_SETS = [
   { GATEIO_API_KEY: ANY_KEY, GATEIO_SECRET_KEY: ANY_KEY },
   { BYBIT_API_KEY: ANY_KEY, BYBIT_SECRET_KEY: ANY_KEY },
   { STOCKCOIN_API_KEY: ANY_KEY, STOCKCOIN_SECRET_KEY: ANY_KEY },
+  { SINOPAC_API_KEY: ANY_KEY, SINOPAC_SECRET_KEY: ANY_KEY },   // 永豐金 現股(AutoTradeSys fork 2026-10-26):模擬先;實盤與憑證由終端機工具寫
 ];
 const TRUSTED_CRED_KEYS = Object.assign({}, ...TRUSTED_SETS);
 // 統一的五行由 president_local 的 cert 步寫(runtime local_bind_gate);解除綁定是安全方向,renderer 可以拿掉
@@ -61,7 +65,9 @@ const TRUSTED_CRED_KEYS = Object.assign({}, ...TRUSTED_SETS);
 const PRESIDENT_ENV = ["PRESIDENT_ACCOUNT", "PRESIDENT_PASSWORD", "PRESIDENT_CA_PASSWORD", "PRESIDENT_CA_PATH", "PRESIDENT_URL", "PRESIDENT_TEST_URL"];
 // 群益本機的兩行(runtime capital_local._bound_env 寫的 sentinel)
 const CAPITAL_ENV = ["CAPITAL_API_KEY", "CAPITAL_PASSWORD"];
-const REMOVABLE = new Set([...Object.keys(CRED_KEYS), ...Object.keys(TRUSTED_CRED_KEYS), ...PRESIDENT_ENV, ...CAPITAL_ENV]);
+// 永豐(AutoTradeSys fork):終端機工具 manager/sinopac_setup.py 另外寫的五行(憑證、身分證、實盤開關、綁定時間);解除綁定一起拿掉
+const SINOPAC_ENV = ["SINOPAC_CA_PATH", "SINOPAC_CA_PASSWD", "SINOPAC_PERSON_ID", "SINOPAC_LIVE", "SINOPAC_BOUND_TS"];
+const REMOVABLE = new Set([...Object.keys(CRED_KEYS), ...Object.keys(TRUSTED_CRED_KEYS), ...PRESIDENT_ENV, ...CAPITAL_ENV, ...SINOPAC_ENV]);
 const sameKeys = (o, set) => { const a = Object.keys(o), b = Object.keys(set); return a.length === b.length && a.every((k) => Object.prototype.hasOwnProperty.call(set, k)); };
 const NAME_RE = /^[A-Za-z0-9_\-.]{1,128}$/;
 const CONTRACT_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/, CONTRACT_ROOTS = ["TXF", "MXF", "TMF"];
@@ -410,4 +416,4 @@ function createDaemonHost({ python, script, base, workspace, env, log = () => {}
 /* close_all 的 ack(runtime command_listener._cmd_close_all):只有 started / already_running 真的有平倉程式在跑;
    halted_only、halted_capital_manual、nothing_closed、capital_manual 只掛了暫停(或什麼都沒送),事件列不能寫成在平倉 */
 function closeAllStarted(result) { return /^close_all=(?:restart_stopped:)?(?:started|already_running)$/.test(String(result || "")); }
-module.exports = { createDaemonHost, UI_COMMANDS, CMD_TIMEOUT_MS, MAIN_ONLY_COMMANDS, PRESIDENT_ENV, CAPITAL_ENV, argsOk, closeAllStarted };
+module.exports = { createDaemonHost, UI_COMMANDS, CMD_TIMEOUT_MS, MAIN_ONLY_COMMANDS, PRESIDENT_ENV, CAPITAL_ENV, SINOPAC_ENV, argsOk, closeAllStarted };

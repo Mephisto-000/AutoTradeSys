@@ -27,6 +27,11 @@
     `lib/execute.py`、`runtime/agent_turn.py`、`shell/renderer/trade.js`、`references/sinopac-broker.md`、`references/lib.md`、
     `examples/README.md`，以及配合的既有測試（`tests/check_venue_traits.py`、`check_restart_stop_order_gate.py`、
     `check_capital_flatten_identity.py`、`check_position_detail.py`、`check_state_read_retry.py`、`check_blave_data_need.py`）
+- 2026-10-26：電腦版「選擇下單帳戶」框的「台股」群組新增永豐金證券（API Key + Secret Key，模擬模式；憑證與實盤仍走終端機工具）
+  - 修改（檔頭已註明）：`shell/renderer/trade.js`、`shell/cloudcmd.js`、`shell/daemon.js`、`shell/main.js`、
+    `shell/i18n/en.po`、`shell/i18n/zh.po`（產生 `shell/renderer/strings.js`）、`runtime/command_listener.py`、`runtime/local_daemon.py`，
+    以及配合的既有測試（`tests/check_shell_connect_venues.js`、`check_shell_trade.js`、`check_shell_binance_link.js`、
+    `check_local_real_key_gate.py`、`check_desktop_venue_env.py`）
 
 詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
 

@@ -110,8 +110,11 @@ cl.LOCAL_OPEN_VENUES = frozenset(cl.LOCAL_OPEN_VENUES | {"KUCOIN"})
 msg = refused({"KUCOIN_API_KEY": "not-a-real-kucoin-key", "KUCOIN_SECRET_KEY": "not-a-real-kucoin-secret"})
 check(bool(msg) and "no permission check" in msg and not os.path.exists(ENV_PATH),
       "a widened switch without a checker still writes nothing")
-check(sorted(cl._LOCAL_KEY_CHECKS) == ["BINGX", "BYBIT", "GATEIO", "OKX", "STOCKCOIN"],
-      "the venues with a desktop checker are exactly OKX, BingX, Gate.io, Bybit, StockCoin (a new one is a decision)")
+check(sorted(cl._LOCAL_KEY_CHECKS) == ["BINGX", "BYBIT", "GATEIO", "OKX", "SINOPAC", "STOCKCOIN"],
+      "the venues with a desktop checker are exactly OKX, BingX, Gate.io, Bybit, SinoPac (AutoTradeSys fork), StockCoin "
+      "(a new one is a decision)")
+check(cl._LOCAL_KEY_CHECKS["SINOPAC"] == ("SINOPAC_API_KEY", "SINOPAC_SECRET_KEY"),
+      "SinoPac's check wants the key pair only: no SINOPAC_LIVE, so the read is the simulation account")
 check(not hasattr(cl, "_WITHDRAW_CHECKED") and not hasattr(cl, "_withdraw_gate"),
       "no venue's key is refused for withdrawal permission (Wei 2026-10-15)")
 
@@ -253,8 +256,8 @@ try:
 finally:
     requests.get, requests.post, requests.request = real_wire
 daemon_src = open(os.path.join(ROOT, "runtime", "local_daemon.py"), encoding="utf-8").read()
-check('{"BINANCE", "OKX", "BINGX", "GATEIO", "BYBIT", "STOCKCOIN", "PRESIDENT", "CAPITAL"}' in daemon_src,
-      "local_daemon.py opens exactly Binance + the five checked venues + 統一 + 群益 on the desktop")
+check('{"BINANCE", "OKX", "BINGX", "GATEIO", "BYBIT", "STOCKCOIN", "PRESIDENT", "CAPITAL", "SINOPAC"}' in daemon_src,
+      "local_daemon.py opens exactly Binance + the six checked venues + 統一 + 群益 on the desktop (SINOPAC: AutoTradeSys fork)")
 # 統一 has no account read to gate on (that read is a login): its gate is the app's cert step
 cl.LOCAL_OPEN_VENUES = frozenset(cl.LOCAL_OPEN_VENUES | {"PRESIDENT"})
 msg = refused({"president_account": "70000011234", "president_password": "vault:x",

@@ -1,3 +1,6 @@
+# Modified by Mephisto-000 on 2026-10-26: the desktop opens SINOPAC (永豐金) to the app's venue-connect bind.
+# Original work: Copyright 2025-2026 WuChi Technology Company Limited
+# Licensed under the Apache License, Version 2.0
 """Local daemon: the desktop build's host for the live-trading chain.
 
 One framework, two places to run it. This process runs the SAME scheduler
@@ -1374,8 +1377,11 @@ class Daemon:
         # permission where the venue exposes it) decides, before any write.
         # 統一期貨: only through president_local's cert step
         # (president_connect.local_bind_gate) — the chat bind still cannot.
+        # 永豐金 (SINOPAC, AutoTradeSys fork 2026-10-26): like OKX — the app's
+        # venue-connect, gated by _local_real_key_gate (lib/account_sinopac
+        # reads the simulation account); the chat bind still cannot.
         cl.LOCAL_OPEN_VENUES = frozenset(cl.LOCAL_OPEN_VENUES
-                                         | {"BINANCE", "OKX", "BINGX", "GATEIO", "BYBIT", "STOCKCOIN", "PRESIDENT", "CAPITAL"})
+                                         | {"BINANCE", "OKX", "BINGX", "GATEIO", "BYBIT", "STOCKCOIN", "PRESIDENT", "CAPITAL", "SINOPAC"})
         self.pc.set_seal_key(self.secret)
         self.pc._LOCAL["on_secrets"] = lambda: self.sup.respawn_when_idle("統一期貨 credentials handed over")
         self.pc._LOCAL["worker"].reap_orphan(cl._pid_cmdline)

@@ -2197,12 +2197,13 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
           ctx.document.createElement = mk0; }
         ctx.trEquity = () => null; }
     }
-    ok("接線:連接框「台股」一組雲端只列群益、這台電腦列統一(PRES_LOCAL_ON)與群益本機(CAPL_LOCAL_ON,0.1.28 先關);那兩句說明與 cx.cap.local* 一起刪;交易所選單只在「真實帳戶」出、換到不認得的值退回第一家;框頂那句 cx.acct.meta 換成真實帳戶的兩行事實(onboarding E/F §7-4;「不經過 AI」那行 Wei 10-21 拿掉)",
-      /const tw = CXF\.env !== "local" \? \[\[CAPITAL, "cap\.venue"\]\] : \[cxPresListed\(\) \? \["president", "pres\.venue"\] : null, cxCaplListed\(\) \? \[CAPITAL, "cap\.venue"\] : null\]\.filter\(Boolean\);/.test(src) && /g2\.label = t\("cap\.group\.tw"\);/.test(src) && !/go\.hidden = !cloud && CXF\.venue === CAPITAL;/.test(src)
+    // AutoTradeSys fork 2026-10-26:這台電腦的「台股」組最後多永豐金("sinopac");change 多認它;真實帳戶卡第 2 行事實永豐版(cx.fact.sino)
+    ok("接線:連接框「台股」一組雲端只列群益、這台電腦列統一(PRES_LOCAL_ON)與群益本機(CAPL_LOCAL_ON,0.1.28 先關)與永豐金(fork);那兩句說明與 cx.cap.local* 一起刪;交易所選單只在「真實帳戶」出、換到不認得的值退回第一家;框頂那句 cx.acct.meta 換成真實帳戶的兩行事實(onboarding E/F §7-4;「不經過 AI」那行 Wei 10-21 拿掉)",
+      /const tw = CXF\.env !== "local" \? \[\[CAPITAL, "cap\.venue"\]\] : \[cxPresListed\(\) \? \["president", "pres\.venue"\] : null, cxCaplListed\(\) \? \[CAPITAL, "cap\.venue"\] : null, \["sinopac", "sino\.venue"\]\]\.filter\(Boolean\);/.test(src) && /g2\.label = t\("cap\.group\.tw"\);/.test(src) && !/go\.hidden = !cloud && CXF\.venue === CAPITAL;/.test(src)
       && !/cx\.cap\.local/.test(src) && !/cx\.cap\.local/.test(fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "strings.js"), "utf8"))
-      && /CXF\.venue = cxVenuesFor\(CXF\.env\)\.indexOf\(sel\.value\) >= 0 \|\| \(sel\.value === CAPITAL && CXF\.env === "cloud"\) \|\| \(sel\.value === "president" && CXF\.env === "local" && cxPresListed\(\)\)\n\s+\|\| \(sel\.value === CAPITAL && CXF\.env === "local" && cxCaplListed\(\)\) \? sel\.value : cxVenuesFor\(CXF\.env\)\[0\];/.test(src)
+      && /CXF\.venue = cxVenuesFor\(CXF\.env\)\.indexOf\(sel\.value\) >= 0 \|\| \(sel\.value === CAPITAL && CXF\.env === "cloud"\) \|\| \(sel\.value === "president" && CXF\.env === "local" && cxPresListed\(\)\)\n\s+\|\| \(sel\.value === "sinopac" && CXF\.env === "local"\) \|\| \(sel\.value === CAPITAL && CXF\.env === "local" && cxCaplListed\(\)\) \? sel\.value : cxVenuesFor\(CXF\.env\)\[0\];/.test(src)
       && !/cx\.acct\.meta/.test(src + fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "strings.js"), "utf8"))
-      && /\[CXF\.env === "cloud" \? t\("cx\.fact\.keyCloud"\) : t\("cx\.fact\.key"\), t\("cx\.fact\.perm"\)\];/.test(src) && !/cx\.fact\.ai/.test(src));
+      && /\[CXF\.env === "cloud" \? t\("cx\.fact\.keyCloud"\) : t\("cx\.fact\.key"\), CXF\.venue === "sinopac" \? t\("cx\.fact\.sino"\) : t\("cx\.fact\.perm"\)\];/.test(src) && !/cx\.fact\.ai/.test(src));
     ok("接線:選擇策略框沒有 #ps-next、psOpen 不送 pick_gate_lock、外殼不讀 market_gate",
       !/ps-next/.test(fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "index.html"), "utf8")) && !/pick_gate_lock/.test(src) && !/market_gate/.test(src)); }
   /* ── 部位表策略名 → 那支的進出場紀錄(spec-0.1.12-pf-strategy-link):落點、不可點的條件、埋點、點下去才發現不在 ── */

@@ -1,3 +1,6 @@
+# Modified by Mephisto-000 on 2026-10-26: _LOCAL_KEY_CHECKS gains SINOPAC (永豐金 spot venue bound from the desktop app).
+# Original work: Copyright 2025-2026 WuChi Technology Company Limited
+# Licensed under the Apache License, Version 2.0
 """Command listener: deterministic web → machine operations, no LLM turn.
 
 Runs as its own thread inside web_bridge so that nothing it does waits on
@@ -297,6 +300,10 @@ _LOCAL_KEY_CHECKS = {
     "GATEIO": ("GATEIO_API_KEY", "GATEIO_SECRET_KEY"),
     "BYBIT": ("BYBIT_API_KEY", "BYBIT_SECRET_KEY"),
     "STOCKCOIN": ("STOCKCOIN_API_KEY", "STOCKCOIN_SECRET_KEY"),
+    # AutoTradeSys fork (2026-10-26): 永豐金 現股 — lib/account_sinopac reads the
+    # simulation account for this check (no SINOPAC_LIVE in the payload); the
+    # certificate and the live switch are written by manager/sinopac_setup.py
+    "SINOPAC": ("SINOPAC_API_KEY", "SINOPAC_SECRET_KEY"),
 }
 
 

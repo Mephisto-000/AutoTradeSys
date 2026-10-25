@@ -4,6 +4,8 @@
 //   ③ 真的開連接框(隨包 Electron + 真的 index.html,window.blave 換成假的):兩個視角都列六家;OKX 多一格 Passphrase;
 //      送出去的形狀;送完 / 關框後畫面不留金鑰;本機成功 = 「串接成功:讀得到帳戶」(不說交易權限已確認),失敗講那一家的原因
 // 金鑰全是 not-a-real-*。跑法:node tests/check_shell_connect_venues.js(找不到 shell/node_modules 的 Electron,③ 就 SKIP)
+// AutoTradeSys fork 2026-10-26:永豐金(sinopac)走同一條 venue-connect,只列在這台電腦的「台股」組(cloudcmd localOnly;雲端拒收),
+//   解除綁定連終端機工具寫的五行(憑證、身分證、實盤開關、綁定時間)一起拿掉
 const path = require("path"), fs = require("fs");
 const SHELL = path.join(__dirname, "..", "shell");
 const GATE = require("./_electron_gate");
@@ -15,7 +17,8 @@ const J = JSON.stringify;
 
 if (!process.versions.electron) (async () => {
   ok("⓪ trade.js 有 PRES_LOCAL_ON 旗標,下拉的「台股」組與 change 都看它(cxPresListed);群益本機另受 CAPL_LOCAL_ON 管(0.1.28 main 關著、測試包分支開)", !!presFlag && !!caplFlag
-    && /const tw = CXF\.env !== "local" \? \[\[CAPITAL, "cap\.venue"\]\] : \[cxPresListed\(\) \? \["president", "pres\.venue"\] : null, cxCaplListed\(\) \? \[CAPITAL, "cap\.venue"\] : null\]\.filter\(Boolean\);/.test(tradeSrc)
+    && /const tw = CXF\.env !== "local" \? \[\[CAPITAL, "cap\.venue"\]\] : \[cxPresListed\(\) \? \["president", "pres\.venue"\] : null, cxCaplListed\(\) \? \[CAPITAL, "cap\.venue"\] : null, \["sinopac", "sino\.venue"\]\]\.filter\(Boolean\);/.test(tradeSrc)
+    && /\(sel\.value === "sinopac" && CXF\.env === "local"\)/.test(tradeSrc)
     && /\(sel\.value === "president" && CXF\.env === "local" && cxPresListed\(\)\)/.test(tradeSrc)
     && /\(sel\.value === CAPITAL && CXF\.env === "local" && cxCaplListed\(\)\) \? sel\.value : cxVenuesFor\(CXF\.env\)\[0\];/.test(tradeSrc));
   // ── ① daemon 白名單 ──
@@ -23,15 +26,20 @@ if (!process.versions.electron) (async () => {
   const CC = require(path.join(SHELL, "cloudcmd.js"));
   const K = "not-a-real-key-0001", S = "not-a-real-secret-0001", P = "not a real passphrase";
   const set = (v) => Object.fromEntries(CC.venueEnvNames(v).map((n) => [n, /PASSPHRASE$/.test(n) ? P : /SECRET/.test(n) ? S : K]));
-  ok("① trusted:OKX / BingX / Gate.io / Bybit / StockCoin 各自剛好一整組 → 收", ["okx", "bingx", "gateio", "bybit", "stockcoin"].every((v) => argsOk("credentials", { env: set(v) }, true) === true));
+  ok("① trusted:OKX / BingX / Gate.io / Bybit / StockCoin / 永豐 各自剛好一整組 → 收", ["okx", "bingx", "gateio", "bybit", "stockcoin", "sinopac"].every((v) => argsOk("credentials", { env: set(v) }, true) === true));
   ok("① OKX 少了 PASSPHRASE(半組)→ 不收;混兩家 → 不收;多一個 BLAVE_* → 不收",
     argsOk("credentials", { env: { OKX_API_KEY: K, OKX_SECRET_KEY: S } }, true) === false
     && argsOk("credentials", { env: { OKX_API_KEY: K, BYBIT_SECRET_KEY: S } }, true) === false
     && argsOk("credentials", { env: { ...set("bybit"), BLAVE_API_KEY: K } }, true) === false);
   ok("① 值帶換行 / 空白金鑰 → 不收(passphrase 可以有空白)", argsOk("credentials", { env: { ...set("okx"), OKX_API_KEY: K + "\nX=1" } }, true) === false
     && argsOk("credentials", { env: { ...set("bingx"), BINGX_API_KEY: "has space" } }, true) === false && argsOk("credentials", { env: set("okx") }, true) === true);
-  ok("① renderer 那條路(沒有 trusted)→ 這五家一律不收", ["okx", "bingx", "gateio", "bybit", "stockcoin"].every((v) => argsOk("credentials", { env: set(v) }) === false && argsOk("credentials", { env: set(v) }, "true") === false));
-  ok("① 解除綁定:五家的名字(含 OKX_PASSPHRASE)都拿得掉", ["okx", "bingx", "gateio", "bybit", "stockcoin"].every((v) => argsOk("credentials_remove", { env: CC.venueEnvNames(v) }) === true));
+  ok("① renderer 那條路(沒有 trusted)→ 這六家一律不收", ["okx", "bingx", "gateio", "bybit", "stockcoin", "sinopac"].every((v) => argsOk("credentials", { env: set(v) }) === false && argsOk("credentials", { env: set(v) }, "true") === false));
+  ok("① 解除綁定:六家的名字(含 OKX_PASSPHRASE)都拿得掉", ["okx", "bingx", "gateio", "bybit", "stockcoin", "sinopac"].every((v) => argsOk("credentials_remove", { env: CC.venueEnvNames(v) }) === true));
+  const SINO_EXTRA = require(path.join(SHELL, "daemon.js")).SINOPAC_ENV;
+  ok("① 永豐(AutoTradeSys fork):終端機工具寫的五行(憑證、身分證、實盤開關、綁定時間)解除綁定也拿得掉;別的名字不行",
+    J(SINO_EXTRA) === J(["SINOPAC_CA_PATH", "SINOPAC_CA_PASSWD", "SINOPAC_PERSON_ID", "SINOPAC_LIVE", "SINOPAC_BOUND_TS"])
+    && argsOk("credentials_remove", { env: CC.venueEnvNames("sinopac").concat(SINO_EXTRA) }) === true && argsOk("credentials_remove", { env: ["SINOPAC_FOO"] }) === false
+    && argsOk("credentials", { env: { ...set("sinopac"), SINOPAC_LIVE: "true" } }, true) === false);
   ok("① Binance 照舊:一整對才收", argsOk("credentials", { env: { BINANCE_API_KEY: "A".repeat(64), BINANCE_SECRET_KEY: "b".repeat(64) } }, true) === true
     && argsOk("credentials", { env: { BINANCE_API_KEY: "A".repeat(64) } }, true) === false);
 
@@ -47,6 +55,11 @@ if (!process.versions.electron) (async () => {
       sent.length = 0;
       const b = await H({}, { venue: "binance", apiKey: K, secret: S }), c = await H({}, { venue: "paper" }), d = await H({}, { venue: "okx", apiKey: K, secret: S });
       ok("①b Binance / 模擬不走這支;OKX 沒有 passphrase = 沒填齊;都沒送 daemon", b.code === "BAD_ARGS" && c.code === "BAD_ARGS" && d.code === "INCOMPLETE_PAIR" && sent.length === 0);
+      const s2 = await H({}, { venue: "sinopac", apiKey: K, secret: S });
+      ok("①b 永豐(AutoTradeSys fork):同一條路,送 daemon 的是 SINOPAC 那一對(沒有 SINOPAC_LIVE:模擬先)", J(sent[0]) === J({ SINOPAC_API_KEY: K, SINOPAC_SECRET_KEY: S }) && J(s2) === J({ ok: true, code: "READ_OK", detail: {} }));
+      sent.length = 0;
+      ok("①b 雲端那支 cloud-connect 拒收永豐(localOnly → BAD_ARGS,沒送主機)", /if \(CC\.localOnly\(built\.venue\)\) return \{ ok: false, code: "BAD_ARGS", detail: \{\} \};/.test(mainSrc.slice(mainSrc.indexOf('  handle("cloud-connect"'), i))
+        && CC.localOnly("sinopac") === true && CC.localOnly("okx") === false && CC.localOnly("paper") === false);
       reply = { ok: false, error: "ValueError: REJECTED: okx did not accept this key (RuntimeError: 50113 bad sign for " + K + ") — not saved" };
       const e = await H({}, okx);
       ok("①b REJECTED:帶那一家的原因,金鑰值遮掉", e.ok === false && e.code === "REJECTED" && /50113 bad sign/.test(e.detail.reason) && e.detail.reason.indexOf(K) < 0);
@@ -71,9 +84,13 @@ if (!process.versions.electron) (async () => {
   eval(cut("trEnvNames")); eval(cut("trVenueLabel"));
   ok("② trEnvNames 與主行程 cloudcmd.venueEnvNames 同一組(解除綁定送的就是機器寫的)", ["binance", "okx", "bingx", "gateio", "bybit", "stockcoin"].every((v) => J(trEnvNames(v)) === J(CC.venueEnvNames(v)))
     && J(trEnvNames("paper")) === J(["PAPER_API_KEY", "PAPER_SECRET_KEY", "PAPER_BOUND_TS"]));
-  ok("② 名字表與主行程那份同一組交易所", J(Object.keys(CX_VENUES).sort()) === J(Object.keys(CC.CONNECT_VENUES).sort()) && CX_VENUES.okx.pass === true && !CX_VENUES.bybit.pass);
+  ok("② 永豐(AutoTradeSys fork):trEnvNames = 主行程的那一對 + daemon.js SINOPAC_ENV(終端機工具寫的五行),每一個 daemon 都放行拿掉",
+    J(trEnvNames("sinopac")) === J(CC.venueEnvNames("sinopac").concat(SINO_EXTRA)) && trEnvNames("sinopac").every((n) => argsOk("credentials_remove", { env: [n] }) === true));
+  ok("② 名字表與主行程那份同一組交易所(永豐是 localOnly,不在加密貨幣那張表)", J(Object.keys(CX_VENUES).sort()) === J(Object.keys(CC.CONNECT_VENUES).filter((v) => !CC.localOnly(v)).sort()) && CX_VENUES.okx.pass === true && !CX_VENUES.bybit.pass
+    && !("sinopac" in CX_VENUES) && CC.CONNECT_VENUES.sinopac.env === "SINOPAC" && !CC.CONNECT_VENUES.sinopac.pass);
   ok("② 提領不再檢查(Wei 2026-10-15):沒有任何一家帶 noWdCheck,renderer 也不再提 cx.note.wdUnchecked", Object.keys(CX_VENUES).every((v) => !("noWdCheck" in CX_VENUES[v])) && !/noWdCheck|wdUnchecked|WITHDRAW_ENABLED/.test(src));
-  ok("② 顯示名:Gate.io / OKX / BingX / StockCoin(首字大寫會寫錯)", trVenueLabel("gateio") === "Gate.io" && trVenueLabel("okx") === "OKX" && trVenueLabel("bingx") === "BingX" && trVenueLabel("stockcoin") === "StockCoin" && trVenueLabel("paper", true) === "cx.paperShort");
+  ok("② 顯示名:Gate.io / OKX / BingX / StockCoin(首字大寫會寫錯);永豐走字串表 sino.venue", trVenueLabel("gateio") === "Gate.io" && trVenueLabel("okx") === "OKX" && trVenueLabel("bingx") === "BingX" && trVenueLabel("stockcoin") === "StockCoin" && trVenueLabel("paper", true) === "cx.paperShort"
+    && trVenueLabel("sinopac") === "sino.venue");
   ok("② 兩個視角都列六家(runtime 已在電腦版開放 Binance 以外這五家,寫入前讀一次帳戶)", J(cxVenuesFor("local")) === J(["binance", "okx", "bingx", "gateio", "bybit", "stockcoin"]) && J(cxVenuesFor("cloud")) === J(cxVenuesFor("local")));
 
   // ── ③ 交給 Electron ──
@@ -161,15 +178,34 @@ app.whenReady().then(async () => {
   // 群益只在雲端(Wei 0.1.18 拿掉這台電腦那條:電腦版不接群益);統一只在這台電腦視角,而且受 trade.js PRES_LOCAL_ON 管
   // (0.1.18 關著只藏入口、0.1.19 開):關著時「台股」那一組整個不出;開著時那一組只有統一
   // 群益本機受 CAPL_LOCAL_ON 管(0.1.28):開著時「台股」組在統一後面多一個群益
-  ok("③ 這台電腦(「真實帳戶」):六家" + (presOn ? " + 「台股」組有統一" : ";PRES_LOCAL_ON 關著 → 沒有統一") + (caplOn ? "、群益本機" : "(CAPL_LOCAL_ON 關著 → 沒有群益)"),
-    J(await js(`[...$("cx-venue").options].map((o) => o.value)`)) === J(["binance", "okx", "bingx", "gateio", "bybit", "stockcoin"].concat(presOn ? ["president"] : [], caplOn ? ["capital"] : []))
-    && J(await js(`[...$("cx-venue").querySelectorAll("optgroup")].map((g) => g.label)`)) === J(await js(presOn || caplOn ? `[t("cx.group.crypto"), t("cap.group.tw")]` : `[t("cx.group.crypto")]`)));
+  // 永豐金(AutoTradeSys fork)一定在「台股」組的最後一項,所以這台電腦的「台股」組永遠在
+  ok("③ 這台電腦(「真實帳戶」):六家 + 「台股」組" + (presOn ? "有統一" : "(PRES_LOCAL_ON 關著 → 沒有統一)") + (caplOn ? "、群益本機" : "(CAPL_LOCAL_ON 關著 → 沒有群益)") + "、永豐金",
+    J(await js(`[...$("cx-venue").options].map((o) => o.value)`)) === J(["binance", "okx", "bingx", "gateio", "bybit", "stockcoin"].concat(presOn ? ["president"] : [], caplOn ? ["capital"] : [], ["sinopac"]))
+    && J(await js(`[...$("cx-venue").querySelectorAll("optgroup")].map((g) => g.label)`)) === J(await js(`[t("cx.group.crypto"), t("cap.group.tw")]`)));
   if (!presOn) { await pick("president"); ok("③ 旗標關著硬選 president(選單裡沒有那一項):退回第一家", (await js(`CXF.venue`)) === "binance"); }
   await pick("capital");
   // 群益本機受 CAPL_LOCAL_ON 管:關著時選單裡沒有、硬選退回第一家;開著(測試包)時整個框交給 capital_local.js(Mac 上是 m-mac)
   if (caplOn) ok("③ CAPL_LOCAL_ON 開著:這台電腦選 capital → 群益本機的框(標題「連接群益期貨」、這台電腦)", (await js(`CXF.venue`)) === "capital"
     && (await js(`$("cx-title").textContent === t("cap.title") && !$("cx-env").hidden`)));
   else ok("③ 這台電腦硬選 capital(選單裡沒有那一項):退回第一家、主鈕照在", (await js(`CXF.venue`)) === "binance" && (await js(`!$("cx-go").hidden`)));
+  // ── 永豐金(AutoTradeSys fork 2026-10-26):走 OKX 那條表單,兩格金鑰、說明區多一句、卡裡第 2 行事實是永豐版;送出的形狀同 venueConnect ──
+  await pick("sinopac");
+  ok("③ 這台電腦選永豐金:CXF.venue = sinopac、選單上是字串表的名字(永豐金證券)、主鈕在", (await js(`CXF.venue`)) === "sinopac"
+    && (await js(`$("cx-venue").selectedOptions[0].textContent === t("sino.venue") && t("sino.venue") !== "sino.venue" && !$("cx-go").hidden`)));
+  ok("③ 永豐:API Key / Secret Key 兩格,沒有 Passphrase", J(await fields()) === J(["cx-api", "cx-secret"]));
+  ok("③ 永豐:說明區講先接模擬環境、真錢在終端機開;IP 白名單那句照 cx.note.oneV 帶永豐的名字",
+    (await noteHas("cx.note.sinopac")) && (await noteHas("cx.note.oneV", await js(`t("sino.venue")`)))
+    && /模擬/.test(await js(`STRINGS.zh["cx.note.sinopac"]`)) && /終端機/.test(await js(`STRINGS.zh["cx.note.sinopac"]`)) && !/提領/.test(await js(`STRINGS.zh["cx.fact.sino"].replace("沒有提領", "")`)));
+  ok("③ 永豐:真實帳戶卡第 2 行事實是永豐版(勾行情、帳務、交易),不是「不開提領」那句",
+    J(await js(`[...document.querySelectorAll("#cx-facts li")].map((li) => li.textContent)`)) === J(await js(`[t("cx.fact.key"), t("cx.fact.sino")]`)));
+  await fill({ "cx-api": "not-a-real-key-sinopac-0001", "cx-secret": "not-a-real-secret-sinopac-0001" });
+  await run(`window.__calls.length = 0; window.__over.venueConnect = async () => ({ ok: true, code: "READ_OK", detail: {} }); window.__over.tradeSend = async () => ({ ok: true })`);
+  await js(`$("cx-go").click()`); await wait(400);
+  const sinoCall = (await js(`window.__calls.map((c) => [c[0], c[1][0]])`)).find((c) => c[0] === "venueConnect");
+  ok("③ 永豐送出:走 venueConnect,形狀 { venue: sinopac, apiKey, secret, passphrase: \"\" };成功後框關、金鑰清空",
+    !!sinoCall && J(sinoCall[1]) === J({ venue: "sinopac", apiKey: "not-a-real-key-sinopac-0001", secret: "not-a-real-secret-sinopac-0001", passphrase: "" })
+    && (await js(`$("cx-scrim").hidden && CXF.apiKey === "" && CXF.secret === ""`)));
+  await js(`(() => { TR_BAGS.local.st = { alive: true, report: { venues: {} } }; cxModalOpen(null, null), (($m) => { if ($m && !$m.checked) { $m.checked = true; $m.dispatchEvent(new Event("change")); } })($("cx-mode-real")); })()`); await wait(150);
   await pick("okx");
   ok("③ 換到 OKX:主鈕在", await js(`!$("cx-go").hidden`));
   await fill({ "cx-api": "not-a-real-key-okx", "cx-secret": "not-a-real-secret-okx", "cx-pass": "not a real passphrase" });

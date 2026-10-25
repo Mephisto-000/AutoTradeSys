@@ -1,4 +1,4 @@
-// Modified by Mephisto-000 on 2026-10-25: TR_VENUE_CCY_OTHER lists sinopac (TWD) for the SinoPac spot venue.
+// Modified by Mephisto-000 on 2026-10-25/26: SinoPac (永豐金) spot venue — TR_VENUE_CCY_OTHER (TWD); listed in this computer's connect dialog under 台股 (API Key + Secret Key, simulation first); label; unbind names.
 // Original work: Copyright 2025-2026 WuChi Technology Company Limited
 // Licensed under the Apache License, Version 2.0
 /* 自動下單頁、連接交易所的框、頂列切換器與狀態句(模擬交易版)。
@@ -1570,6 +1570,9 @@ const TR_CONFIRM_CLOUD_MS = 240000;
 const TR_TABS = ["over", "pos", "assets", "hist", "set"];
 const TR_TAB_FEATURE = { over: "trade_overview", pos: "trade_positions", assets: "trade_assets", hist: "trade_history", set: "trade_settings" };   // 使用追蹤的名字(feature_used)
 const PAPER = "paper", BINANCE = "binance", CAPITAL = "capital";   // 群益只在雲端視角(renderer/capital.js)
+/* 永豐金 現股 "sinopac"(AutoTradeSys fork 2026-10-26;字面寫,同 "president":測試把單支函式切出來跑,沒有這裡的常數):
+   只列在這台電腦的連接框「台股」組,走 OKX 那條 venue-connect(API Key + Secret Key,runtime 寫入前用 lib/account_sinopac
+   讀一次模擬帳戶)。實盤(憑證)由終端機 manager/sinopac_setup.py live on 開,不在框裡。解除綁定的名字在 trEnvNames */
 /* 連接框列得出來的真實交易所(env 名同 cloudcmd.CONNECT_VENUES、網頁 CX_VENUES;群益在 Mac 上跑不起來,不列)。
    pass = 多一格 <ENV>_PASSPHRASE。CX_LOCAL_REAL = 這台電腦綁得了的(runtime local_daemon 放行的那幾家;Binance 以外的金鑰
    由 command_listener._local_real_key_gate 在寫入前讀一次帳戶)。 */
@@ -1609,6 +1612,7 @@ function trVenueLabel(id, short) {
   if (id === PAPER) return short ? t("cx.paperShort") : t("cx.paper");
   if (id === "capital") return t("cap.venue");   // 群益(雲端視角,renderer/capital.js)
   if (id === "president") return t("pres.venue");   // 統一期貨(這台電腦視角,renderer/president.js)
+  if (id === "sinopac") return t("sino.venue");   // 永豐金證券(AutoTradeSys fork)
   if (Object.prototype.hasOwnProperty.call(CX_VENUES, id)) return CX_VENUES[id].label;   // Gate.io、OKX:首字大寫會寫錯
   return id.charAt(0).toUpperCase() + id.slice(1);
 }
@@ -1617,6 +1621,7 @@ function trIsPaper() { return trVenueId() === PAPER; }
    只看排第一的那家(trIsPaper)時,統一＋模擬同綁會把送到統一的真錢單標成模擬(設計稽核 r2 M2) */
 function trCfPaperOnly() { const ids = trVenueIds(trReport() || {}); return ids.length > 0 && ids.every((id) => id === PAPER); }
 // 部位表判斷交不交易用(trTradesSym):台灣期貨券商 "tw"、連接框那五家與模擬交易 "crypto"、其他(自訂交易所、沒綁)null
+// 永豐(sinopac)也是 null:runtime 沒有事前擋非台股標的的規則,差額與拒單都要畫出來,不藏(AutoTradeSys fork)
 function trVenueKind(id) { return !id ? null : trTwBroker(id) ? "tw" : id === PAPER ? "paper" : Object.prototype.hasOwnProperty.call(CX_VENUES, id) ? "crypto" : null; }
 function trCcy() { const id = trVenueId(), e = trLiveEntry(trReport(), id); return (e && e.currency) || trVenueCcy(id); }
 // 單位:模擬帳戶寫「模擬 USDT」(三通道之一:記號、外框、單位)
@@ -4658,6 +4663,8 @@ function trEnvNames(id) {
   if (id === PAPER) return ["PAPER_API_KEY", "PAPER_SECRET_KEY", "PAPER_BOUND_TS"];
   if (id === CAPITAL) return ["capital_api_key", "capital_password"];   // 雲端 capUnbindSend、這台電腦 caplUnbind(名字由主行程決定)
   if (id === "president") return ["president_account", "president_password", "president_ca_password", "president_ca_path", "president_url", "president_test_url"];   // = daemon.js PRESIDENT_ENV
+  // 永豐(AutoTradeSys fork):金鑰那一對 + 終端機工具可能寫的憑證 / 身分證 / 實盤開關 / 綁定時間(= daemon.js 的 pair + SINOPAC_ENV;小寫同名 runtime casefold 也拿掉)
+  if (id === "sinopac") return ["SINOPAC_API_KEY", "SINOPAC_SECRET_KEY", "SINOPAC_CA_PATH", "SINOPAC_CA_PASSWD", "SINOPAC_PERSON_ID", "SINOPAC_LIVE", "SINOPAC_BOUND_TS"];
   const v = Object.prototype.hasOwnProperty.call(CX_VENUES, id) ? CX_VENUES[id] : null;
   return v ? [v.env + "_API_KEY", v.env + "_SECRET_KEY"].concat(v.pass ? [v.env + "_PASSPHRASE"] : []) : [];
 }
@@ -5343,7 +5350,7 @@ function cxVenueField(L) {
     const card = trEl("div", "cf-opt cf-wrap" + (off ? " off" : "")), ul = trEl("ul", "cx-facts");
     ul.id = "cx-facts"; r.setAttribute("aria-describedby", ul.id);
     const facts = fut ? [CXF.env === "cloud" ? t("cx.fact.certCloud") : t("cx.fact.cert")]
-      : [CXF.env === "cloud" ? t("cx.fact.keyCloud") : t("cx.fact.key"), t("cx.fact.perm")];
+      : [CXF.env === "cloud" ? t("cx.fact.keyCloud") : t("cx.fact.key"), CXF.venue === "sinopac" ? t("cx.fact.sino") : t("cx.fact.perm")];   // 永豐的金鑰沒有提領權限:講要勾哪幾項
     facts.forEach((x) => ul.appendChild(trEl("li", "", x)));
     card.append(lab, ul); fs.appendChild(card);
   });
@@ -5358,14 +5365,15 @@ function cxVenueField(L) {
   // 群益只在雲端(交給 capital.js;電腦版不接群益,這台電腦那條 Wei 0.1.18 拿掉)。統一期貨只在這台電腦視角
   // (雲端的開通在網頁;設計稿 §5 電腦版雲端視角 v1 不做)。Mac 也列統一,選了講一句(d-mac)。統一那一項受 PRES_LOCAL_ON 管
   // 群益本機受 CAPL_LOCAL_ON 管(憑證那一段先出,帳密與清單還沒做)
-  const tw = CXF.env !== "local" ? [[CAPITAL, "cap.venue"]] : [cxPresListed() ? ["president", "pres.venue"] : null, cxCaplListed() ? [CAPITAL, "cap.venue"] : null].filter(Boolean);
+  // 永豐金只在這台電腦(AutoTradeSys fork):雲端主機沒有它的 lib 與憑證
+  const tw = CXF.env !== "local" ? [[CAPITAL, "cap.venue"]] : [cxPresListed() ? ["president", "pres.venue"] : null, cxCaplListed() ? [CAPITAL, "cap.venue"] : null, ["sinopac", "sino.venue"]].filter(Boolean);
   if (tw.length) { const g2 = document.createElement("optgroup"); g2.label = t("cap.group.tw");
     tw.forEach(([v, k]) => { const o2 = trEl("option", "", t(k)); o2.value = v; g2.appendChild(o2); });
     sel.appendChild(g2); }
   sel.value = CXF.venue; sel.disabled = off;
   sel.addEventListener("change", () => {
     CXF.venue = cxVenuesFor(CXF.env).indexOf(sel.value) >= 0 || (sel.value === CAPITAL && CXF.env === "cloud") || (sel.value === "president" && CXF.env === "local" && cxPresListed())
-      || (sel.value === CAPITAL && CXF.env === "local" && cxCaplListed()) ? sel.value : cxVenuesFor(CXF.env)[0];
+      || (sel.value === "sinopac" && CXF.env === "local") || (sel.value === CAPITAL && CXF.env === "local" && cxCaplListed()) ? sel.value : cxVenuesFor(CXF.env)[0];
     cxForget(); L.cx.err = null; L.sig.cxm = null; cxModalPaint(); if (CXF.venue !== CAPITAL && CXF.venue !== "president" && CXF.ip === undefined) cxIpLookup();
   });
   sw.appendChild(sel); fl.appendChild(sw); w.appendChild(fl);
@@ -5439,6 +5447,8 @@ function cxModalPaint() {
     const note = trEl("div", "cx-note");
     // StockCoin 目前只讀得到合約帳戶,這句只對它講(同網頁 cx_note_stockcoin)
     if (venue === "stockcoin") note.appendChild(trEl("p", "", t("cx.note.stockcoin")));
+    // 永豐:先接模擬環境;真錢要另外在終端機開(憑證不經過這個框)— AutoTradeSys fork
+    if (venue === "sinopac") note.appendChild(trEl("p", "", t("cx.note.sinopac")));
     note.appendChild(trEl("p", "", venue === BINANCE ? t("cx.note.one") : t("cx.note.oneV", { venue: trVenueLabel(venue, true) })));
     if (cloud) {   // 雲端的五處差異之 2:主機的 IP,不查、沒有「再查一次」;拿不到不擋(白名單本來就不強制)
       if (cip) note.appendChild(cxIpChip(cip));

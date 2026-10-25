@@ -157,7 +157,7 @@ function world(init) {
   t("binance_link 載入檢查模組沒有 try/catch 退路(缺檔要整個炸掉,不能變成不檢查)", /^const BC = require\("\.\/binance_check"\);$/m.test(fs.readFileSync(path.join(__dirname, "..", "shell", "binance_link.js"), "utf8")));
   const daemonPy = fs.readFileSync(path.join(__dirname, "..", "runtime", "local_daemon.py"), "utf8"), clPy = fs.readFileSync(path.join(__dirname, "..", "runtime", "command_listener.py"), "utf8");
   t("runtime:真實交易所(Binance + OKX / BingX / Gate.io / Bybit / StockCoin + 統一 + 群益,統一另有 cert 步、群益另有 bind 步那道閘)只在 daemon 行程裡打開;聊天綁定那條路(command_listener 的預設)仍然只有模擬交易",
-    /cl\.LOCAL_OPEN_VENUES = frozenset\(cl\.LOCAL_OPEN_VENUES\s*\|\s*\{"BINANCE", "OKX", "BINGX", "GATEIO", "BYBIT", "STOCKCOIN", "PRESIDENT", "CAPITAL"\}\)/.test(daemonPy) && /^LOCAL_OPEN_VENUES = frozenset\(\{"PAPER"\}\)$/m.test(clPy));
+    /cl\.LOCAL_OPEN_VENUES = frozenset\(cl\.LOCAL_OPEN_VENUES\s*\|\s*\{"BINANCE", "OKX", "BINGX", "GATEIO", "BYBIT", "STOCKCOIN", "PRESIDENT", "CAPITAL", "SINOPAC"\}\)/.test(daemonPy) && /^LOCAL_OPEN_VENUES = frozenset\(\{"PAPER"\}\)$/m.test(clPy));   // SINOPAC: AutoTradeSys fork
 
   console.log(red ? `\n${red} 個失敗` : "\n全部通過"); process.exit(red ? 1 : 0);
 })();
