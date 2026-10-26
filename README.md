@@ -39,6 +39,8 @@
   - 修改（檔頭已註明）：`shell/renderer/trade.js`、`shell/renderer/portfolio.js`、`shell/traytext.js`、`shell/main.js`、
     `shell/i18n/en.po`、`shell/i18n/zh.po`（產生 `shell/renderer/strings.js`）、`runtime/portfolio_reporter.py`，
     以及配合的既有測試（`tests/check_shell_engine_setup.js`、`check_usstock_daily.py`）
+- 2026-10-27：同步上游 `main` 至 `4cc0ed75`（電腦版 0.1.33）。上游讓排程報告回合完全不能執行 shell，
+  2026-10-25 在 `runtime/agent_turn.py` 加的 `sinopac_setup` 攔截已被涵蓋，該檔還原為上游版本（不再列為修改過的檔案）
 
 詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
 
