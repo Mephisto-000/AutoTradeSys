@@ -117,7 +117,8 @@ VC_MAX = 64 * 1024 * 1024
 _SECTIONS = ("setup", "probe", "worker")
 _busy = threading.Lock()
 _status_lock = threading.Lock()
-_LOCAL = {"key": None, "secrets": None, "pending": None, "worker": None, "on_secrets": None}
+_LOCAL = {"key": None, "secrets": None, "pending": None, "worker": None, "on_secrets": None,
+          "on_ready": None}
 
 
 def _paths():
@@ -593,9 +594,65 @@ def _vc_present():
     return all(os.path.isfile(os.path.join(sys32, n)) for n in ("mfc100.dll", "msvcr100.dll"))
 
 
-_PS_VC = ("$s = Get-AuthenticodeSignature -LiteralPath $env:CAPL_VC; "
-          "if ($s.Status -ne 'Valid' -or $s.SignerCertificate.GetNameInfo('SimpleName', $false) -ne 'Microsoft Corporation') { exit 4 }; "
-          "$p = Start-Process -FilePath $env:CAPL_VC -ArgumentList '/q', '/norestart' -Verb RunAs -Wait -PassThru; exit $p.ExitCode")
+VC_MSI_WAIT_S = 90    # wait this long for Windows Installer to go idle before the first run …
+VC_MSI_POLL_S = 5
+VC_BUSY_RETRIES = 3   # … then 1618 (another install running, e.g. Windows Update right after boot) retries
+VC_BUSY_WAIT_S = 30
+
+def _ps_sig_ok(var, bad):
+    return (f"$s = Get-AuthenticodeSignature -LiteralPath {var}; "
+            f"if ($s.Status -ne 'Valid' -or $s.SignerCertificate.GetNameInfo('SimpleName', $false) -ne 'Microsoft Corporation') {{ {bad} }}; ")
+
+
+# Runs elevated. The wait and the retries live here so the user sees one UAC prompt, not one per try.
+# _MSIExecute is held while any install runs: getting it (and letting go at once) = Installer is idle.
+# $f sits in the user's %TEMP%, which any process of theirs can rewrite between the signature check and the run.
+# So the file is first copied into a fresh ProgramData folder that only SYSTEM/Administrators can write (the ACL is
+# set by CreateDirectory itself, so there is no moment with the inherited one; the name is random so nobody can
+# pre-create it), and the check, the run and every retry use that copy. The folder goes in `finally`, which is
+# why a bad signature sets $r instead of exiting.
+_PS_VC_ELEVATED = (
+    "function Test-MsiIdle { try { $m = New-Object System.Threading.Mutex($false, 'Global\\_MSIExecute') } catch { return $false }; "
+    "try { if ($m.WaitOne(0)) { $m.ReleaseMutex(); return $true }; return $false } "
+    "catch [System.Threading.AbandonedMutexException] { $m.ReleaseMutex(); return $true } catch { return $false } finally { $m.Dispose() } }; "
+    "$r = 1; $d = Join-Path $env:ProgramData ('blave-vc-' + [guid]::NewGuid().ToString('N')); try { "
+    "$a = New-Object Security.AccessControl.DirectorySecurity; $a.SetAccessRuleProtection($true, $false); "
+    "foreach ($n in 'S-1-5-18', 'S-1-5-32-544') { $a.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule("
+    "(New-Object Security.Principal.SecurityIdentifier($n)), 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow'))) }; "
+    "$a.SetOwner((New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544'))); "
+    "[void][IO.Directory]::CreateDirectory($d, $a); "
+    "$c = Join-Path $d 'vcredist_x64_2010.exe'; Copy-Item -LiteralPath $f -Destination $c -ErrorAction Stop; "
+    f"$w = 0; while (-not (Test-MsiIdle) -and $w -lt {VC_MSI_WAIT_S}) {{ Start-Sleep -Seconds {VC_MSI_POLL_S}; $w += {VC_MSI_POLL_S} }}; "
+    f"for ($i = 0; $i -le {VC_BUSY_RETRIES}; $i++) {{ "
+    f"if ($i) {{ Start-Sleep -Seconds {VC_BUSY_WAIT_S} }}; " + _ps_sig_ok("$c", "$r = 4; break") +
+    "$r = (Start-Process -FilePath $c -ArgumentList '/q', '/norestart' -Wait -PassThru -ErrorAction Stop).ExitCode; "
+    "if ($r -ne 1618) { break } } "
+    "} catch { $r = 1 } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }; exit $r")
+# Not elevated: refuse a bad file before any prompt, then start the elevated script above once and hand back its
+# exit code. The path reaches it as a quoted literal: an elevated process does not get our env. PowerShell also
+# ends a single-quoted string on U+2018–U+201B, so those are doubled too (as EscapeSingleQuotedStringContent does)
+# — a user name like O’Brien sits in %TEMP%. \u escapes keep this command ASCII.
+# Plain -Command, not -EncodedCommand: base64 of UTF-16 nearly triples the length, and the RunAs (ShellExecute)
+# path is reported to cut command lines near 2048 chars. Nothing in it has a double quote, so it passes as is.
+# 4 = not Microsoft's signature. 1223 (ERROR_CANCELLED) = Start-Process threw a Win32 1223, i.e. UAC said no; since
+# there is only one prompt, that can only be that first one. Anything else it throws (powershell.exe missing,
+# AppLocker/WDAC, another ShellExecute error) never showed a prompt, so it exits 1224 and the row shows the code
+# instead of asking the user to click Yes. Without the catch, a non-terminating Start-Process error would leave
+# $p null and exit 0 (not seen on a box yet).
+_PS_VC = ("$f = $env:CAPL_VC; " + _ps_sig_ok("$f", "exit 4") +
+          "$i = \"`$f = '\" + ($f -replace '[''\\u2018-\\u201B]', '$0$0') + \"'; \" + $env:CAPL_VC_ELEVATED; "
+          "try { $p = Start-Process -FilePath ($PSHOME + '\\powershell.exe') -ArgumentList '-NoProfile', '-NonInteractive', "
+          "'-WindowStyle', 'Hidden', '-Command', $i -Verb RunAs -Wait -PassThru -ErrorAction Stop } catch { "
+          "if (($_.Exception -is [ComponentModel.Win32Exception] -and $_.Exception.NativeErrorCode -eq 1223) -or "
+          "($_.Exception.InnerException -is [ComponentModel.Win32Exception] -and $_.Exception.InnerException.NativeErrorCode -eq 1223)) "
+          "{ exit 1223 }; exit 1224 }; "
+          "exit $p.ExitCode")
+
+
+class _StepFailed(RuntimeError):
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason
 
 
 def _ensure_vc(tmp):
@@ -604,8 +661,18 @@ def _ensure_vc(tmp):
     exe = os.path.join(tmp, "vcredist_x64_2010.exe")
     _download(VC_URL, exe, VC_MAX)
     # one UAC prompt (Microsoft's installer, signature checked first); the only system-wide thing here
-    subprocess.run([_powershell(), "-NoProfile", "-NonInteractive", "-Command", _PS_VC],
-                   capture_output=True, timeout=900, env=dict(os.environ, CAPL_VC=exe), **_cl()._child_kw())
+    rc = subprocess.run([_powershell(), "-NoProfile", "-NonInteractive", "-Command", _PS_VC], capture_output=True, timeout=900,
+                        env=dict(os.environ, CAPL_VC=exe, CAPL_VC_ELEVATED=_PS_VC_ELEVATED), **_cl()._child_kw()).returncode
+    if rc == 4:
+        raise _StepFailed("sig")
+    if rc == 1223:
+        raise _StepFailed("denied")
+    if rc in (3010, 1641):
+        if _vc_present():
+            return
+        raise _StepFailed("reboot")
+    if rc != 0:
+        raise _StepFailed(str(rc))
     if not _vc_present():
         raise RuntimeError("vc++ 2010 runtime missing after install")
 
@@ -710,8 +777,9 @@ def run_setup(push=None):
             try:
                 fn()
             except Exception as e:
-                print(f"[capital_local] setup {name} failed ({type(e).__name__})", file=sys.stderr)
-                failed.append(name)
+                why = e.reason if isinstance(e, _StepFailed) else None
+                print(f"[capital_local] setup {name} failed ({type(e).__name__}{': ' + why if why else ''})", file=sys.stderr)
+                failed.append(f"{name}:{why}" if why else name)
                 break
         try:
             import cryptography  # noqa: F401  (the sealed bundle opens in this interpreter)
@@ -803,6 +871,19 @@ def probe_once(push=None):
     return st
 
 
+def _ready():
+    """The modal reads this status file, the main screen reads account.json: the
+    daemon's account read last ran when `start` was dispatched (no snapshot yet,
+    so ok:false) and would not run again for up to ACCOUNT_EVERY_S. Reading the
+    snapshot file is all account_capital does — no 群益 login."""
+    cb = _LOCAL["on_ready"]
+    if cb:
+        try:
+            cb()
+        except Exception as e:
+            print(f"[capital_local] account read kick failed ({type(e).__name__})", file=sys.stderr)
+
+
 def _start(push):
     probe = (read_status() or {}).get("probe") or {}
     if probe.get("state") != "ok":
@@ -815,16 +896,27 @@ def _start(push):
         _LOCAL["worker"].start()
         deadline = t0 + START_TIMEOUT_S
         while time.time() < deadline:
+            # only the read is retried (missing, mid-replace, half-written): a fresh ok:false is the worker's answer
             try:
                 s = atomic_file.load_json(out, encoding="utf-8")
-                if isinstance(s, dict) and (s.get("read_at") or 0) >= t0:
-                    if s.get("ok") is True:
-                        # ok_at outlives later failures: "never finished" vs "finished, then failed"
-                        _update("worker", status="ok", error=None, wanted=True, ok_at=int(time.time()))
-                        return {"worker": "ok"}
-                    _refuse("SNAPSHOT_ERROR", "the worker's first read failed")
-            except (OSError, ValueError, AttributeError):
-                pass
+            except (OSError, ValueError):
+                s = None
+            read_at = s.get("read_at") if isinstance(s, dict) else None
+            if isinstance(read_at, (int, float)) and read_at >= t0:
+                if s.get("ok") is True:
+                    # ok_at outlives later failures: "never finished" vs "finished, then failed"
+                    _update("worker", status="ok", error=None, wanted=True, ok_at=int(time.time()))
+                    _ready()
+                    return {"worker": "ok"}
+                # a refused login writes ok:false, then exits LOGIN_STOPPED_EXIT
+                p = _LOCAL["worker"].proc
+                try:
+                    rc = p.wait(5) if p is not None else None
+                except subprocess.TimeoutExpired:
+                    rc = None
+                if rc == LOGIN_STOPPED_EXIT:
+                    _refuse("LOGIN_FAILED", "the 群益 worker's login was refused")
+                _refuse("SNAPSHOT_ERROR", "the worker's first read failed")
             p = _LOCAL["worker"].proc
             if p is not None and p.poll() == LOGIN_STOPPED_EXIT:
                 _refuse("LOGIN_FAILED", "the 群益 worker's login was refused")

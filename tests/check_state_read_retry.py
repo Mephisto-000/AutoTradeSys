@@ -83,6 +83,10 @@ EXEMPT_CATEGORIES = {
 }
 # (file, function, the open's path argument, category, why) — one row per read point
 EXEMPT = [
+    ('lib/account_bitget.py', 'load_json', 'path',
+     'helper', "the half-updated-workspace fallback (lib/winreplace.py without load_json)"),
+    ('lib/account_bitget.py', '_read_lines', 'path',
+     'helper', "the open read_retry wraps (state/audit.jsonl, _our_stop_legs)"),
     ('lib/account_capital.py', 'load_json', 'path',
      'helper', "the retry helper's own open, or the half-updated-workspace fallback"),
     ('lib/account_president.py', 'load_json', 'path',
@@ -429,7 +433,7 @@ EXEMPT = [
     ('runtime/report_runner.py', '_is_close_job', 'os.path.join(jd, "run.py")',
      'code', 'code / doc / VERSION text, not a state file'),
     ('runtime/report_runner.py', '_last_line', 'path', 'append', 'log tail'),
-    ('runtime/report_runner.py', '_pack_call', 'os.path.join(jd, "run.py")',
+    ('runtime/sched_pack.py', 'pack_call', 'os.path.join(jd, "run.py")',
      'code', 'code / doc / VERSION text, not a state file'),
     ('runtime/report_runner.py', '_published', 'marker', 'own', 'publish marker written by this runner'),
     ('runtime/report_runner.py', '_runs', 'os.path.join(jd, "runs.jsonl")',

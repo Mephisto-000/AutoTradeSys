@@ -1377,17 +1377,22 @@ class Daemon:
         # permission where the venue exposes it) decides, before any write.
         # 統一期貨: only through president_local's cert step
         # (president_connect.local_bind_gate) — the chat bind still cannot.
+        # Bitget: only once its real-account run passed (venue_traits verified_modes) — the
+        # shell's connect screen and trusted set follow the same cell
         # 永豐金 (SINOPAC, AutoTradeSys fork 2026-10-26): like OKX — the app's
         # venue-connect, gated by _local_real_key_gate (lib/account_sinopac
         # reads the simulation account); the chat bind still cannot.
         cl.LOCAL_OPEN_VENUES = frozenset(cl.LOCAL_OPEN_VENUES
-                                         | {"BINANCE", "OKX", "BINGX", "GATEIO", "BYBIT", "STOCKCOIN", "PRESIDENT", "CAPITAL", "SINOPAC"})
+                                         | {"BINANCE", "OKX", "BINGX", "GATEIO", "BYBIT", "STOCKCOIN", "PRESIDENT", "CAPITAL", "SINOPAC"}
+                                         | ({"BITGET"} if cl.venue_traits.verified_modes("bitget") else set()))
         self.pc.set_seal_key(self.secret)
         self.pc._LOCAL["on_secrets"] = lambda: self.sup.respawn_when_idle("統一期貨 credentials handed over")
+        self.pc._LOCAL["on_ready"] = self.account_kick.set
         self.pc._LOCAL["worker"].reap_orphan(cl._pid_cmdline)
         # 群益: only through capital_local's bind step (capital_local.local_bind_gate)
         self.capl.set_seal_key(self.secret)
         self.capl._LOCAL["on_secrets"] = lambda: self.sup.respawn_when_idle("群益 credentials handed over")
+        self.capl._LOCAL["on_ready"] = self.account_kick.set
         self.capl._LOCAL["worker"].reap_orphan(cl._pid_cmdline)
         try:
             self.capl.startup_sweep()

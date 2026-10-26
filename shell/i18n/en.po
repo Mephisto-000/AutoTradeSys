@@ -138,13 +138,13 @@ msgstr "Up to 4 files per message. The rest weren't added."
 msgid "ws.attachTotalLarge"
 msgstr "Attachments are limited to 15 MB in total. Some weren't added."
 
-# 建議下一步灰字的讀屏說明(textarea 的 aria-describedby;renderer/suggest.js)。{s} = agent 寫的那一句
-msgid "ws.sugDesc"
-msgstr "Suggestion: {s}. Press Tab to fill it in."
-
-# 灰字第一次畫出來時讀屏念一次(polite live region)
+# 建議下一步托盤第一次畫出來時讀屏念一次(polite live region;renderer/suggest.js)。{s} = agent 寫的那一句
 msgid "ws.sugSay"
-msgstr "Suggestion: {s}, press Tab to fill it in"
+msgstr "Suggestion: {s}"
+
+# 建議下一步托盤右邊 × 的可及名稱:作廢這句,不算沒用
+msgid "ws.sugDismiss"
+msgstr "Dismiss suggestion"
 
 msgid "ws.send"
 msgstr "Send"
@@ -540,6 +540,10 @@ msgstr "Your account can't use {model}. This turn did not run."
 msgid "fault.noModelSwitched"
 msgstr "Your account can't use {model}. This turn did not run — switched back to {to}."
 
+# 0.1.33 綁卡前的 30 TWD 只能用 DeepSeek V4 Pro:送了鎖住的型號(api 404 MODEL_NEEDS_PAYMENT),選擇已換回預設;鈕是綁卡(acct.addCard)
+msgid "fault.freeLocked"
+msgstr "{model} needs a card or top-up. This turn did not run — switched back to {to}."
+
 msgid "fault.noModelBtn"
 msgstr "Choose a Model"
 
@@ -552,6 +556,10 @@ msgstr "Your {name} subscription has reached its usage limit. Until it resets, s
 
 msgid "fault.limitBtn"
 msgstr "Switch AI"
+
+# 0.1.33 模型選單:有鎖住的列時,型號清單下面那一行(只講一次;鎖住列 aria-describedby 指它)。336 寬不折行
+msgid "mp.locked"
+msgstr "Add a card or top up to use other models"
 
 msgid "mp.na"
 msgstr "Not on your plan"
@@ -937,15 +945,34 @@ msgstr "View larger"
 msgid "login.cancel"
 msgstr "Cancel"
 
-msgid "login.failedCmd"
-msgstr "Or run {cmd} in a terminal."
-
-# Codex 登入失敗的退路不講終端機:Store / ChatGPT.app 裝的人 PATH 上沒有 codex,叫他打 `codex login` 是死路
-msgid "login.failedCodex"
-msgstr "Sign in to your ChatGPT account inside the ChatGPT app, then press Detect again."
-
 msgid "login.retry"
 msgstr "Try Again"
+
+msgid "row.opened"
+msgstr "Sign-in opened in your browser"
+
+msgid "row.failed"
+msgstr "Sign-in didn’t finish."
+
+msgid "row.orCmd"
+msgstr "Or run {cmd} in a terminal."
+
+msgid "row.orApp"
+msgstr "Or sign in through the ChatGPT app, then come back."
+
+# 「無法啟動」那一列名字底下(連結畫面、設定 › 模型接入):回前景會自動重新偵測,所以寫 come back(同 row.orApp,不帶 here)
+msgid "row.reinstall"
+msgstr "Reinstall {name}, then come back."
+
+# 偵測說沒登入、但 CLI 帶整份環境與用戶設定檔時說已登入(main.js authOutside):金鑰在環境變數、settings.json 或 apiKeyHelper,agent 回合讀不到
+msgid "row.keyOff"
+msgstr "Blave can’t read your other sign-in. Sign in with {acct}."
+
+msgid "st.cantRun"
+msgstr "Can’t start"
+
+msgid "st.noResp"
+msgstr "Not responding"
 
 msgid "fault.resend"
 msgstr "Send Again"
@@ -1223,9 +1250,6 @@ msgstr "Usage & billing"
 msgid "pv.d.starting"
 msgstr "Blave data is available right now, before the machine is up. You can close this window."
 
-msgid "pv.d.running"
-msgstr "On the cloud side you can see the strategies, positions and orders on the machine, and ask the agent to build strategies there."
-
 msgid "pv.d.stopped"
 msgstr "A stopped machine still bills {h} TWD an hour. At a balance of 0 the machine is deleted, along with the strategies and data on it."
 
@@ -1384,6 +1408,13 @@ msgstr "When you create the key on {venue}: if you set an IP whitelist, add this
 msgid "cx.note.stockcoin"
 msgstr "Create a futures-type key, and move your funds into the futures account in the StockCoin app first. Blave can only read that balance."
 
+# 連接框選 Bitget、閘門只開一種帳戶類型時說明區多一句(trade.js BITGET_VERIFIED_MODES)
+msgid "cx.note.bitgetClassicOnly"
+msgstr "Bitget Classic account keys only; UTA isn't supported yet."
+
+msgid "cx.note.bitgetUtaOnly"
+msgstr "Bitget Unified Trading Account (UTA) keys only."
+
 # 連接框選永豐金時說明區多一句(AutoTradeSys fork 2026-10-26):先接模擬環境;真錢在終端機開(憑證不經過這個框)
 msgid "cx.note.sinopac"
 msgstr "Connects to SinoPac's simulation environment first; no real orders are sent. To trade real money, run manager/sinopac_setup.py live on in a terminal afterwards (needs your certificate file)."
@@ -1448,6 +1479,17 @@ msgstr "Login stopped. Press Continue to confirm login."
 
 msgid "cx.err.okxMode"
 msgstr "This OKX account mode can't trade futures. In OKX, go to Settings → Account mode and switch to Futures mode or Multi-currency margin."
+
+# Bitget 拒收沒驗過的帳戶類型(lib/account_bitget 的句子 → trade.js cxBitgetModeErr)
+msgid "cx.err.bitgetUta"
+msgstr "Bitget UTA accounts aren't supported yet, so this key wasn't saved. Use a Classic account or another exchange."
+
+# 已綁的 Bitget 金鑰是統一帳戶、還沒開放(讀帳失敗那一列;trade.js trErrToken bitget_uta_unsupported)
+msgid "cx.err.bitgetUtaBound"
+msgstr "Bitget UTA accounts aren't supported yet, so this account can't be read. Connect a Classic account or another exchange."
+
+msgid "cx.err.bitgetClassic"
+msgstr "This is a Bitget Classic key, so it wasn't saved. Upgrade to UTA in the Bitget app and reconnect, or use another exchange."
 
 msgid "cx.failShort"
 msgstr "Connection failed"
@@ -1587,6 +1629,14 @@ msgstr "{sym} not placed: this adjustment is below the exchange minimum. Raise t
 
 msgid "tr.err.symbol"
 msgstr "{sym} not placed: the exchange can’t find this contract, or it’s paused. If delisted, ask the agent to switch contracts."
+
+# Bitget 40092:這個帳戶依地區或資格不開放這個標的(lib [bitget_account_eligibility] → trade.js trErrToken)
+msgid "tr.err.bitgetEligibility"
+msgstr "Bitget doesn't let this account trade {sym}, so no order was placed. Ask the agent to switch symbols, or check eligibility with Bitget."
+
+# Bitget 統一帳戶還沒開放,下單被 lib 擋下(trade.js trErrToken bitget_uta_unsupported)
+msgid "tr.err.bitgetUta"
+msgstr "{sym} not placed: Bitget UTA accounts aren't supported yet. Connect a Classic account or another exchange."
 
 msgid "tr.err.key"
 msgstr "{sym} not placed: the exchange rejected this key. Check the account in Auto trading › Settings; press Retest connection if it’s there."
@@ -1768,7 +1818,7 @@ msgstr "To run around the clock without this computer:"
 msgid "tr.means.cloudGo"
 msgstr "Use a cloud host"
 
-# 設定 › 一般 的開關:輸入框裡的建議灰字(renderer/suggest.js;只管這台電腦)。陳述句
+# 設定 › 一般 的開關:輸入框托盤的建議下一步(renderer/suggest.js;只管這台電腦)。陳述句
 msgid "set.sug"
 msgstr "Suggest a next step"
 
@@ -3079,6 +3129,10 @@ msgstr "Passphrase"
 msgid "cx.passHint"
 msgstr "The one you set when creating the API key, not your OKX login password."
 
+# Passphrase 提示:OKX 以外有 passphrase 的那家(Bitget)
+msgid "cx.passHintV"
+msgstr "The one you set when creating the API key, not your {venue} login password."
+
 msgid "cx.group.crypto"
 msgstr "Crypto"
 
@@ -3302,10 +3356,10 @@ msgid "src.gotIt"
 msgstr "Got It"
 
 msgid "src.empty1"
-msgstr "Blave’s built-in data needs no key. Add something here only when a strategy uses another provider’s data and that provider requires your own key."
+msgstr "No data sources with your own key yet."
 
 msgid "src.empty2"
-msgstr "Once it’s added, just tell the agent to “use {ex} data”. Don’t paste the key into the chat."
+msgstr "Don’t paste keys into the chat."
 
 msgid "src.rowLocal.one"
 msgstr "{n} field · used by: {names}"
@@ -3332,7 +3386,7 @@ msgid "src.errBusy"
 msgstr "The workspace settings file is in use, so nothing was saved. Wait a few seconds and try again."
 
 msgid "src.cloudLead"
-msgstr "These are the data sources on your cloud machine; only names are listed. This version can’t add or delete them here."
+msgstr "Data sources on the cloud machine. Read-only."
 
 msgid "src.cloudEmpty"
 msgstr "There are no data sources on the cloud machine."
@@ -5596,7 +5650,7 @@ msgid "br.set.switch"
 msgstr "Built-in browser"
 
 msgid "br.set.lead"
-msgstr "The agent searches the web; every page it opens shows in the chat. It never opens exchange account pages, brokers or banks; you sign in, submit and pay."
+msgstr "It never opens exchange account pages, brokers or banks. You sign in, submit and pay."
 
 msgid "br.set.clear"
 msgstr "Clear browsing data"
@@ -5686,7 +5740,19 @@ msgid "cap.s.setupRun"
 msgstr "Installing…"
 
 msgid "cap.s.setupFail"
-msgstr "The Capital components didn't install."
+msgstr "The Capital components didn’t install."
+
+msgid "capl.setupBusy"
+msgstr "Windows is installing something else, often updates. Try again in a few minutes."
+
+msgid "capl.setupDenied"
+msgstr "The install was cancelled. Try again and click Yes when Windows asks."
+
+msgid "capl.setupReboot"
+msgstr "Restart the computer to finish installing, then try again."
+
+msgid "capl.setupFailCode"
+msgstr "The Capital components didn’t install (code {code})."
 
 msgid "cap.tryAgain"
 msgstr "Try Again"
@@ -6351,9 +6417,6 @@ msgstr "This table is scaled down to fit the page. Open the report in Blave to s
 msgid "set.cat.shares"
 msgstr "Public links"
 
-msgid "shl.title"
-msgstr "Public reports"
-
 msgid "shl.count"
 msgstr "{n} / {max}"
 
@@ -6390,9 +6453,6 @@ msgstr "No public reports right now. To publish one, open a report and choose Sh
 
 msgid "shl.loadFail"
 msgstr "Couldn't load your public links. Check your connection and try again."
-
-msgid "shl.gate"
-msgstr "Public links are tied to your Blave account. Sign in to see them."
 
 # 取消成功後讀屏念的那一句(畫面上不出字)
 msgid "shl.revoked"
@@ -6498,7 +6558,10 @@ msgstr "Send It"
 # Settings › Agent rules (0.1.9; spec-desktop-agent-rules-0.1.9 §11, this computer only)
 
 msgid "set.cat.rules"
-msgstr "Agent rules"
+msgstr "Agent"
+
+msgid "set.cat.connect"
+msgstr "Connections"
 
 msgid "rules.aria"
 msgstr "Agent standing rules"
@@ -6519,7 +6582,7 @@ msgid "rules.emptyLead"
 msgstr "No rules yet."
 
 msgid "rules.emptyHow"
-msgstr "Say “from now on every strategy needs a stop loss” in the chat and the agent records it as a rule — or add one here."
+msgstr "Saying “always set a stop loss” in the chat also adds a rule."
 
 msgid "rules.full"
 msgstr "10 rules is the limit. Delete one to add another — nothing gets dropped for you."
@@ -7789,7 +7852,7 @@ msgid "pv.f.running.await"
 msgstr "The first period wasn’t charged automatically. Start the plan on the website to continue; otherwise the machine is deleted on {gu}"
 
 msgid "plan.topupShort"
-msgstr "Under {a} TWD, your card tops up {b} TWD; turn off on the web"
+msgstr "Under {a} TWD, your card tops up {b} TWD. You can turn this off on the web."
 
 msgid "po.nav"
 msgstr "Portfolio"
@@ -8909,3 +8972,82 @@ msgstr "{lots} lot(s) are still open at Capital. After you quit, strategies plac
 
 msgid "capl.quit.unknown"
 msgstr "Capital positions can’t be read right now — some may still be open. After you quit, strategies place no more orders and nothing is closed — check them in the Capital app."
+
+msgid "intro.title"
+msgstr "Start Your First Strategy"
+
+msgid "intro.ask"
+msgstr "Ask the Agent Where to Start"
+
+msgid "intro.type"
+msgstr "Type My Own Idea"
+
+msgid "intro.msg"
+msgstr "I don't have a strategy idea yet. Where should I start? Keep it short and end with three next steps I can pick."
+
+msgid "intro.pause"
+msgstr "Pause Demo"
+
+msgid "intro.resume"
+msgstr "Resume Demo"
+
+msgid "intro.replay"
+msgstr "Replay Demo"
+
+msgid "intro.play"
+msgstr "Play Demo"
+
+# Bitget 換帳戶類型後倉位對不上、自動暫停(halt.mismatch;trade.js trHaltReasonText)
+msgid "tr.haltBitgetMismatchUta"
+msgstr "After Bitget switched to a unified account (UTA), {n} positions don’t match what was there before. Nothing is sent while paused."
+
+msgid "tr.haltBitgetMismatchClassic"
+msgstr "After Bitget switched to a classic account, {n} positions don’t match what was there before. Nothing is sent while paused."
+
+# 對不上的倉位清單(trade.js trPaintMismatch):欄名與出口句
+msgid "tr.mm.colSym"
+msgstr "Symbol"
+
+msgid "tr.mm.colBefore"
+msgstr "Before the switch"
+
+msgid "tr.mm.colNow"
+msgstr "On Bitget now"
+
+msgid "tr.mm.none"
+msgstr "No position"
+
+msgid "tr.mm.foot"
+msgstr "Check them on Bitget, then press Start trading."
+
+# 事件列(P3):Bitget 換帳戶類型、倉位全對上、自動恢復
+msgid "tr.ov.evBitgetUta"
+msgstr "Bitget switched to a unified account (UTA); positions match, trading as usual"
+
+msgid "tr.ov.evBitgetClassic"
+msgstr "Bitget switched to a classic account; positions match, trading as usual"
+
+# 事件列(P1):Bitget 換帳戶類型、倉位都對上,但以下倉位在 Bitget 上沒有止損(下單照常、不自動補掛;trade.js trEventText venue_stops_missing)
+msgid "tr.ov.evBitgetNoStopUta"
+msgstr "After Bitget switched to a unified account (UTA), these positions have no stop-loss:"
+
+msgid "tr.ov.evBitgetNoStopClassic"
+msgstr "After Bitget switched to a classic account, these positions have no stop-loss:"
+
+# 讀不到 Bitget 的止損單:當成沒有
+msgid "tr.ov.evBitgetStopsUnreadUta"
+msgstr "Bitget switched to a unified account (UTA); its stop orders couldn’t be read. Treating these as having no stop-loss:"
+
+msgid "tr.ov.evBitgetStopsUnreadClassic"
+msgstr "Bitget switched to a classic account; its stop orders couldn’t be read. Treating these as having no stop-loss:"
+
+msgid "tr.ov.evBitgetNoStopNote"
+msgstr "Trading continues; Blave won’t re-place stops. Set them on Bitget, or ask the agent to."
+
+# 本機 P1 系統通知的標題(main.js tmLabels ev_venue_stops_missing)
+msgid "tm.evBitgetNoStop"
+msgstr "Bitget positions without a stop-loss"
+
+# 事件列 P3 的註解:Blave 自己的下單紀錄讀不到,無法確認換帳戶後止損還在不在
+msgid "tr.ov.evBitgetStopsUnknown"
+msgstr "Stops couldn’t be confirmed: Blave’s order record is unreadable. Check your stops on Bitget."

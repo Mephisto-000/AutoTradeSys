@@ -13,7 +13,7 @@ msgid "cn.blave.desc"
 msgstr "首次綁卡送 100 TWD 的 AI 額度，之後按用量計費"
 
 # 連結畫面偵測完本機兩個 CLI 都不能用、沒登入、公開價目有綁卡前額度時的大標與 Blave 那一列的副標(0.1.22;spec desktop-precard-credit §5.2)。
-# 「綁卡」整個畫面只講一次,放副標、句子對齊網站授權頁的「額度用完才需要綁卡」;不寫「夠跑幾輪」(不限模型,Opus 一輪可能就超過)
+# 「綁卡」整個畫面只講一次,放副標、句子對齊網站授權頁的「額度用完才需要綁卡」;不寫「夠跑幾輪」。這筆額度只能用 DeepSeek V4 Pro(0.1.33,選單上其他型號鎖住、旁邊講怎麼解開),所以字不提型號
 msgid "cn.h.free"
 msgstr "先用 Blave AI 開始"
 
@@ -145,13 +145,13 @@ msgstr "一次最多 4 個檔案，多的沒加入。"
 msgid "ws.attachTotalLarge"
 msgstr "附件合計上限 15MB，有檔案沒加入。"
 
-# 建議下一步灰字的讀屏說明(textarea 的 aria-describedby;renderer/suggest.js)。{s} = agent 寫的那一句
-msgid "ws.sugDesc"
-msgstr "建議：{s}。按 Tab 填入。"
-
-# 灰字第一次畫出來時讀屏念一次(polite live region)
+# 建議下一步托盤第一次畫出來時讀屏念一次(polite live region;renderer/suggest.js)。{s} = agent 寫的那一句
 msgid "ws.sugSay"
-msgstr "建議：{s}，按 Tab 填入"
+msgstr "建議：{s}"
+
+# 建議下一步托盤右邊 × 的可及名稱:作廢這句,不算沒用
+msgid "ws.sugDismiss"
+msgstr "關掉建議"
 
 msgid "ws.send"
 msgstr "送出"
@@ -547,6 +547,10 @@ msgstr "你的帳號用不了「{model}」，這一輪沒有跑。"
 msgid "fault.noModelSwitched"
 msgstr "你的帳號用不了「{model}」，這一輪沒有跑。已換回「{to}」。"
 
+# 0.1.33 綁卡前的 30 TWD 只能用 DeepSeek V4 Pro:送了鎖住的型號(api 404 MODEL_NEEDS_PAYMENT),選擇已換回預設;鈕是綁卡(acct.addCard)
+msgid "fault.freeLocked"
+msgstr "「{model}」要綁卡或儲值才能用，這一輪沒有跑。已換回「{to}」。"
+
 msgid "fault.noModelBtn"
 msgstr "選別的模型"
 
@@ -559,6 +563,10 @@ msgstr "你的 {name} 訂閱用量到上限了。重置之前可以到「設定 
 
 msgid "fault.limitBtn"
 msgstr "切換 AI"
+
+# 0.1.33 模型選單:有鎖住的列時,型號清單下面那一行(只講一次;鎖住列 aria-describedby 指它)。336 寬不折行
+msgid "mp.locked"
+msgstr "其他模型綁卡或儲值後可用"
 
 msgid "mp.na"
 msgstr "你的方案沒有"
@@ -944,14 +952,33 @@ msgstr "放大檢視"
 msgid "login.cancel"
 msgstr "取消等待"
 
-msgid "login.failedCmd"
-msgstr "也可以在終端機執行 {cmd}。"
-
-msgid "login.failedCodex"
-msgstr "在 ChatGPT app 裡登入 ChatGPT 帳號，再按重新偵測。"
-
 msgid "login.retry"
 msgstr "再試一次"
+
+msgid "row.opened"
+msgstr "已在瀏覽器開啟登入頁"
+
+msgid "row.failed"
+msgstr "登入沒有完成。"
+
+msgid "row.orCmd"
+msgstr "或在終端機執行 {cmd}。"
+
+msgid "row.orApp"
+msgstr "或在 ChatGPT app 登入後回到這裡。"
+
+msgid "row.reinstall"
+msgstr "重新安裝 {name} 後回到這裡。"
+
+# 偵測說沒登入、但 CLI 帶整份環境與用戶設定檔時說已登入(main.js authOutside):金鑰在環境變數、settings.json 或 apiKeyHelper,agent 回合讀不到
+msgid "row.keyOff"
+msgstr "Blave 讀不到你另外設的金鑰或登入，請登入 {acct} 帳號。"
+
+msgid "st.cantRun"
+msgstr "無法啟動"
+
+msgid "st.noResp"
+msgstr "沒有回應"
 
 msgid "fault.resend"
 msgstr "再送一次"
@@ -1231,9 +1258,6 @@ msgstr "用量與帳務"
 msgid "pv.d.starting"
 msgstr "Blave 的資料現在就能用，不用等主機開好。可以關掉這個視窗。"
 
-msgid "pv.d.running"
-msgstr "在雲端那一邊，可以看主機上的策略、部位與下單，也可以請 agent 在主機上做策略。"
-
 msgid "pv.d.stopped"
 msgstr "停機期間仍每小時扣 {h} TWD。餘額歸零時主機會刪除，主機上的策略與資料一併清除。"
 
@@ -1392,6 +1416,13 @@ msgstr "在 {venue} 建金鑰時，有設 IP 白名單的話，把這個 IP 加�
 msgid "cx.note.stockcoin"
 msgstr "金鑰要建成合約類型，並先在 StockCoin App 把資金轉進合約帳戶，Blave 只讀得到那裡的餘額。"
 
+# 連接框選 Bitget、閘門只開一種帳戶類型時說明區多一句(trade.js BITGET_VERIFIED_MODES)
+msgid "cx.note.bitgetClassicOnly"
+msgstr "只收 Bitget 經典帳戶的金鑰，統一帳戶（UTA）還不支援。"
+
+msgid "cx.note.bitgetUtaOnly"
+msgstr "只收 Bitget 統一帳戶（UTA）的金鑰。"
+
 # 連接框選永豐金時說明區多一句(AutoTradeSys fork 2026-10-26):先接模擬環境;真錢在終端機開(憑證不經過這個框)
 msgid "cx.note.sinopac"
 msgstr "先接永豐的模擬環境，不會送出真實委託。要用真錢，之後在終端機執行 manager/sinopac_setup.py live on（需要憑證檔）。"
@@ -1456,6 +1487,17 @@ msgstr "登入已停止，按「繼續」確認登入。"
 
 msgid "cx.err.okxMode"
 msgstr "OKX 帳戶模式不支援合約。到 OKX 設定 → 帳戶模式，改成合約模式或跨幣種保證金。"
+
+# Bitget 拒收沒驗過的帳戶類型(lib/account_bitget 的句子 → trade.js cxBitgetModeErr)
+msgid "cx.err.bitgetUta"
+msgstr "還不支援 Bitget 統一帳戶（UTA），這把金鑰沒有儲存。請改用經典帳戶或其他交易所。"
+
+# 已綁的 Bitget 金鑰是統一帳戶、還沒開放(讀帳失敗那一列;trade.js trErrToken bitget_uta_unsupported)
+msgid "cx.err.bitgetUtaBound"
+msgstr "還不支援 Bitget 統一帳戶（UTA），讀不到這個帳戶。請改綁經典帳戶或其他交易所。"
+
+msgid "cx.err.bitgetClassic"
+msgstr "這把金鑰是 Bitget 經典帳戶，沒有儲存。到 Bitget App 升級成統一帳戶再連，或改綁其他交易所。"
 
 msgid "cx.failShort"
 msgstr "串接失敗"
@@ -1596,6 +1638,14 @@ msgstr "{sym} 沒有下單：這次調整量低於交易所最小下單量。調
 
 msgid "tr.err.symbol"
 msgstr "{sym} 沒有下單：交易所找不到這個合約，或它暫停交易。已下架的話，請 agent 換到別的合約。"
+
+# Bitget 40092:這個帳戶依地區或資格不開放這個標的(lib [bitget_account_eligibility] → trade.js trErrToken)
+msgid "tr.err.bitgetEligibility"
+msgstr "Bitget 不開放這個帳戶交易 {sym}，這筆沒有下單。請 agent 換標的，或洽 Bitget 確認帳戶資格。"
+
+# Bitget 統一帳戶還沒開放,下單被 lib 擋下(trade.js trErrToken bitget_uta_unsupported)
+msgid "tr.err.bitgetUta"
+msgstr "{sym} 沒有下單：還不支援 Bitget 統一帳戶（UTA）。請改綁經典帳戶或其他交易所。"
 
 msgid "tr.err.key"
 msgstr "{sym} 沒有下單：交易所拒絕這把金鑰。到「自動下單 › 設定」看帳戶狀態，有「重新測試」就按。"
@@ -1777,7 +1827,7 @@ msgstr "要 24 小時跑、不靠這台電腦："
 msgid "tr.means.cloudGo"
 msgstr "改用雲端主機"
 
-# 設定 › 一般 的開關:輸入框裡的建議灰字(renderer/suggest.js;只管這台電腦)。陳述句
+# 設定 › 一般 的開關:輸入框托盤的建議下一步(renderer/suggest.js;只管這台電腦)。陳述句
 msgid "set.sug"
 msgstr "建議下一步"
 
@@ -3090,6 +3140,10 @@ msgstr "Passphrase"
 msgid "cx.passHint"
 msgstr "建立 API 金鑰時自己設的那組，不是 OKX 的登入密碼。"
 
+# Passphrase 提示:OKX 以外有 passphrase 的那家(Bitget)
+msgid "cx.passHintV"
+msgstr "建立 API 金鑰時自己設的那組，不是 {venue} 的登入密碼。"
+
 msgid "cx.group.crypto"
 msgstr "加密貨幣"
 
@@ -3313,10 +3367,10 @@ msgid "src.gotIt"
 msgstr "知道了"
 
 msgid "src.empty1"
-msgstr "Blave 內建的資料不需要金鑰。策略要用別家的資料、而那一家要你自己的金鑰時，才在這裡加。"
+msgstr "還沒有自帶金鑰的資料來源。"
 
 msgid "src.empty2"
-msgstr "加好之後跟 agent 說「用 {ex} 的資料」就可以；金鑰不要貼在對話裡。"
+msgstr "金鑰不要貼在對話裡。"
 
 msgid "src.rowLocal.one"
 msgstr "{n} 個欄位 · 用到它的策略：{names}"
@@ -3343,7 +3397,7 @@ msgid "src.errBusy"
 msgstr "工作區的設定檔正在被使用，沒有儲存。等幾秒再試一次。"
 
 msgid "src.cloudLead"
-msgstr "這是你的雲端主機上的資料來源，這裡只列名稱。這一版還不能在這裡新增或刪除。"
+msgstr "雲端主機上的資料來源，唯讀。"
 
 msgid "src.cloudEmpty"
 msgstr "雲端主機上沒有資料來源。"
@@ -5610,7 +5664,7 @@ msgid "br.set.switch"
 msgstr "內建瀏覽器"
 
 msgid "br.set.lead"
-msgstr "agent 會上網查資料，開的頁都會出現在聊天裡。不開交易所後台、券商與銀行，登入、送出、付款由你按。"
+msgstr "不開交易所後台、券商與銀行。登入、送出、付款由你按。"
 
 msgid "br.set.clear"
 msgstr "清除瀏覽資料"
@@ -5701,6 +5755,18 @@ msgstr "安裝中…"
 
 msgid "cap.s.setupFail"
 msgstr "群益元件沒裝好。"
+
+msgid "capl.setupBusy"
+msgstr "Windows 正在安裝其他程式或更新，等幾分鐘再試。"
+
+msgid "capl.setupDenied"
+msgstr "安裝被取消了。再試一次，Windows 詢問時按「是」。"
+
+msgid "capl.setupReboot"
+msgstr "要重新開機才能裝完，開機後再試一次。"
+
+msgid "capl.setupFailCode"
+msgstr "群益元件沒裝好（代碼 {code}）。"
 
 msgid "cap.tryAgain"
 msgstr "再試一次"
@@ -6365,9 +6431,6 @@ msgstr "這張表已縮小以放進頁面，原始大小請在 Blave 裡看。"
 msgid "set.cat.shares"
 msgstr "公開連結"
 
-msgid "shl.title"
-msgstr "公開中的報告"
-
 msgid "shl.count"
 msgstr "{n}／{max}"
 
@@ -6404,9 +6467,6 @@ msgstr "目前沒有公開中的報告。要公開，打開一份報告按「分
 
 msgid "shl.loadFail"
 msgstr "讀不到公開連結，請檢查網路後再試。"
-
-msgid "shl.gate"
-msgstr "公開連結掛在你的 Blave 帳號下，登入後才看得到。"
 
 # 取消成功後讀屏念的那一句(畫面上不出字)
 msgid "shl.revoked"
@@ -6512,7 +6572,10 @@ msgstr "送進去"
 # 設定 › Agent 規則(0.1.9;spec-desktop-agent-rules-0.1.9 §11,只做本機)
 
 msgid "set.cat.rules"
-msgstr "Agent 規則"
+msgstr "Agent"
+
+msgid "set.cat.connect"
+msgstr "連結"
 
 msgid "rules.aria"
 msgstr "Agent 常駐規則"
@@ -6533,7 +6596,7 @@ msgid "rules.emptyLead"
 msgstr "還沒有任何規則。"
 
 msgid "rules.emptyHow"
-msgstr "在對話裡說「以後每個策略都要停損」，agent 會幫你記成一條規則；也可以在這裡直接新增。"
+msgstr "在對話裡說「以後都要設停損」，也會記成一條規則。"
 
 msgid "rules.full"
 msgstr "已經 10 條，是上限。要新增請先刪掉一條——不會自動丟掉舊的。"
@@ -7805,7 +7868,7 @@ msgid "pv.f.running.await"
 msgstr "第一期沒有自動扣。到網站開通才會繼續；沒開通的話主機 {gu}刪除"
 
 msgid "plan.topupShort"
-msgstr "低於 {a} TWD 時從卡自動儲值 {b} TWD；網頁可關"
+msgstr "低於 {a} TWD 時從卡自動儲值 {b} TWD。可在網頁關閉。"
 
 msgid "po.nav"
 msgstr "策略組合"
@@ -8931,3 +8994,88 @@ msgstr "群益還有 {lots} 口在倉。結束後策略不會再下單，這些�
 # 結束攔截:群益本機綁著、這一刻讀不到部位、之前也沒讀到過有部位(保守當成可能還有)
 msgid "capl.quit.unknown"
 msgstr "群益的部位現在讀不到，可能還有在倉。結束後策略不會再下單，也不會自動平倉，請到群益 app 確認。"
+
+# 第一次對話 modal(renderer/intro.js;設計 desktop-first-chat-modal-2026-10-25):新安裝連上 AI 後彈一次
+msgid "intro.title"
+msgstr "開始第一支策略"
+
+# 主鈕。按了送出 intro.msg 整句(鈕字與送出句分兩個 key)
+msgid "intro.ask"
+msgstr "問 agent 從哪開始"
+
+# 次鈕:關掉、游標落在輸入框
+msgid "intro.type"
+msgstr "我有想法，自己打"
+
+# 主鈕送給 agent 的整句(讀者是模型;web 工作頁上線時兩邊同一句,進 check_web_desktop_parity)
+msgid "intro.msg"
+msgstr "我還沒有策略想法，可以從哪開始？回答短一點，最後給我三個可以直接選的下一步。"
+
+# 示範舞台右下角那顆鈕的 aria-label(播放中／暫停後／播完)
+msgid "intro.pause"
+msgstr "暫停示範"
+
+msgid "intro.resume"
+msgstr "繼續示範"
+
+msgid "intro.replay"
+msgstr "重播示範"
+
+# 減少動態時舞台停在最後一格,鈕的 aria-label(按了從頭播)
+msgid "intro.play"
+msgstr "播放示範"
+
+# Bitget 換帳戶類型後倉位對不上、自動暫停(halt.mismatch;trade.js trHaltReasonText)
+msgid "tr.haltBitgetMismatchUta"
+msgstr "Bitget 換成統一帳戶後，{n} 個倉位跟換之前對不上。暫停期間什麼單都不送。"
+
+msgid "tr.haltBitgetMismatchClassic"
+msgstr "Bitget 換成經典帳戶後，{n} 個倉位跟換之前對不上。暫停期間什麼單都不送。"
+
+# 對不上的倉位清單(trade.js trPaintMismatch):欄名與出口句
+msgid "tr.mm.colSym"
+msgstr "標的"
+
+msgid "tr.mm.colBefore"
+msgstr "換之前"
+
+msgid "tr.mm.colNow"
+msgstr "Bitget 現在"
+
+msgid "tr.mm.none"
+msgstr "沒有倉位"
+
+msgid "tr.mm.foot"
+msgstr "在 Bitget 核對完，再按「啟動下單」。"
+
+# 事件列(P3):Bitget 換帳戶類型、倉位全對上、自動恢復
+msgid "tr.ov.evBitgetUta"
+msgstr "Bitget 換成統一帳戶，倉位都對上，照常下單"
+
+msgid "tr.ov.evBitgetClassic"
+msgstr "Bitget 換成經典帳戶，倉位都對上，照常下單"
+
+# 事件列(P1):Bitget 換帳戶類型、倉位都對上,但以下倉位在 Bitget 上沒有止損(下單照常、不自動補掛;trade.js trEventText venue_stops_missing)
+msgid "tr.ov.evBitgetNoStopUta"
+msgstr "Bitget 換成統一帳戶後，以下倉位沒有止損："
+
+msgid "tr.ov.evBitgetNoStopClassic"
+msgstr "Bitget 換成經典帳戶後，以下倉位沒有止損："
+
+# 讀不到 Bitget 的止損單:當成沒有
+msgid "tr.ov.evBitgetStopsUnreadUta"
+msgstr "Bitget 換成統一帳戶後讀不到止損單。以下倉位當成沒有止損："
+
+msgid "tr.ov.evBitgetStopsUnreadClassic"
+msgstr "Bitget 換成經典帳戶後讀不到止損單。以下倉位當成沒有止損："
+
+msgid "tr.ov.evBitgetNoStopNote"
+msgstr "下單照常，Blave 不會自動補掛。要止損請到 Bitget 設定，或請 agent 補掛。"
+
+# 本機 P1 系統通知的標題(main.js tmLabels ev_venue_stops_missing)
+msgid "tm.evBitgetNoStop"
+msgstr "Bitget 有倉位沒有止損"
+
+# 事件列 P3 的註解:Blave 自己的下單紀錄讀不到,無法確認換帳戶後止損還在不在
+msgid "tr.ov.evBitgetStopsUnknown"
+msgstr "無法確認止損：讀不到 Blave 的下單紀錄，請到 Bitget 看止損還在不在。"

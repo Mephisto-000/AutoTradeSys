@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld("blave", {
   themeSet: (v) => ipcRenderer.invoke("theme-set", typeof v === "string" ? v : ""),
   welcomePrefs: () => ipcRenderer.invoke("welcome-prefs"),
   welcomePrefsSet: (p) => ipcRenderer.invoke("welcome-prefs-set", { ...(p && "done" in p ? { done: p.done === true } : {}), ...(p && "cloudDone" in p ? { cloudDone: p.cloudDone === true } : {}) }),
+  introCheck: () => ipcRenderer.invoke("intro-check"),
+  introSeen: () => ipcRenderer.invoke("intro-seen"),
   stratPrefs: () => ipcRenderer.invoke("strat-prefs"),
   stratPrefsSet: (p) => ipcRenderer.invoke("strat-prefs-set", { stratOrder: p && p.stratOrder, stratFlags: p && p.stratFlags }),
   // 雲端那一袋的部位大小(renderer/portfolio.js):存 ui-prefs.json、主行程綁這次登入;換人讀回 null
@@ -173,6 +175,7 @@ contextBridge.exposeInMainWorld("blave", {
   reportLoad: (id) => ipcRenderer.invoke("report-load", id),
   cancelAgentLogin: () => ipcRenderer.invoke("cancel-agent-login"),
   agentLogin: (kind) => ipcRenderer.invoke("agent-login", kind),
+  onAgentLoginSpawned: (fn) => ipcRenderer.on("agent-login-spawned", () => fn()),   // 登入行程 spawn 了(偵測跑完之後)
   signOutBlave: () => ipcRenderer.invoke("sign-out-blave"),
   mobileViewState: () => ipcRenderer.invoke("mobile-view-state"),
   mobileViewSet: (on) => ipcRenderer.invoke("mobile-view-set", on === true),

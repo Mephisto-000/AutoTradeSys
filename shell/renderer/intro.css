@@ -1,0 +1,20 @@
+/* 第一次對話 modal(renderer/intro.js;設計 .claude/output/designer/desktop-first-chat-modal-2026-10-25,
+   舞台影片 intro-video-2026-10-26/embed-spec.md)。殼是 app.css 的 .scrim / .set-modal / .modal-head / .modal-foot,
+   這裡只有寬度與示範舞台。舞台 = 影片的比例 1400:950;影片的暗面是 imagery,淺色主題也照放 */
+.intro-modal { width: min(560px, 92vw); }
+
+.intro-stage { position: relative; flex: none; aspect-ratio: 1400 / 950; margin: var(--space-16); border-radius: var(--radius-md); background: var(--bg-body); overflow: hidden; }
+/* 比例相同,cover 只為了擋捨入出來的 1px 縫 */
+.intro-stage video { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+/* 暫停／重播(WCAG 2.2.2):舞台右下角,視覺 28、熱區 44。底下是影片畫面、亮度會變,照 landing .hero-video-play 用實心黑鈕 */
+.in-play { position: absolute; right: var(--space-8); bottom: var(--space-8); z-index: 2; width: 28px; height: 28px; padding: 0; border: 0; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-pill); background: var(--control-fill); color: var(--control-fill-text); cursor: pointer; transition: opacity var(--motion-fast) var(--ease-standard); }
+.in-play[hidden] { display: none; }
+.in-play::before { content: ""; position: absolute; inset: -8px; }
+.in-play:hover { opacity: .85; }
+/* 影片不跟主題換色:暗色用全站焦點環;亮色的全站環是深色,壓在深草地上看不見,只覆寫亮色 */
+[data-theme="light"] .in-play:focus-visible { outline-color: var(--control-fill-text); }
+.in-play svg { width: 14px; height: 14px; fill: currentColor; }
+/* 播放三角形的重心偏左,往右 1px 做光學置中 */
+.in-play svg:has(path) { margin-left: 1px; }
+@media (prefers-reduced-motion: reduce) { .in-play { transition: none; } }

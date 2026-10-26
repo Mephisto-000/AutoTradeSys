@@ -44,7 +44,7 @@ def check(cond, msg):
 JS = """
 const M = require(process.argv[1]);
 const out = {};
-for (const v of ["okx", "bingx", "gateio", "bybit", "stockcoin", "sinopac"]) {
+for (const v of ["okx", "bingx", "gateio", "bybit", "stockcoin", "bitget", "sinopac"]) {
   const b = M.connectSecrets({ venue: v, apiKey: "not-a-real-key-" + v, secret: "not-a-real-secret-" + v, passphrase: "not a real passphrase" }, () => false, 1);
   out[v] = { secrets: b.secrets, remove: M.venueEnvNames(v) };
 }
@@ -59,6 +59,7 @@ LIB_NAMES = {  # 下單 / 帳戶 lib 讀的名字(lib/account_*.py 的 env.get)
     "gateio": {"GATEIO_API_KEY", "GATEIO_SECRET_KEY"},
     "bybit": {"BYBIT_API_KEY", "BYBIT_SECRET_KEY"},
     "stockcoin": {"STOCKCOIN_API_KEY", "STOCKCOIN_SECRET_KEY"},
+    "bitget": {"BITGET_API_KEY", "BITGET_SECRET_KEY", "BITGET_PASSPHRASE"},
     "sinopac": {"SINOPAC_API_KEY", "SINOPAC_SECRET_KEY"},   # AutoTradeSys fork 2026-10-26:永豐金 現股
 }
 # 永豐只綁在這台電腦(cloudcmd localOnly;雲端主機沒有它的 lib 與憑證):雲端那一段不送它,local 段用假 lib 走一遍
@@ -103,7 +104,9 @@ check(not any(k in env_lines() for k in LIB_NAMES["okx"]), "OKX 解除綁定連 
 import types  # noqa: E402
 
 os.environ["BLAVE_AGENT_LOCAL"] = "1"
-cl.LOCAL_OPEN_VENUES = frozenset({"PAPER", "BINANCE", "OKX", "BINGX", "GATEIO", "BYBIT", "STOCKCOIN", "SINOPAC"})
+# what runtime/local_daemon opens (Bitget only while venue_traits verifies an account type)
+cl.LOCAL_OPEN_VENUES = frozenset({"PAPER", "BINANCE", "OKX", "BINGX", "GATEIO", "BYBIT", "STOCKCOIN", "SINOPAC"}
+                                 | ({"BITGET"} if cl.venue_traits.verified_modes("bitget") else set()))
 check(all(set(cl._LOCAL_KEY_CHECKS[v.upper()]) == LIB_NAMES[v] for v in LIB_NAMES),
       "local:runtime 檢查要的欄位(_LOCAL_KEY_CHECKS)= 外殼送的那一組")
 READ = {}

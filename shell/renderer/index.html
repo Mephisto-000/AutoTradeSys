@@ -2,7 +2,7 @@
 <html lang="en"><head><meta charset="utf-8">
 <!-- CSP:這個畫面會渲染 LLM 產生的文字,而且能觸發「啟動雲端方案」(花錢)。程式只從本機檔案載,
      不准 inline script / eval / 任何外連;圖是主行程給的 data: URI;inline style 屬性有一處(拖曳區) -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Blave</title>
 <!-- 主題:比所有樣式表早、同步跑,第一幀就是對的明暗 -->
 <script src="theme-boot.js"></script>
@@ -30,6 +30,7 @@
 <link rel="stylesheet" href="versions.css">
 <link rel="stylesheet" href="engine.css">
 <link rel="stylesheet" href="welcome.css">
+<link rel="stylesheet" href="intro.css">
 </head><body>
 
 <!-- ============ 連結畫面(獨立畫面,不是 modal) ============ -->
@@ -121,6 +122,8 @@
           <div class="txt">
             <h5 class="main-head-name" id="tr-h" tabindex="-1" data-i18n="tr.nav"></h5>
             <div class="main-head-desc" id="tr-desc"></div>
+            <!-- Bitget 換帳戶類型後對不上的倉位(halt.mismatch;trade.js trPaintMismatch) -->
+            <div class="tr-mm" id="tr-mm" hidden></div>
             <!-- 台指期實盤行情來源(統一綁定的這台電腦,狀態句正下方自己一行;設計 spec desktop-live-source-line):
                  「實盤行情:統一期貨」/「實盤行情:Blave 快取,訊號慢 1–2 分鐘(原因)」,讀回報的 twfutures_live_source;Z 佔位行 #tr-noamt 插在它後面 -->
             <p class="tr-ro-note" id="tr-quote" hidden></p>
@@ -406,13 +409,13 @@
           <span class="attach-hint" id="attach-hint" role="note" hidden></span>
         </div>
         <div class="chat-input">
-          <!-- 建議下一步(renderer/suggest.js;spec suggest-next-step-v2 §1.2):灰字疊在 textarea 那一列、單行不撐高,鍵帽跟在句子後面。
-               灰字 aria-hidden,讀屏靠 textarea 的 aria-describedby 指向 #sug-desc(作廢就拿掉) -->
-          <div class="ta-field" id="ta-field">
-            <textarea id="ta" rows="1" data-i18n-ph="ws.placeholder"></textarea>
-            <div class="sug-ghost" aria-hidden="true"><span class="sug-ghost-t" id="sug-ghost-t"></span><kbd id="sug-kbd">Tab</kbd></div>
-            <span class="sr-only" id="sug-desc"></span>
+          <!-- 建議下一步托盤(renderer/suggest.js;spec suggest-tray-2026-10-26 §1.1):框內第一列、在 textarea 之前,Shift+Tab 從輸入框回到句子鈕。
+               × 不進 Tab 順序(鍵盤用 Esc 作廢):不然 Shift+Tab 先落在 ×、按 Enter 是作廢而不是填入 -->
+          <div class="sug-tray" id="sug-tray" hidden>
+            <button type="button" class="sug-tray-btn" id="sug-tray-btn"><span class="sug-glyph" aria-hidden="true">↳</span><span class="sug-tray-t" id="sug-tray-t"></span></button>
+            <button type="button" class="sug-tray-x" id="sug-tray-x" tabindex="-1" data-i18n-aria="ws.sugDismiss">✕</button>
           </div>
+          <textarea id="ta" rows="1" data-i18n-ph="ws.placeholder"></textarea>
           <div class="ci-bar">
             <!-- 迴紋針(照雲端 #attach_btn,同一顆中性 ghost):雲端放輸入列最左,電腦版的輸入框是上下兩層,放工具列最左。
                  電腦版另外收拖放到輸入框與貼上剪貼簿的圖(原生能力,雲端沒有) -->
@@ -432,6 +435,7 @@
               <div class="mp-panel" id="mp-panel" role="dialog" hidden>
                 <p class="mp-cap" data-i18n="mp.model"></p>
                 <div class="mp-models" id="mp-models" role="radiogroup"></div>
+                <p class="mp-note" id="mp-lock-note" hidden></p>
                 <div class="mp-div" id="mp-div"></div>
                 <!-- 「思考深度」本身是 tooltip 的觸發點(點線底線 = 滑過有解釋的慣例)。
                      說明句是在解釋術語 → tooltip(canon › Tooltip)。 -->
@@ -455,8 +459,27 @@
   </div>
 </div>
 
+<!-- 第一次對話 modal(renderer/intro.js;設計 desktop-first-chat-modal-2026-10-25):新安裝連上 AI 後彈一次。殼 = .scrim + .set-modal 560。
+     排在設定框前面:它開著時設定還能從選單疊上來,Esc 先關上面那層。舞台放 landing hero 影片(intro/,src 由 intro.js 開框時才設);點遮罩不關 -->
+<div class="scrim" id="intro-scrim" role="dialog" aria-modal="true" aria-labelledby="intro-title" hidden>
+  <div class="set-modal intro-modal" id="intro-modal">
+    <div class="modal-head">
+      <h6 id="intro-title" data-i18n="intro.title"></h6>
+      <button type="button" class="modal-close" id="intro-close" data-i18n-aria="set.close">✕</button>
+    </div>
+    <div class="intro-stage" id="intro-stage">
+      <video id="intro-video" muted playsinline preload="auto" aria-hidden="true" disablepictureinpicture disableremoteplayback></video>
+      <button type="button" class="in-play" id="intro-play"></button>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn-out" id="intro-type" data-i18n="intro.type"></button>
+      <button type="button" class="btn-fill" id="intro-ask" data-i18n="intro.ask"></button>
+    </div>
+  </div>
+</div>
+
 <!-- ============ 設定 modal(樣式照雲端 .scrim / .ns-modal.set-modal) ============
-     分類:一般(語言、關於)、模型接入、資料來源、帳號與方案、公開連結、隱私。每一類的內容各自由 app.js 畫;
+     分類:一般、模型接入、Agent、資料來源、連結、帳號與方案、隱私(web 工作頁的設定是其中「一般／Agent／連結」三類,名稱與相對順序相同)。每一類的內容各自由 app.js 畫;
      「模型接入」不借用連結畫面那張卡(那裡是第一次做決定的地方,這裡是回來換的地方)。 -->
 <div class="scrim" id="set-scrim" role="dialog" aria-modal="true" aria-labelledby="set-title" hidden>
   <div class="set-modal" id="set-modal">
@@ -468,15 +491,15 @@
       <nav class="set-cats" id="set-cats" data-i18n-aria="set.cats">
         <button type="button" class="set-cat" data-set-cat="display" aria-current="true" data-i18n="set.cat.display"></button>
         <button type="button" class="set-cat" data-set-cat="model" data-i18n="set.cat.model"></button>
-        <!-- Agent 規則:常駐規則 + 回覆語言(排在「模型接入」後面)。內容由 rules.js 畫;只管這台電腦那一份 -->
+        <!-- Agent:回覆語言 + 常駐規則 + 內建瀏覽器(排在「模型接入」後面)。內容由 rules.js 畫;規則只管這台電腦那一份 -->
         <button type="button" class="set-cat" data-set-cat="rules" data-i18n="set.cat.rules"></button>
         <!-- 資料來源:自帶資料商的金鑰(排在「AI 接入」後面)。內容由 datasrc.js 的 srcPaint 畫 -->
         <button type="button" class="set-cat" data-set-cat="src" data-i18n="src.title"></button>
+        <!-- 連結:手機 App 查看。平台還沒開放手機查看(發佈層級的旗標)時整顆不出,由 app.js 的 connectCatSync 決定;內容由 connectPaint 畫 -->
+        <button type="button" class="set-cat" data-set-cat="connect" data-i18n="set.cat.connect" hidden></button>
         <!-- 帳號與方案(原本「資料與雲端方案」與「帳號」兩類併成一類;id 留 plan,舊的 acct 由 setCat 轉過來)。
-             聊天裡的情境卡、策略庫、分享的「去登入」都直接開到這裡 -->
+             聊天裡的情境卡、策略庫、分享的「去登入」都直接開到這裡;「公開連結」是這一類裡的一個區段(舊的 shares 由 setCat 轉過來) -->
         <button type="button" class="set-cat" data-set-cat="plan" data-i18n="set.cat.plan"></button>
-        <!-- 公開連結:這個帳號所有公開中的報告(兩袋都列;spec-share-list-0.1.8 A1)。內容由 report-sharelist.js 的 shlPaint 畫 -->
-        <button type="button" class="set-cat" data-set-cat="shares" data-i18n="set.cat.shares"></button>
         <!-- 隱私:使用資料的開關與「會收 / 不收」(排最後;與視角無關)。內容由 app.js 的 privPaint 畫 -->
         <button type="button" class="set-cat" data-set-cat="priv" data-i18n="set.cat.priv"></button>
       </nav>
@@ -548,10 +571,14 @@
         <div class="set-pane" data-set-cat="model" id="set-model" hidden></div>
         <div class="set-pane" data-set-cat="rules" id="set-rules" hidden></div>
         <div class="set-pane" data-set-cat="src" id="set-src" hidden></div>
-        <!-- 帳號與方案:整頁由 app.js 的 planPaint 畫——最上面一組帳號列(登入狀態＋登出)、訊息格 #acct-hint、Blave 餘額列,
-             細線以下是方案(依 account_status.plan)。上半自己捲,底列(「存在就扣」那句 + 鈕)不捲——那句話永遠貼在鈕的正上方 -->
-        <div class="set-pane plan-pane" data-set-cat="plan" id="set-plan" hidden></div>
-        <div class="set-pane" data-set-cat="shares" id="set-shares" hidden></div>
+        <div class="set-pane" data-set-cat="connect" id="set-connect" hidden></div>
+        <!-- 帳號與方案:兩個區段。#set-plan-main 由 app.js 的 planPaint 畫——最上面一組帳號列(登入狀態＋登出)、訊息格 #acct-hint、Blave 餘額列,
+             細線以下是方案(依 account_status.plan),底列(「存在就扣」那句 + 鈕)緊接在方案內容後面、仍在鈕的正上方;
+             #set-shares 是區段「公開連結」(這個帳號所有公開中的報告,兩袋都列;spec-share-list-0.1.8 A1),由 report-sharelist.js 的 shlPaint 畫。整頁一起捲 -->
+        <div class="set-pane plan-pane" data-set-cat="plan" id="set-plan" hidden>
+          <div id="set-plan-main"></div>
+          <div id="set-shares"></div>
+        </div>
         <div class="set-pane" data-set-cat="priv" id="set-priv" hidden></div>
       </div>
     </div>
@@ -845,4 +872,5 @@
 <script src="engine.js"></script>
 <script src="stratflags.js"></script>
 <script src="welcome.js"></script>
+<script src="intro.js"></script>
 </body></html>

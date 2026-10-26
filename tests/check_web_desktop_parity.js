@@ -1,5 +1,5 @@
-// 電腦版與網頁兩個表面要同一份的常數(稽核 audit-0.1.13-web C3):階段表 PHASE_OF / PHASE_NONE、
-// 回測 Type C 的買進持有基準字串、回覆通知的摘錄測資／標記 regex／前綴字串,以及讀帳失敗時的帳戶幣別對照表(九個帳戶,統一期貨 president 在網頁是 hidden 條目、仍要帶 ccy)。一邊改了、另一邊沒跟就紅。
+// 電腦版與網頁兩個表面要同一份的常數(稽核 audit-0.1.13-web C3):階段表 PHASE_OF / PHASE_NONE、設定 modal 的分類名與順序(方案 B)、
+// 回測 Type C 的買進持有基準字串、回覆通知的摘錄測資／標記 regex／前綴字串,以及讀帳失敗時的帳戶幣別對照表(十個帳戶,統一期貨 president 與 Bitget 在網頁是 hidden 條目、仍要帶 ccy)。一邊改了、另一邊沒跟就紅。
 // (倍數提醒門檻 LEV_T* 已隨電腦版安全檢查拿掉,Wei 10-13;不再比對)
 //   電腦版:shell/renderer/trade.js 的 CX_VENUES[].ccy + TR_VENUE_CCY_OTHER
 //   網頁:web/app/main/templates/agent/workspace.html 的 CX_VENUES[].ccy
@@ -20,7 +20,7 @@ if (other) for (const m of other[1].matchAll(/(\w+): "(\w+)"/g)) dt[m[1]] = m[2]
 const wa = web.indexOf("const CX_VENUES = ["), wb = web.indexOf("\n        ];\n", wa), wt = {};
 if (wa >= 0 && wb > wa) for (const m of web.slice(wa, wb).matchAll(/\{\s*id: "(\w+)"[^{}]*?ccy: "(\w+)"/g)) wt[m[1]] = m[2];
 const sorted = (o) => JSON.stringify(Object.keys(o).sort().map((k) => [k, o[k]]));
-ok("幣別對照表兩邊同一份(九個帳戶)", Object.keys(dt).length === 9 && sorted(dt) === sorted(wt), sorted(dt) + " vs " + sorted(wt));
+ok("幣別對照表兩邊同一份(十個帳戶)", Object.keys(dt).length === 10 && sorted(dt) === sorted(wt), sorted(dt) + " vs " + sorted(wt));
 // 階段表(canon › 回合狀態列 9):電腦版 app.js 與網頁 workspace.html 的 PHASE_OF / PHASE_NONE 同一份——網頁稽核改了表,這裡就紅
 const appSrc = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "app.js"), "utf8");
 const phaseOf = (src) => { const m = /const PHASE_OF = \{([\s\S]*?)\};/.exec(src); const o = {}; if (m) for (const x of m[1].matchAll(/(\w+): "(\w+)"/g)) o[x[1]] = x[2]; return o; };
@@ -103,6 +103,22 @@ for (const lang of ["zh", "en"]) {
   const diff = Object.entries(EV_PAIRS).filter(([d, w]) => !dp["tr.ov." + d] || dp["tr.ov." + d] !== wp["workspace_ov_ev_" + w]).map(([d]) => d);
   ok(`事件文案 ${lang} 兩邊逐字一致(${Object.keys(EV_PAIRS).length} 句)`, diff.length === 0, diff.join(", "));
 }
+// Bitget 換帳戶類型:對不上的暫停句與清單(halt.mismatch)、事件列兩型(venue_mode_switched／venue_stops_missing)——zh / en 逐字一致,
+// 任一邊找不到這個 key 也算紅(稽核 v033-integ 第二輪 R2-P3-3)
+const BITGET_PAIRS = {
+  "tr.haltBitgetMismatchUta": "workspace_pf_halt_bitget_mm_uta", "tr.haltBitgetMismatchClassic": "workspace_pf_halt_bitget_mm_classic",
+  "tr.mm.colSym": "workspace_pf_mm_col_sym", "tr.mm.colBefore": "workspace_pf_mm_col_before", "tr.mm.colNow": "workspace_pf_mm_col_now",
+  "tr.mm.none": "workspace_pf_mm_none", "tr.mm.foot": "workspace_pf_mm_foot",
+  "tr.ov.evBitgetUta": "workspace_ov_ev_bitget_uta", "tr.ov.evBitgetClassic": "workspace_ov_ev_bitget_classic",
+  "tr.ov.evBitgetNoStopUta": "workspace_ov_ev_bitget_nostop_uta", "tr.ov.evBitgetNoStopClassic": "workspace_ov_ev_bitget_nostop_classic",
+  "tr.ov.evBitgetStopsUnreadUta": "workspace_ov_ev_bitget_stops_unread_uta", "tr.ov.evBitgetStopsUnreadClassic": "workspace_ov_ev_bitget_stops_unread_classic",
+  "tr.ov.evBitgetNoStopNote": "workspace_ov_ev_bitget_nostop_note", "tr.ov.evBitgetStopsUnknown": "workspace_ov_ev_bitget_stops_unknown" };
+for (const lang of ["zh", "en"]) {
+  const dp = poMap(path.join(__dirname, "..", "shell", "i18n", lang + ".po")), wp = poMap(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po"));
+  const bad = Object.entries(BITGET_PAIRS).filter(([d, w]) => typeof dp[d] !== "string" || typeof wp[w] !== "string" || dp[d] !== wp[w]);
+  ok(`Bitget 換帳戶類型的暫停句／清單／事件列 ${lang} 兩邊逐字一致(${Object.keys(BITGET_PAIRS).length} 句)`, bad.length === 0,
+    bad.map(([d, w]) => d + "「" + dp[d] + "」 vs " + w + "「" + wp[w] + "」").join(";"));
+}
 // Type C 的買進持有基準(0050／BTC／SPY,{sym} 由各表面代入):統計列標籤／圖例、三句 tooltip、圖的 aria——zh / en 兩邊逐字同一份
 const poRaw = (file) => { const o = {}; if (fs.existsSync(file)) for (const m of fs.readFileSync(file, "utf8").matchAll(/^msgid "([^"]+)"\nmsgstr "((?:[^"\\]|\\.)*)"$/gm)) o[m[1]] = m[2]; return o; };
 const BH_KEYS = { workspace_bt_benchmark_bh: "bt.benchmarkBh", workspace_bt_benchmark_bh_tip_adj: "bt.tip.benchmarkBhAdj",
@@ -145,18 +161,41 @@ for (const lang of ["zh", "en"]) {
     const bad = Object.keys(MG_KEYS).filter((k) => !w[k] || w[k] !== d[MG_KEYS[k]]);
     ok("優化分頁套用停用原因句兩邊同一份(" + lang + ")", bad.length === 0, bad.map((k) => k + ": " + w[k] + " vs " + d[MG_KEYS[k]]).join(";"));
   } }
-// 建議下一步的設定開關 label／tooltip:zh / en 兩邊逐字一致(設計稽核 v031 M1)
-{ const SUG_KEYS = { workspace_sug_pref: "set.sug", workspace_sug_pref_tip: "set.sug.tip" };
+// 串接失敗講怎麼改的句子(OKX 帳戶模式):兩邊逐字一致。Bitget 統一帳戶已開放,web 拿掉了「還不支援」那幾句,不再比
+{ const CX_KEYS = { workspace_pf_err_okx_mode: "cx.err.okxMode" };
+  for (const lang of ["zh", "en"]) {
+    const w = poRaw(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po")), d = poRaw(path.join(__dirname, "..", "shell", "i18n", lang + ".po"));
+    const bad = Object.keys(CX_KEYS).filter((k) => !w[k] || w[k] !== d[CX_KEYS[k]]);
+    ok("串接失敗講怎麼改的句子兩邊同一份(" + lang + ")", bad.length === 0, bad.map((k) => k + ": " + w[k] + " vs " + d[CX_KEYS[k]]).join(";"));
+  } }
+// 建議下一步的設定開關 label／tooltip、托盤讀屏句與 × 可及名稱:zh / en 兩邊逐字一致(設計稽核 v031 M1;spec suggest-tray §2.4)
+{ const SUG_KEYS = { workspace_sug_pref: "set.sug", workspace_sug_pref_tip: "set.sug.tip", workspace_sug_live: "ws.sugSay", workspace_sug_dismiss: "ws.sugDismiss" };
   for (const lang of ["zh", "en"]) {
     const w = poRaw(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po")), d = poRaw(path.join(__dirname, "..", "shell", "i18n", lang + ".po"));
     const bad = Object.keys(SUG_KEYS).filter((k) => !w[k] || w[k] !== d[SUG_KEYS[k]]);
-    ok("建議下一步設定開關的字兩邊同一份(" + lang + ")", bad.length === 0, bad.map((k) => k + ": " + w[k] + " vs " + d[SUG_KEYS[k]]).join(";"));
+    ok("建議下一步設定開關與托盤的字兩邊同一份(" + lang + ")", bad.length === 0, bad.map((k) => k + ": " + w[k] + " vs " + d[SUG_KEYS[k]]).join(";"));
   } }
-// 建議下一步 v2(spec suggest-next-step-v2 §0):取句長度上限、減少門檻、鍵帽學會次數、導航句首、三個 localStorage 鍵,兩邊同名同值。
+// 建議下一步 v2(spec suggest-next-step-v2 §0;托盤版 suggest-tray-2026-10-26 拿掉鍵帽與 ws_sug_tab):取句長度上限、減少門檻、導航句首、兩個 localStorage 鍵,兩邊同名同值。
 // 比原文(去空白、單引號當雙引號),同網頁 tests/check_suggest_v2.js §9;任一邊找不到就紅
-{ const SUG_CONSTS = ["SUG_MAX_CHARS", "SUG_MISS_LIMIT", "SUG_TAB_LEARNED", "SUG_NAV_PREFIXES", "SUG_KEY_ON", "SUG_KEY_MISS", "SUG_KEY_TAB"];
+{ const SUG_CONSTS = ["SUG_MAX_CHARS", "SUG_MISS_LIMIT", "SUG_NAV_PREFIXES", "SUG_KEY_ON", "SUG_KEY_MISS"];
   const sugSrc = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "suggest.js"), "utf8");
   const val = (src, n) => { const m = src.match(new RegExp("^\\s*const " + n + " = (.+?);\\s*(//.*)?$", "m")); return m ? m[1].replace(/'/g, '"').replace(/\s+/g, "") : null; };
   const bad = SUG_CONSTS.filter((n) => val(sugSrc, n) === null || val(sugSrc, n) !== val(web, n));
-  ok("建議下一步七個常數兩邊同一份(" + SUG_CONSTS.join(", ") + ")", bad.length === 0, bad.map((n) => n + ": " + val(sugSrc, n) + " vs " + val(web, n)).join(";")); }
+  ok("建議下一步五個常數兩邊同一份(" + SUG_CONSTS.join(", ") + ")", bad.length === 0, bad.map((n) => n + ": " + val(sugSrc, n) + " vs " + val(web, n)).join(";")); }
+// 設定 modal 方案 B(spec settings-modal-b-2026-10-24 §4.2):web 的「一般／Agent／連結」三類是電腦版的子集合——分類名與這三類裡的字 zh / en 逐字一致,
+// web #set_cats 的分類順序是電腦版 #set-cats 順序的子序列(相對順序相同)
+{ const SETTINGS_PAIRS = { "set.cat.display": "workspace_set_cat_display", "set.cat.rules": "workspace_set_cat_rules", "set.cat.connect": "workspace_set_cat_connect",
+    "set.theme": "workspace_set_theme", "set.lang": "workspace_set_lang", "set.ccy": "workspace_set_base_ccy", "set.rn": "workspace_rn_notify",
+    "rlang.label": "workspace_reply_lang", "rules.head": "workspace_rules_head", "rules.add": "workspace_rules_add",
+    "rules.emptyLead": "workspace_rules_empty_lead", "rules.emptyHow": "workspace_rules_empty_how" };
+  for (const lang of ["zh", "en"]) {
+    const d = poMap(path.join(__dirname, "..", "shell", "i18n", lang + ".po")), w = poMap(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po"));
+    const bad = Object.entries(SETTINGS_PAIRS).filter(([dk, wk]) => !d[dk] || d[dk] !== w[wk]);
+    ok("設定 modal 分類名與一般／Agent／連結裡的字兩邊逐字一致(" + lang + "," + Object.keys(SETTINGS_PAIRS).length + " 組)", bad.length === 0, bad.map(([dk, wk]) => dk + "「" + d[dk] + "」 vs " + wk + "「" + w[wk] + "」").join(";"));
+  }
+  const html = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "index.html"), "utf8");
+  const catsOf = (src, id) => { const a = src.indexOf('id="' + id + '"'), b = src.indexOf("</nav>", a); return a < 0 || b < 0 ? [] : [...src.slice(a, b).matchAll(/<button[^>]*\bdata-set-cat="([a-z]+)"/g)].map((m) => m[1]); };
+  const dc = catsOf(html, "set-cats"), wc = catsOf(web, "set_cats");
+  let i = 0; for (const c of dc) if (c === wc[i]) i++;
+  ok("web 設定分類(" + wc.join(",") + ")是電腦版(" + dc.join(",") + ")的子序列", dc.length === 7 && wc.length > 0 && i === wc.length); }
 console.log(red ? `\n${red} 紅` : "\nALL PASS"); process.exit(red ? 1 : 0);

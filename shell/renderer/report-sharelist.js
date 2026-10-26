@@ -1,7 +1,7 @@
-/* 設定 › 公開連結(設計:blave-canon output/designer/spec-share-list-0.1.8.md A1 / C / D + mockup-share-list-0.1.8.html)。
+/* 設定 › 帳號與方案 › 公開連結區段(設計:blave-canon output/designer/spec-share-list-0.1.8.md A1 / C / D + mockup-share-list-0.1.8.html)。
    這個帳號所有公開中的報告,兩袋(雲端 / 電腦版)都列;每列:標題(原檔開得了 = 可點)、類型 · 來源 · 公開時間 · 署名、複製連結、取消分享。
    要救的是「報告區已經找不到那一份」:取消只憑代碼(主行程 share-revoke-code),不靠本機檔。
-   - 清單、份數、「desktop 袋那一份在不在這台電腦」都由主行程給(憑證只在那裡);每次切到這一類重抓一次。
+   - 清單、份數、「desktop 袋那一份在不在這台電腦」都由主行程給(憑證只在那裡);每次切到「帳號與方案」重抓一次。
    - 標題、署名是不可信字串:一律 textContent。公開網址由代碼自己組(shrUrl),不用 api 給的路徑。
    - 分享框的上限那一句(D)也在這裡:shrLimitPaint 由 report-share.js 在開框 / 問到狀態 / 送出被擋時叫。
    用到 app.js 的 $ / t / LANG / confirmBox / srSay / setOpen / setClose / setCat / planSignIn / hasToken、library.js 的 libEl / libTrack、report-share.js 的 SHR / shrUrl / shrCopy / shrSet / shrFill / shrClose、
@@ -51,13 +51,35 @@ function shlLimitFromCode(code, limit, limits) {
 }
 /* ── 純邏輯到此 ── */
 
-const SHL = { seq: 0, rows: null, limits: null, view: "idle" };   // view:idle / skel / list / empty / fail / gate / relogin
+const SHL = { seq: 0, rows: null, limits: null, view: "idle" };   // view:idle / skel / list / empty / fail / gate / relogin(gate = 沒登入:整段不畫)
 
-/* ── 設定 › 公開連結 ─────────────────────────────────── */
-// app.js 的 setCat 切到這一類時叫:每次重抓(取消分享可能發生在另一台電腦或 web)
+/* ── 設定 › 帳號與方案 › 公開連結 ─────────────────────────────────── */
+// app.js 的 setCat 切到「帳號與方案」時叫:每次重抓(取消分享可能發生在另一台電腦或 web)。沒登入不抓:區段整段不畫
 function shlOpen() {
-  libTrack("share_list_open");
-  shlLoad();
+  shlWatch();
+  if (hasToken) shlLoad(); else { SHL.seq++; SHL.view = "gate"; shlPaint(); }
+}
+// 登入狀態變了(app.js acctPaintAcct):帳號與方案開著才動——登出收掉區段,登入回來重抓
+function shlAuthSync() {
+  const box = $("set-shares"); if (!box || $("set-scrim").hidden || $("set-plan").hidden) return;
+  if (!hasToken && !box.hidden) { SHL.seq++; SHL.view = "gate"; shlPaint(); }
+  else if (hasToken && SHL.view === "gate") shlLoad();
+}
+/* share_list_open 只在這一區段真的捲進畫面時記(同一頁上面是帳號與方案,開這一類不等於看了清單);區段藏起來再出現 = 再看一次。沒登入區段不存在,不記 */
+let SHL_IO = null;
+function shlWatch() {
+  if (SHL_IO || typeof IntersectionObserver !== "function") return;
+  SHL_IO = new IntersectionObserver((es) => { if (hasToken && !$("set-shares").hidden && es.some((e) => e.isIntersecting)) libTrack("share_list_open"); });
+  SHL_IO.observe($("set-shares"));
+}
+// 從分享框「看公開連結」來的(setCat("shares") → SHL_SCROLL):捲到區段標題、焦點給它。
+// 沒登入區段不存在:停在帳號與方案頂端,焦點給方案區那一顆「登入 Blave」(planPaint 已經畫好)
+function shlReveal() {
+  const h = $("shl-h");
+  if (h && !$("set-shares").hidden) { h.scrollIntoView({ block: "start" }); h.focus({ preventScroll: true }); return; }
+  const sc = document.querySelector(".set-content"); if (sc) sc.scrollTop = 0;
+  const b = [...$("set-plan-main").querySelectorAll(".plan-act button")].pop();
+  if (b) b.focus({ preventScroll: true });
 }
 async function shlLoad() {
   const seq = ++SHL.seq;
@@ -84,18 +106,22 @@ async function shlLoad() {
 const shlCloudOk = () => typeof TR_BAGS !== "undefined" && typeof envCloudKind === "function" && envCloudKind(TR_BAGS.cloud.st) === "running";
 function shlPaint() {
   const box = $("set-shares"); if (!box) return;
+  const hadHead = !!document.activeElement && document.activeElement.id === "shl-h";
   box.textContent = "";
-  const head = libEl("div", "shl-head");
-  head.appendChild(libEl("h6", "set-gl", t("shl.title")));
+  box.hidden = !hasToken || SHL.view === "gate";   // 沒登入整段不畫(標題、清單、登入鈕都不出):方案區已經有一顆「登入 Blave」
+  if (box.hidden) return;
+  const head = libEl("div", "shl-head"), h = libEl("h6", "set-gl", t("set.cat.shares")); h.id = "shl-h"; h.tabIndex = -1;
+  head.appendChild(h);
   if (SHL.view === "list") head.appendChild(shlCount());
   box.appendChild(head);
+  if (hadHead) h.focus({ preventScroll: true });   // 載入 → 骨架 → 清單每次重畫都換新節點:焦點留在區段標題上
   if (SHL.view === "skel") { [[82, 54], [64, 48], [74, 57]].forEach((w) => { const r = libEl("div", "shl-sk"), a = libEl("span", "sk"), b = libEl("span", "sk s"); a.style.width = w[0] + "%"; b.style.width = w[1] + "%"; r.append(a, b); box.appendChild(r); }); return; }
   if (SHL.view === "empty") { box.appendChild(libEl("p", "shl-msg q", t("shl.empty"))); return; }
-  if (SHL.view === "fail" || SHL.view === "gate" || SHL.view === "relogin") {
+  if (SHL.view === "fail" || SHL.view === "relogin") {
     const row = libEl("div", "shl-msgrow");
-    if (SHL.view !== "gate") { const m = libEl("span", "fault-mark"); m.setAttribute("aria-hidden", "true"); row.appendChild(m); }
-    row.appendChild(libEl("p", "shl-msg", t(SHL.view === "fail" ? "shl.loadFail" : SHL.view === "gate" ? "shl.gate" : "conn.expired")));
-    // 登入那兩態用 signInLabel:等待中切走再切回來被重畫,也是「取消等待」、按了有反應(稽核 r2 S4)
+    const m = libEl("span", "fault-mark"); m.setAttribute("aria-hidden", "true"); row.appendChild(m);
+    row.appendChild(libEl("p", "shl-msg", t(SHL.view === "fail" ? "shl.loadFail" : "conn.expired")));
+    // 登入失效用 signInLabel:等待中切走再切回來被重畫,也是「取消等待」、按了有反應(稽核 r2 S4)
     const b = SHL.view === "fail" ? libEl("button", "btn-out", t("br.reload")) : signInLabel(libEl("button", "btn-out"), t("cn.blave.btn")); b.type = "button";
     b.addEventListener("click", SHL.view === "fail" ? shlLoad : () => shlSignIn(b));
     row.appendChild(b); box.appendChild(row);
@@ -146,7 +172,7 @@ function shlFlash(btn) {
   btn.textContent = t("shr.copied"); srSay(t("shr.copied"));
   btn._shlT = setTimeout(() => { if (btn.isConnected) btn.textContent = t("shr.copy"); }, SHL_FLASH_MS);
 }
-// 沒登入 / 登入失效:原地登入,不跳去帳號與方案那一類;登入回來重抓清單(之前是切回這一類時 shlOpen 才抓)
+// 登入失效:原地登入,不跳去帳號與方案那一類;登入回來重抓清單(之前是切回這一類時 shlOpen 才抓)
 async function shlSignIn(b) { await planSignIn(b, true); if (hasToken) shlLoad(); }   // 在設定 › 公開連結裡面:關設定照舊取消這次登入
 // 標題 = 打開那份報告:關設定、切到那一袋的視角、開閱讀頁。按了才發現不在 → 念一句(清單下次打開會更新)
 async function shlGo(row) {
@@ -169,18 +195,18 @@ function shlRevokeAsk(row, opener) {
       shlDrop(row);
       return;
     }
-    const back = opener.isConnected ? opener : document.querySelector('.set-cat[data-set-cat="shares"]');
+    const back = opener.isConnected ? opener : $("shl-h");
     confirmBox({ title: t("shr.revokeFailTitle"), lines: [t(code === "RELOGIN" ? "conn.expired" : "shr.revokeFailBody")], ok: t("cdel.gotIt"), single: true, opener: back, onOk: () => {} });   // 標題寫結果,不再是問句
   } });
 }
 function shlDrop(row) {
   if (SHL.rows) SHL.rows = SHL.rows.filter((x) => x.code !== row.code);
   if (SHL.rows && !SHL.rows.length) SHL.view = "empty";
-  if (!$("set-shares").hidden) shlPaint();
+  if (!$("set-plan").hidden) shlPaint();
   srSay(t("shl.revoked"));
   // 閱讀頁正開著同一份:公開列同步收起
   if (typeof SHR !== "undefined" && SHR.cur && SHR.cur.share && SHR.cur.share.code === row.code) shrSet(SHR.cur, null);
-  const c = document.querySelector('.set-cat[data-set-cat="shares"]'); if (c && !$("set-scrim").hidden) c.focus();   // 那一列沒了:焦點回分類鈕
+  const h = $("shl-h"); if (h && !$("set-scrim").hidden && !$("set-plan").hidden) h.focus();   // 那一列沒了:焦點回區段標題
 }
 
 /* ── 分享框:達上限(D)──────────────────────────────── */
@@ -205,5 +231,5 @@ function shrLimitPaint(D) {
 function shrLimitGo() {
   const D = SHR.dlg; if (D) D.opener = null;
   shrClose();
-  setOpen().then(() => { setCat("shares"); const c = document.querySelector('.set-cat[data-set-cat="shares"]'); if (c) c.focus(); });
+  setOpen().then(() => setCat("shares"));   // = 帳號與方案,捲到公開連結區段(setCat → shlReveal)
 }

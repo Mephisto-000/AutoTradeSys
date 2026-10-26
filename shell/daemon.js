@@ -59,6 +59,9 @@ const TRUSTED_SETS = [
   { STOCKCOIN_API_KEY: ANY_KEY, STOCKCOIN_SECRET_KEY: ANY_KEY },
   { SINOPAC_API_KEY: ANY_KEY, SINOPAC_SECRET_KEY: ANY_KEY },   // 永豐金 現股(AutoTradeSys fork 2026-10-26):模擬先;實盤與憑證由終端機工具寫
 ];
+// Bitget 只在閘門翻開後才收(cloudcmd.BITGET_VERIFIED_MODES);解除綁定一直拿得掉
+const BITGET_SET = { BITGET_API_KEY: ANY_KEY, BITGET_SECRET_KEY: ANY_KEY, BITGET_PASSPHRASE: PASSPHRASE };
+if (require("./cloudcmd").BITGET_VERIFIED_MODES.length) TRUSTED_SETS.push(BITGET_SET);
 const TRUSTED_CRED_KEYS = Object.assign({}, ...TRUSTED_SETS);
 // 統一的五行由 president_local 的 cert 步寫(runtime local_bind_gate);解除綁定是安全方向,renderer 可以拿掉
 // = runtime president_connect._bound_env 寫的六行(稽核 S4:少一行解綁後會留 PRESIDENT_TEST_URL)
@@ -67,7 +70,7 @@ const PRESIDENT_ENV = ["PRESIDENT_ACCOUNT", "PRESIDENT_PASSWORD", "PRESIDENT_CA_
 const CAPITAL_ENV = ["CAPITAL_API_KEY", "CAPITAL_PASSWORD"];
 // 永豐(AutoTradeSys fork):終端機工具 manager/sinopac_setup.py 另外寫的五行(憑證、身分證、實盤開關、綁定時間);解除綁定一起拿掉
 const SINOPAC_ENV = ["SINOPAC_CA_PATH", "SINOPAC_CA_PASSWD", "SINOPAC_PERSON_ID", "SINOPAC_LIVE", "SINOPAC_BOUND_TS"];
-const REMOVABLE = new Set([...Object.keys(CRED_KEYS), ...Object.keys(TRUSTED_CRED_KEYS), ...PRESIDENT_ENV, ...CAPITAL_ENV, ...SINOPAC_ENV]);
+const REMOVABLE = new Set([...Object.keys(CRED_KEYS), ...Object.keys(TRUSTED_CRED_KEYS), ...Object.keys(BITGET_SET), ...PRESIDENT_ENV, ...CAPITAL_ENV, ...SINOPAC_ENV]);
 const sameKeys = (o, set) => { const a = Object.keys(o), b = Object.keys(set); return a.length === b.length && a.every((k) => Object.prototype.hasOwnProperty.call(set, k)); };
 const NAME_RE = /^[A-Za-z0-9_\-.]{1,128}$/;
 const CONTRACT_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/, CONTRACT_ROOTS = ["TXF", "MXF", "TMF"];

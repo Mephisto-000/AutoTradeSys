@@ -20,11 +20,14 @@ local_daemon / command_listener wiring) — no network, no broker, no Windows, n
  10. setup: a zip member that climbs out of the extraction dir is refused
 
 Run: cd blave-agent && /usr/bin/python3 tests/check_capital_local.py  (needs `cryptography` and node)
+     Use /usr/bin/python3: blave-agent/.venv has no `cryptography`, so there the whole file SKIPs and exits 0
+     (nothing checked).
 """
 import base64
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -495,6 +498,111 @@ for bad_members, what in (({X + "SKCOM.dll": b"x", X + "..": b"x"}, "成員名�
         check("10 zip 不像樣(" + what + ")→ 拒絕", code_of(lambda: capl._ensure_skcom(tempfile.mkdtemp(dir=BASE))) is not None)
 check("10 setup 只在缺 VC++ 2010 時才下載微軟的安裝程式、先驗簽章是 Microsoft", "if _vc_present():\n        return" in open(os.path.join(ROOT, "runtime", "capital_local.py"), encoding="utf-8").read()
       and "-ne 'Microsoft Corporation'" in capl._PS_VC)
+# 10c. VC++ 2010 安裝程式的結束碼 → setup.error 的原因。等 MSI 空閒與 1618 重試都在提權的那一個行程裡(PowerShell),
+#      Python 這層只跑一次、只跳一次 UAC。這台是 Mac 沒有 PowerShell:提權腳本的流程只能照原文驗,真的跑要 Windows。
+def vc_run(rc, present_after=False, raises=None):
+    """跑一次 run_setup,_PS_VC 回 rc。回 (setup.error, _PS_VC 跑了幾次, Python 這層 sleep 了哪些秒數, 那次的 env)。"""
+    runs, sleeps, state = [], [], {"done": False}
+
+    def fake(argv, **kw):
+        if argv[-1] != capl._PS_VC:
+            return subprocess.CompletedProcess(argv, 0, b"", b"")
+        if raises:
+            raise raises
+        runs.append(kw.get("env") or {})
+        state["done"] = rc == 0 or (rc in (3010, 1641) and present_after)
+        return subprocess.CompletedProcess(argv, rc, b"", b"")
+    with um.patch.object(capl.subprocess, "run", fake), um.patch.object(capl.time, "sleep", sleeps.append), \
+            um.patch.object(capl, "_vc_present", lambda: state["done"]), um.patch.object(capl, "_download", lambda *a, **k: None), \
+            um.patch.object(capl, "_ensure_comtypes", lambda: None), um.patch.object(capl, "_ensure_skcom", lambda tmp: None), \
+            um.patch.object(capl, "_check_com", lambda: None):
+        try:
+            capl.run_setup()
+        except ValueError:
+            pass
+    return capl.read_status()["setup"].get("error"), len(runs), sleeps, (runs or [{}])[0]
+
+
+for rc, kw, want_err, what in (
+        (0, {}, None, "0 → 成功"),
+        (4, {}, "SETUP_FAILED:vcredist:sig", "4(簽章不對)→ vcredist:sig"),
+        (1618, {}, "SETUP_FAILED:vcredist:1618", "1618(提權行程裡再試 3 次仍是)→ vcredist:1618"),
+        (3010, {"present_after": True}, None, "3010 但 DLL 已在 → 成功"),
+        (1641, {"present_after": True}, None, "1641 但 DLL 已在 → 成功"),
+        (3010, {}, "SETUP_FAILED:vcredist:reboot", "3010 而 DLL 不在 → vcredist:reboot"),
+        (1603, {}, "SETUP_FAILED:vcredist:1603", "1603 → 代碼帶出去"),
+        (1223, {}, "SETUP_FAILED:vcredist:denied", "1223(Start-Process 拋的是 Win32 1223 = UAC 按了否)→ vcredist:denied"),
+        (1224, {}, "SETUP_FAILED:vcredist:1224", "1224(Start-Process 拋了別的例外:powershell.exe 不在、被 AppLocker 擋…)→ 代碼帶出去,不講按「是」")):
+    err, n, sl, env = vc_run(rc, **kw)
+    check("10c vcredist " + what + ";_PS_VC 只跑一次、Python 不 sleep", err == want_err and n == 1 and sl == []
+          and env.get("CAPL_VC", "").endswith("vcredist_x64_2010.exe") and env.get("CAPL_VC_ELEVATED") == capl._PS_VC_ELEVATED, [err, n, sl])
+err, n, sl, _ = vc_run(0, raises=subprocess.TimeoutExpired("powershell", 900))
+check("10c powershell 本身跑不起來 / 逾時 → 照舊 vcredist(畫面講原本那句)", err == "SETUP_FAILED:vcredist" and sl == [], [err, sl])
+outer, inner = capl._PS_VC, capl._PS_VC_ELEVATED
+check("10c 只跳一次 UAC:RunAs 只在外層、只一次(起提權的 powershell);提權腳本裡沒有 RunAs", outer.count("-Verb RunAs") == 1 and "RunAs" not in inner
+      and "($PSHOME + '\\powershell.exe')" in outer and "'-Command', $i -Verb RunAs" in outer)
+m_catch = re.search(r"-ErrorAction Stop \} catch \{ (.*?) \}; exit \$p\.ExitCode$", outer)
+cbody = m_catch.group(1) if m_catch else ""
+check("10c 外層:先驗簽章(壞檔不跳 UAC)、交回提權行程的結束碼;只有 Win32Exception 1223(本身或 InnerException)才回 1223,其他例外回 1224",
+      outer.index("exit 4") < outer.index("Start-Process") and bool(m_catch)
+      and cbody == "if (($_.Exception -is [ComponentModel.Win32Exception] -and $_.Exception.NativeErrorCode -eq 1223) -or "
+                   "($_.Exception.InnerException -is [ComponentModel.Win32Exception] -and $_.Exception.InnerException.NativeErrorCode -eq 1223)) "
+                   "{ exit 1223 }; exit 1224", cbody)
+# PowerShell 把 U+2018–U+201B 也當單引號(CodeGeneration.EscapeSingleQuotedStringContent 五個都重複一次);用戶名帶 ’ 的 %TEMP% 不能提早結束字面值
+m_esc = re.search(r"\(\$f -replace '((?:[^']|'')*)', '\$0\$0'\)", outer)
+PSQ = "'\u2018\u2019\u201a\u201b"
+
+
+def ps_literal_end(lit):
+    """PowerShell 單引號字面值從 lit[0] 開頭,回傳收尾那個引號的位置(兩個引號字元連著 = 一個字元)。"""
+    i = 1
+    while i < len(lit):
+        if lit[i] in PSQ:
+            if i + 1 < len(lit) and lit[i + 1] in PSQ:
+                i += 2
+                continue
+            return i
+        i += 1
+    return -1
+
+
+nasty = "C:\\Users\\O\u2019Brien\u2018x\u201a\u201by'z\\AppData\\Local\\Temp\\blave-capital-1\\vcredist_x64_2010.exe"
+esc = re.sub(m_esc.group(1).replace("''", "'"), lambda m: m.group(0) * 2, nasty) if m_esc else ""
+lit = "'" + esc + "'"
+check("10c 路徑進提權腳本是單引號字面值:' 與 U+2018–U+201B 都重複一次、整段只用 ASCII;提權腳本沒有雙引號(-Command 原樣傳過去)",
+      bool(m_esc) and outer.isascii() and '"' not in inner and all(esc.count(q) == 2 * nasty.count(q) for q in PSQ)
+      and ps_literal_end(lit) == len(lit) - 1, [m_esc and m_esc.group(0), lit])
+m_idle = re.search(r"function Test-MsiIdle \{.*?'Global\\_MSIExecute'.*?WaitOne\(0\)\) \{ \$m\.ReleaseMutex\(\); return \$true \}", inner)
+m_wait = re.search(r"\$w = 0; while \(-not \(Test-MsiIdle\) -and \$w -lt 90\) \{ Start-Sleep -Seconds 5; \$w \+= 5 \}", inner)
+m_loop = re.search(r"for \(\$i = 0; \$i -le 3; \$i\+\+\) \{ if \(\$i\) \{ Start-Sleep -Seconds 30 \}; \$s = Get-AuthenticodeSignature -LiteralPath \$c; .*?\{ \$r = 4; break \}; "
+                   r"\$r = \(Start-Process -FilePath \$c .*?-Wait -PassThru -ErrorAction Stop\)\.ExitCode; if \(\$r -ne 1618\) \{ break \} \} ", inner)
+check("10c 提權腳本:_MSIExecute 拿得到就放掉 = 空閒;每 5 秒看一次、最多等 90 秒", bool(m_idle and m_wait) and (capl.VC_MSI_WAIT_S, capl.VC_MSI_POLL_S) == (90, 5))
+check("10c 提權腳本:等完才跑;1618 等 30 秒再跑、最多再 3 次;每次跑前重驗簽章;結束碼交回", bool(m_loop) and inner.index("Test-MsiIdle) -and") < inner.index("for (")
+      and (capl.VC_BUSY_RETRIES, capl.VC_BUSY_WAIT_S) == (3, 30))
+# 稽核 v032-final P2-2(TOCTOU):%TEMP% 是用戶可寫的,驗完簽章到執行之間檔案可能被換。提權腳本先開一個只有 SYSTEM／Administrators
+# 能寫的新目錄(建立當下就帶 ACL、隨機名字),把安裝程式複製進去,驗簽、執行、1618 重試都用那份複本,最後刪掉整個目錄。
+def at(x):
+    return inner.index(x) if x in inner else -1
+
+
+order = ["$d = Join-Path $env:ProgramData ('blave-vc-' + [guid]::NewGuid().ToString('N'))", "[IO.Directory]::CreateDirectory($d, $a)",
+         "$c = Join-Path $d 'vcredist_x64_2010.exe'", "Copy-Item -LiteralPath $f -Destination $c -ErrorAction Stop",
+         "Get-AuthenticodeSignature -LiteralPath $c", "Start-Process -FilePath $c", "finally { Remove-Item -LiteralPath $d -Recurse -Force", "exit $r"]
+pos = [at(x) for x in order]
+check("10c 提權腳本順序:開新目錄(建立時就帶 ACL)→ 複製 → 驗簽複本 → 跑複本 → finally 刪目錄 → 交回結束碼", -1 not in pos and pos == sorted(pos)
+      and inner.endswith("; exit $r"), list(zip(order, pos)))
+check("10c 驗簽與執行用同一份複本:提權腳本裡 $f 只出現在 Copy-Item(用戶 temp 那份不驗也不跑)", len(re.findall(r"\$f\b", inner)) == 1 and "-FilePath $f" not in inner
+      and "Get-AuthenticodeSignature -LiteralPath $f" not in inner)
+check("10c 新目錄的 ACL:不繼承、只給 SYSTEM 與 Administrators 完全控制、擁有者是 Administrators;沒有別的 SID",
+      "$a.SetAccessRuleProtection($true, $false)" in inner and "foreach ($n in 'S-1-5-18', 'S-1-5-32-544')" in inner
+      and "'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow'" in inner and "$a.SetOwner((New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')))" in inner
+      and sorted(set(re.findall(r"S-1-[0-9-]+", inner))) == ["S-1-5-18", "S-1-5-32-544"])
+check("10c 簽章不對不在 try 裡 exit(finally 要刪目錄):記 4 跳出迴圈;其他例外記 1", "{ exit 4 }" not in inner and "} catch { $r = 1 } finally {" in inner)
+# RunAs(ShellExecute)那條命令列據報約 2048 字被截:路徑(MAX_PATH 260)與外層參數也要塞得下
+check("10c 提權命令列塞得下:提權腳本 + 路徑 260 + 外層參數 < 2048", len(inner) + 260 + 120 < 2048, len(inner))
+src_vc = open(os.path.join(ROOT, "runtime", "capital_local.py"), encoding="utf-8").read()
+src_vc = src_vc[src_vc.index("def _ensure_vc("):src_vc.index("def _x64_members(")]
+check("10c Python 這層不再重跑 Start-Process(_ensure_vc 沒有迴圈、沒有 sleep)", "for " not in src_vc and "while " not in src_vc and "sleep" not in src_vc)
 check("10 comtypes 釘版本(M0 在 test-4 跑過的 1.4.17),已裝的版本不同也重裝", capl.COMTYPES_PIN == "comtypes==1.4.17" and "comtypes.__version__ == '1.4.17'" in capl._COMTYPES_OK)
 
 # 10b. 系統程式都走 System32 絕對路徑;pip 只裝釘死 hash 的 comtypes、不讀用戶的 pip 設定

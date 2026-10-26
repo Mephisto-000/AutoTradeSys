@@ -40,7 +40,7 @@ const CAPL_PFX_ERR = { PFX_PASSWORD: "cap.pfx.errPw", PFX_INVALID: "cap.pfx.errF
 const caplBlank = () => ({ started: false, scan: null, loc: null, cloud: false, choice: null, wiz: false, err: null, picked: false, ppw: "",
   pfxErr: null, done: null, nokey: false, busy: false, seen: {}, sig: null, view: null,
   flow: false, id: "", pw: "", msg: null, storeOpen: false, sent: null, setupSent: false, probeSent: false, startSent: false,
-  recheck: false, unlockUsed: false, signOpened: false, signChecked: false, verifyDl: false, verifyChecked: false, old: null, oldAsked: false, base: null });
+  recheck: false, unlockUsed: false, signOpened: false, signChecked: false, verifyDl: false, verifyChecked: false, old: null, oldAsked: false, base: null, readyBurst: false });
 let CAPL = caplBlank();
 let caplTimer = null;
 
@@ -125,6 +125,15 @@ function caplFlowView(cc, ui, now) {
   }
   if (probe.status === "ok" && probe.state === "ok") return "l-start";
   return "l-probe-idle";
+}
+// setup.error(SETUP_FAILED:vcredist:<原因>,…,runtime capital_local._ensure_vc)→ 失敗那一句的 [key, vars];讀不懂 = 原本那句
+const CAPL_VC_WHY = { 1618: "capl.setupBusy", denied: "capl.setupDenied", reboot: "capl.setupReboot" };
+function caplSetupFailMsg(err) {
+  const s = String(err || ""), items = s.indexOf("SETUP_FAILED:") === 0 ? s.slice(13).split(",") : [];
+  const vc = items.find((x) => x.indexOf("vcredist:") === 0), why = vc ? vc.slice(9) : "";
+  if (CAPL_VC_WHY[why]) return [CAPL_VC_WHY[why]];
+  if (/^-?\d{1,10}$/.test(why)) return ["capl.setupFailCode", { code: why }];
+  return ["cap.s.setupFail"];
 }
 /* ── 純邏輯到此 ── */
 
@@ -283,9 +292,11 @@ function caplAdvance(view, cc) {
   }
   const setup = caplSec(cc, "setup"), worker = caplSec(cc, "worker"), probe = caplSec(cc, "probe");
   // 埋點只記這次開框真的看到它完成(開框時已經完成的不算)
-  if (!CAPL.base) CAPL.base = { setup: setup.status || null, probe: probe.status === "ok" ? probe.state : null, worker: worker.status || null };
+  if (!CAPL.base && cc) CAPL.base = { setup: setup.status || null, probe: probe.status === "ok" ? probe.state : null, worker: worker.status || null };
   if (setup.status === "ok" && CAPL.base.setup !== "ok") caplTrack("setup");
   if (probe.status === "ok" && probe.state === "ok" && CAPL.base.probe !== "ok") caplTrack("probe");
+  // 這次開框看到下單程式起來:主畫面要等 daemon 重讀帳戶(runtime capital_local._ready)才有總權益,這幾秒改快輪詢接住
+  if (worker.status === "ok" && CAPL.base.worker !== "ok" && !CAPL.readyBurst) { CAPL.readyBurst = true; caplBurst(); }
   if ((view === "l-old-row" || view === "l-cert-bad") && !CAPL.oldAsked) { caplOldPlan(); return; }
   if (CAPL.busy || CAPL.sent || caplDown() || (cc && cc.busy)) return;
   if (!CAPL.setupSent && setup.status !== "ok" && setup.status !== "running" && setup.status !== "failed") { CAPL.setupSent = true; caplStep("setup"); return; }
@@ -406,7 +417,7 @@ function caplFlowRows(view, cc) {
   const add = (li) => ol.appendChild(li), retry = (fn, id, label) => capActs(capBtn("btn-fill", t(label || "cap.retry"), fn, id, off));
   // 1 安裝群益元件(第一次缺微軟的 VC++ 2010 會跳一次 Windows 的「使用者帳戶控制」,先講)
   if (setup.status === "ok") add(capRow("done", t("cap.s.setup")));
-  else if (view === "l-setup-fail") add(capRow("bad", t("cap.s.setup"), "", capFrag(capDo(t("cap.s.setupFail")), retry(() => caplStep("setup"), "capl-retry", "cap.tryAgain"))));
+  else if (view === "l-setup-fail") add(capRow("bad", t("cap.s.setup"), "", capFrag(capDo(t(...caplSetupFailMsg(setup.error))), retry(() => caplStep("setup"), "capl-retry", "cap.tryAgain"))));
   else add(capRow("run", t("cap.s.setup"), t("cap.s.setupRun"), capDo(t("capl.setupUac"), true)));
   // 2 群益憑證:這台電腦的憑證庫裡那張(到期日 mono)
   const exp = CAPL.done && CAPL.done !== "—" ? CAPL.done : null, right = exp ? trEl("span", "", t("pres.s.certExp") + " ") : "";
