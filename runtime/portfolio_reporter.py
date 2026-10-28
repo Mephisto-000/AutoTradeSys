@@ -104,6 +104,13 @@ def _mtime(path):
         return None
 
 
+# Read once at import: a long-lived bridge that sends this report must say which
+# code it is running, not what the updater has since put on disk. The updater
+# restarts both bridges on every swap (control/updater.py restart_bridges, a failed
+# restart rolls the swap back), so the two only differ for the seconds in between.
+RUNTIME_VERSION = atomic_file.read_version(os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION"))
+
+
 # Type A/C strategies picked in 下單設定 have NO crontab line and NO scheduled
 # task — command_listener's in-process scheduler runs them and records them
 # here instead (its _sync_deployment_registry / _prune_deployment_registry run
@@ -869,7 +876,9 @@ def recent_orders():
     path = os.path.join(WORKSPACE, "manager", "orders.jsonl")
     try:
         with open(path) as f:
-            lines = f.readlines()[-ORDERS_TAIL:]
+            # wider than the screen: an unconfirmed send and its late fill must both be in
+            # the window, or the pair straddles the cut and shows as two rows
+            lines = f.readlines()[-ORDERS_PAIR_TAIL:]
     except OSError:
         return []
     out = []
@@ -878,6 +887,121 @@ def recent_orders():
             out.append(json.loads(line))
         except ValueError:
             continue
+    return pair_unconfirmed_orders(out, _audit_events)[-ORDERS_TAIL:]
+
+
+# The trade history's one rule for an order a hand-wired venue (群益, 統一) took
+# without reporting the fill in time (manager/reconciler parks it). Every surface
+# (desktop, web workspace, App) reads this report's `orders`, so the pairing lives
+# here and nowhere else (.claude/docs/cross-surface-parity.md). orders.jsonl itself
+# stays as written: it is the self_ledger book, replayed line by line.
+#   row A  the send: a leg that reported 0 filled (the parked leg is always written
+#          that way). Never "short of signed_diff": the row's signed_diff is the
+#          request before rounding, the reduce cap and a 統一 flip's deferred entry,
+#          so fully filled rows fall short of it all the time
+#   row B  lib.portfolio.book_late_fill: `late_fill`, the month contract, maybe a price
+#   audit  unfilled_order_cleared: the account never moved, the order did not fill
+# `fill_state` on the rows it concerns:
+#   "late"         A merged into B's place (B's ts and legs: contract, price; A's
+#                  asset_spec / contributors); signed_diff = the lots that filled
+#   "unconfirmed"  A with neither: still parked, dropped as the user's after a HALT,
+#                  or sent by a lib older than the parking (no claim ever came)
+#   "unfilled"     A the account showed never filled
+# A partial fill (a leg with 1 of 2 lots) is not an A: it reads as the fill it is,
+# and its late remainder stays its own "late" row.
+# B's ts, not A's: api agent_overview dedups orders on ts, so the late fill still
+# lands as its own order event the way it did before the pairing.
+# A late fill pairs with the nearest earlier unpaired A of the same venue, symbol
+# and side. Known limit: 統一 claims one contract's parked legs as a single net B;
+# a second A of that contract stays "unconfirmed" (entries wait while lots are
+# parked, so only an opposite-side close can be parked beside an entry).
+ORDERS_PAIR_TAIL = 100
+_AUDIT_TAIL_BYTES = 256 * 1024
+
+
+def _legs(o):
+    legs = o.get("legs") if isinstance(o, dict) else None
+    return [l for l in legs if isinstance(l, dict)] if isinstance(legs, list) else []
+
+
+def _leg_lots(legs):
+    try:
+        return sum(abs(float(l.get("executed_qty") or 0)) for l in legs)
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_unconfirmed_send(o):
+    return (isinstance(o, dict) and not o.get("late_fill") and "fill_state" not in o
+            and venue_traits.has(o.get("exchange"), "hand_wired")
+            and any(isinstance(l.get("executed_qty"), (int, float)) and not isinstance(l["executed_qty"], bool)
+                    and l["executed_qty"] == 0 for l in _legs(o)))
+
+
+def _audit_events(names):
+    """Rows of state/audit.jsonl's tail whose event is in `names` (append-only, lib/guard).
+    Only the last 256 KB: a clear that has scrolled out leaves its row "unconfirmed",
+    never the other way round — the cut can only under-claim."""
+    path = os.path.join(WORKSPACE_STATE, "audit.jsonl")
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - _AUDIT_TAIL_BYTES))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return []
+    if size > _AUDIT_TAIL_BYTES:
+        lines = lines[1:]  # the seek landed mid-line
+    out = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and row.get("event") in names:
+            out.append(row)
+    return out
+
+
+def pair_unconfirmed_orders(rows, audit_events):
+    """`rows` in file order; `audit_events(names)` → audit rows, called only when an
+    unpaired A is left. Rows it does not concern come back as the same objects."""
+    out = []
+    for o in rows:
+        if not (isinstance(o, dict) and o.get("late_fill")):
+            out.append(o)
+            continue
+        side = o.get("action")
+        hit = next((i for i in range(len(out) - 1, -1, -1)
+                    if _is_unconfirmed_send(out[i]) and out[i].get("action") == side
+                    and out[i].get("exchange") == o.get("exchange") and out[i].get("symbol") == o.get("symbol")), None)
+        if hit is None:
+            out.append(dict(o, fill_state="late"))
+            continue
+        a = out.pop(hit)
+        legs = [l for l in _legs(a) if _leg_lots([l])] + _legs(o)
+        lots = _leg_lots(legs) or 0.0
+        out.append(dict(a, ts=o.get("ts"), legs=legs, late_fill=True, fill_state="late",
+                        signed_diff=-lots if side == "SELL" else lots))
+    pending = [i for i, a in enumerate(out) if _is_unconfirmed_send(a)]
+    if not pending:
+        return out
+    for i in pending:
+        out[i] = dict(out[i], fill_state="unconfirmed")
+    for ev in audit_events({"unfilled_order_cleared"}):
+        at = _naive_utc(ev.get("ts"))
+        try:
+            side = "BUY" if float(ev.get("lots")) > 0 else "SELL"
+        except (TypeError, ValueError):
+            continue
+        for i in reversed(pending):
+            a, t = out[i], _naive_utc(out[i].get("ts"))
+            if (at is not None and t is not None and t <= at and a["fill_state"] == "unconfirmed"
+                    and a.get("action") == side and a.get("exchange") == ev.get("venue")
+                    and a.get("symbol") == ev.get("symbol")):
+                out[i] = dict(a, fill_state="unfilled")
+                break
     return out
 
 
@@ -2112,7 +2236,7 @@ def _save_routing(cfg):
         return None
 
 
-def build_report():
+def build_report(reporter=None):
     # generation BEFORE the chat ids: a reset landing between the two reads then pairs
     # an old generation with the cleared chats (refused / harmless), never an old chat
     # with the new generation (which the api would accept and write back)
@@ -2204,6 +2328,10 @@ def build_report():
         # except when 群益 is the only venue it could close and this identity
         # can't log in to SKCOM (see can_flatten()).
         "platform": platform.system(),
+        # fleet adoption after a runtime promote / workspace update (api openclaw.fleet_versions);
+        # None = file unreadable. The desktop's daemon.version is the same runtime file.
+        "runtime_version": RUNTIME_VERSION,
+        "workspace_version": atomic_file.read_version(os.path.join(WORKSPACE, "VERSION")),
         "can_flatten": can_flatten(vens),
         # self_ledger: whether this machine diffs against the bot's own book —
         # the web's stop dialog phrases what 「關閉 bot 部位」actually closes
@@ -2246,6 +2374,10 @@ def build_report():
         "events": events.unsent(),
         "reported_at": int(time.time()),
     }
+    # which sender: timer / web_bridge / telegram_bridge. The bridges are long-lived and
+    # all write the same api key, so fleet_versions splits runtime_version by this.
+    if reporter is not None:
+        report["reporter"] = reporter
     # False = amounts were never saved AND the reconcile that runs next is the
     # read-only one (places nothing, closes included, until a save). None = the
     # key is left out: see portfolio_configured() — an absent key is the pages'
@@ -2574,7 +2706,7 @@ def main():
     if not PROXY_TOKEN:
         print("[portfolio_reporter] BLAVE_PROXY_TOKEN not set; exiting", file=sys.stderr)
         sys.exit(1)
-    payload = build_report()
+    payload = build_report(reporter="timer")
     heal_rec = kline_cache_heal.read_record()
     if heal_rec:
         payload["kline2_heal"] = heal_rec

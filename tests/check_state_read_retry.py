@@ -237,6 +237,8 @@ EXEMPT = [
     ('manager/wait_for_bar.py', '_lock_pids', 'lock_path', 'own', 'lock file pid list, best-effort'),
     ('manager/wait_for_bar.py', '_tw_futures_kind', 'f"strategies/{name}/strategy.py"',
      'code', 'code / doc / VERSION text, not a state file'),
+    ('manager/wait_for_bar.py', '_tw_stock_minute', 'f"strategies/{name}/strategy.py"',
+     'code', 'code / doc / VERSION text, not a state file'),
     ('manager/wait_for_bar.py', '_tw_fut_data', 'f"strategies/{name}/strategy.py"',
      'code', 'code / doc / VERSION text, not a state file'),
     ('manager/wait_for_bar.py', '_tw_stock_daily', 'f"strategies/{name}/strategy.py"',
@@ -263,6 +265,8 @@ EXEMPT = [
     ('runtime/atomic_file.py', '_load_json', 'path',
      'helper', "the retry helper's own open, or the half-updated-workspace fallback"),
     ('runtime/atomic_file.py', '_read_bytes', 'path',
+     'helper', "the retry helper's own open, or the half-updated-workspace fallback"),
+    ('runtime/atomic_file.py', '_read_head', 'path',
      'helper', "the retry helper's own open, or the half-updated-workspace fallback"),
     ('runtime/capital_connect.py', '_cred_fp', '_paths()["env"]',
      'env', '.env read by its only replacer, or a loud failure'),
@@ -364,6 +368,7 @@ EXEMPT = [
      'broken file restarts from {} and drops other sessions\' model choices — low stakes'),
     ('runtime/portfolio_reporter.py', '_ac_interval', 'os.path.join(WORKSPACE, "strategies", name, "strategy.py")',
      'code', 'code / doc / VERSION text, not a state file'),
+    ('runtime/portfolio_reporter.py', '_audit_events', 'path', 'append', 'state/audit.jsonl, append-only'),
     ('runtime/portfolio_reporter.py', '_halt_denials', 'path', 'append', 'state/audit.jsonl, append-only'),
     ('runtime/portfolio_reporter.py', '_memory', '"/proc/meminfo"', 'proc', '/proc pseudo-file (Linux)'),
     ('runtime/portfolio_reporter.py', '_module_literals', 'path', 'code', 'workspace module source'),
@@ -452,8 +457,6 @@ EXEMPT = [
      'own', 'sdk_sync.json, one writer and reader (the sdk job); module imports nothing else'),
     ('runtime/skill_sync.py', 'main', 'os.path.join(SKILL_DIR, "SKILL.md")',
      'code', 'code / doc / VERSION text, not a state file'),
-    ('runtime/strategy_reporter.py', '_config_version', 'os.path.join(WORKSPACE, "VERSION")',
-     'code', 'code / doc / VERSION text, not a state file'),
     ('runtime/strategy_reporter.py', '_extract', 'path', 'code', 'strategy source'),
     ('runtime/strategy_reporter.py', '_preferences', 'PREFERENCES_PATH',
      'setting', 'preferences.md text, a miss = none this push'),
@@ -504,6 +507,16 @@ EXEMPT = [
      'code', 'strategy source read as code, not a state file'),
     ('lib/strategy.py', 'restore', 'path.read_bytes',
      'code', 'strategy source read as code, not a state file'),
+    ('lib/portfolio.py', '_booked_park_ids', '_ORDERS_LOG_PATH',
+     'append', 'manager/orders.jsonl: which parked orders the book already holds (append-only)'),
+    ('lib/portfolio.py', '_machine_lang', "'state/reply_lang'",
+     'setting', 'the reply language for the order-unconfirmed notice: a failed read keeps Chinese'),
+    ('manager/flatten.py', '_flatten', 'os.path.join(_INFLIGHT_DIR, f)',
+     'failclosed', 'inflight markers at the end of 全部平倉: an unreadable one is skipped, the run already warned per key'),
+    ('lib/portfolio.py', '_filled_since', '_ORDERS_LOG_PATH',
+     'append', 'manager/orders.jsonl: did a 全部平倉 row\'s in-flight order fill (append-only)'),
+    ('lib/unconfirmed.py', 'load_json', 'path',
+     'helper', "the half-updated-workspace fallback (lib/winreplace.py without load_json)"),
 ]
 
 WIN = (0.05, 0.1, 0.2, 0.4, 0.5)
@@ -1003,7 +1016,8 @@ try:
     check("③d index locked: checked before stats.json is written (the backtest writes nothing)",
           isinstance(err, getattr(runner, "VersionIndexUnreadable", ())), (out, err))
     check("③d both call sites run that check before _write_stats",
-          src.count("_index_readable_or_raise(strategy_name)\n            _write_stats(out_dir, stats)") == 2)
+          src.count("_index_readable_or_raise(strategy_name)\n            _keep_exec_test(stats, out_dir, src0)\n"
+                    "            _write_stats(out_dir, stats)") == 2)
 
     # ── ③e runtime capital_connect: an unreadable block is a block, shown as re-enter password ──
     cc_block = cc._paths()["block"]

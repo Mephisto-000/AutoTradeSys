@@ -13,12 +13,12 @@ msgid "cn.blave.desc"
 msgstr "首次綁卡送 100 TWD 的 AI 額度，之後按用量計費"
 
 # 連結畫面偵測完本機兩個 CLI 都不能用、沒登入、公開價目有綁卡前額度時的大標與 Blave 那一列的副標(0.1.22;spec desktop-precard-credit §5.2)。
-# 「綁卡」整個畫面只講一次,放副標、句子對齊網站授權頁的「額度用完才需要綁卡」;不寫「夠跑幾輪」。這筆額度只能用 DeepSeek V4 Pro(0.1.33,選單上其他型號鎖住、旁邊講怎麼解開),所以字不提型號
+# 副標不講額度與金額(登入送的額度事先不預告,用完才由卡片叫他綁卡);不寫「夠跑幾輪」。這筆額度只能用 DeepSeek V4 Pro(0.1.33,選單上其他型號鎖住、旁邊講怎麼解開),所以字不提型號
 msgid "cn.h.free"
 msgstr "先用 Blave AI 開始"
 
 msgid "cn.blave.descFree"
-msgstr "登入就有 {q} TWD 的 AI 額度，用完才需要綁卡"
+msgstr "登入就能直接開始用"
 
 # 設定 › 模型接入 的 Blave AI 那一列,固定一行(12px:zh ≤ 346px、en ≤ 302px),句尾不加句號。沒登入且拿得到贈額數字時用這句
 msgid "cn.blave.descSet"
@@ -564,9 +564,13 @@ msgstr "你的 {name} 訂閱用量到上限了。重置之前可以到「設定 
 msgid "fault.limitBtn"
 msgstr "切換 AI"
 
-# 0.1.33 模型選單:有鎖住的列時,型號清單下面那一行(只講一次;鎖住列 aria-describedby 指它)。336 寬不折行
+# 0.1.33 模型選單:有鎖住的列時的完整原因——畫面上不出,只給讀屏(sr-only;鎖住列 aria-describedby 指它,點的當下 srSay)
 msgid "mp.locked"
 msgstr "其他模型綁卡或儲值後可用"
+
+# 點了鎖住的列(或方向鍵越過它),在那一列右邊出的短句,同「預設」的小字;不折行
+msgid "mp.lockedRow"
+msgstr "綁卡或儲值後可用"
 
 msgid "mp.na"
 msgstr "你的方案沒有"
@@ -684,6 +688,18 @@ msgstr "買進"
 
 msgid "tr.sell"
 msgstr "賣出"
+
+msgid "tr.fillUnconfirmed"
+msgstr "未確認成交"
+
+msgid "tr.fillUnconfirmedTip"
+msgstr "沒回報成交的口數沒算進策略部位。實際部位以券商軟體為準。"
+
+msgid "tr.fillNone"
+msgstr "未成交"
+
+msgid "tr.pxUnreported"
+msgstr "成交價未回報"
 
 msgid "tr.kind.open"
 msgstr "開倉"
@@ -1021,15 +1037,9 @@ msgstr "額度到了，可以再送了。"
 msgid "fault.needCard"
 msgstr "用 Blave AI 要先綁卡或儲值，這一輪沒有跑。"
 
-# 綁卡前的 AI 額度用完、還沒綁卡(account_status free_ai_credit_used_up):預檢卡與 402 卡換這組字,鈕照舊「前往綁卡」;數字拿不到用 NoNum 那句
-msgid "acct.freeUp"
-msgstr "{q} TWD 的 AI 額度用完了。"
-
+# 綁卡前的 AI 額度用完、還沒綁卡(account_status free_ai_credit_used_up):預檢卡與 402 卡換這組字,鈕照舊「前往綁卡」;不帶數字(那筆額度事先沒預告)
 msgid "acct.freeUpNoNum"
 msgstr "AI 額度用完了。"
-
-msgid "fault.freeUp"
-msgstr "{q} TWD 的 AI 額度用完了，這一輪沒有跑完。"
 
 msgid "fault.freeUpNoNum"
 msgstr "AI 額度用完了，這一輪沒有跑完。"
@@ -1054,10 +1064,6 @@ msgstr "Blave 餘額"
 
 msgid "plan.balNa"
 msgstr "現在讀不到餘額"
-
-# 設定 › 帳號與方案:綁卡前的 AI 額度那一列(餘額列上面;領過才出)。叫「AI 額度」不叫「餘額」——這筆付不了資料費
-msgid "plan.free"
-msgstr "AI 額度"
 
 msgid "plan.month"
 msgstr "{p} TWD／月"
@@ -1499,6 +1505,14 @@ msgstr "還不支援 Bitget 統一帳戶（UTA），讀不到這個帳戶。請�
 msgid "cx.err.bitgetClassic"
 msgstr "這把金鑰是 Bitget 經典帳戶，沒有儲存。到 Bitget App 升級成統一帳戶再連，或改綁其他交易所。"
 
+# Bitget 40731:跟單金鑰或帶單帳戶,一般帳戶讀不到也不能下單(lib [bitget_copy_trading_key] → trade.js trErrToken);連接框拒收那一句
+msgid "cx.err.bitgetCopyKey"
+msgstr "這是跟單或帶單帳戶的金鑰，沒有儲存。用一般帳戶在「API 管理」建交易金鑰，勾讀取與交易、不勾提領。"
+
+# 同上,已綁的金鑰讀帳失敗那一列
+msgid "cx.err.bitgetCopyKeyBound"
+msgstr "跟單或帶單帳戶的金鑰讀不到帳戶。用一般帳戶在「API 管理」建交易金鑰，勾讀取與交易、不勾提領。"
+
 msgid "cx.failShort"
 msgstr "串接失敗"
 
@@ -1646,6 +1660,10 @@ msgstr "Bitget 不開放這個帳戶交易 {sym}，這筆沒有下單。請 agen
 # Bitget 統一帳戶還沒開放,下單被 lib 擋下(trade.js trErrToken bitget_uta_unsupported)
 msgid "tr.err.bitgetUta"
 msgstr "{sym} 沒有下單：還不支援 Bitget 統一帳戶（UTA）。請改綁經典帳戶或其他交易所。"
+
+# 同上,下單被拒
+msgid "tr.err.bitgetCopyKey"
+msgstr "{sym} 沒有下單：這是跟單或帶單帳戶。用一般帳戶在「API 管理」建交易金鑰，勾讀取與交易、不勾提領。"
 
 msgid "tr.err.key"
 msgstr "{sym} 沒有下單：交易所拒絕這把金鑰。到「自動下單 › 設定」看帳戶狀態，有「重新測試」就按。"
@@ -1843,6 +1861,14 @@ msgstr "系統通知已關閉。"
 
 msgid "set.rn.osGo"
 msgstr "開啟系統設定"
+
+# 設定 › 一般「回覆好了通知我」下面那列:回覆好了響回覆音(ui-prefs replySound,跟通知開關各管各的)。字同網頁 workspace_rn_sound
+msgid "set.rs"
+msgstr "提示音"
+
+# 上面那個開關的說明泡泡(網頁講「分頁在背景」,電腦版是視窗)
+msgid "set.rs.tip"
+msgstr "視窗不在前面時，回覆好了響一聲。"
 
 msgid "rc.await"
 msgstr "等你回覆："
@@ -3088,6 +3114,13 @@ msgstr "登入後，帳號也會記下：連的是哪種 AI、這台電腦有沒
 # 0.1.13 策略庫免登入下載(/public_code)帶安裝識別碼算安裝人數;面板排在 priv.collect.4 之後
 msgid "priv.collect.8"
 msgstr "沒登入或登入失效時從策略庫下載免登入策略：哪一支（策略庫編號）和安裝識別碼，用來算安裝人數；之後登入就會跟你的帳號對上"
+
+# 0.1.35 本機 AI 登入方式(cli_auth)與登入失敗(auth_fail);面板排在 priv.collect.6 之後
+msgid "priv.collect.9"
+msgstr "本機 AI 的登入方式，例如訂閱或 API 金鑰；不含帳號與金鑰"
+
+msgid "priv.collect.10"
+msgstr "登入失敗的類別，以及當下是否判定為已登入"
 
 msgid "priv.never.h"
 msgstr "使用資料不收"
@@ -4589,7 +4622,7 @@ msgid "lib.years"
 msgstr "樣本 {n} 年"
 
 msgid "lib.annLabel"
-msgstr "年化・回測"
+msgstr "年化報酬・回測"
 
 msgid "lib.installs"
 msgstr "{n} 人安裝"
@@ -4629,7 +4662,7 @@ msgid "lib.kv.listed"
 msgstr "上架"
 
 msgid "lib.kv.ann"
-msgstr "年化"
+msgstr "年化報酬"
 
 msgid "lib.kv.sharpe"
 msgstr "Sharpe"
@@ -4648,6 +4681,14 @@ msgstr "安裝"
 
 msgid "lib.sampleYrs"
 msgstr "{n} 年"
+
+# 策略庫詳情「回測」對照表的欄名(spec library-benchmark-2026-10-27 B):指標｜策略｜{sym} 持有;只在 /report 有買進持有基準時出現。同 web workspace_lib_cmp_strategy
+msgid "lib.cmp.strategy"
+msgstr "策略"
+
+# 同一張對照表的「總報酬」列;字同 web bc_mp_report_total(en 大寫 R)。沒有基準時的兩欄 kv 照舊用 lib.kv.total
+msgid "lib.cmp.total"
+msgstr "總報酬"
 
 msgid "lib.gates.title"
 msgstr "三道品質關卡"
@@ -6336,7 +6377,7 @@ msgid "ver.rerunDoneSr"
 msgstr "{v} 的回測已用最新資料重跑完。"
 
 msgid "ver.frozenRerun"
-msgstr "回測重跑完就有進出場紀錄；參數掃描與樣本外驗證要再跑一次。"
+msgstr "回測重跑完就有進出場紀錄。參數掃描、樣本外驗證、成交測試要再跑一次。"
 
 msgid "ver.frozenRerunFailed"
 msgstr "灰掉的分頁沒有資料，回測重跑完才有。"
@@ -8640,29 +8681,9 @@ msgstr "保證金 {v}"
 msgid "po.dLev"
 msgstr "（{x}×）"
 
-# 歡迎頁起手句(0.1.26;renderer/welcome.js;spec-starters §1.7 / §5.1)。key 名借網頁工作頁的。
-# 列上只寫規則,送出的是 _send 那一整句。任何地方都不准寫報酬率,也不准跟大盤或 0050 比較
-msgid "starter_crypto_row"
-msgstr "BTC 日線：收盤站上 200 日均線買進，跌破賣出"
-
-msgid "starter_crypto_send"
-msgstr "BTC 日線：收盤站上 200 日均線買進，跌破賣出。幫我建成策略，回測 2020 年至今。"
-
-msgid "starter_tw_row"
-msgstr "台積電、聯發科、鴻海、台達電、富邦金五檔等權持有，每月再平衡"
-
-msgid "starter_tw_send"
-msgstr "台積電（2330）、聯發科（2454）、鴻海（2317）、台達電（2308）、富邦金（2881）五檔等權持有，每月再平衡。幫我建成策略，回測 2022 年至今。"
-
-msgid "starter_txf_row"
-msgstr "台指期日線：收盤突破 20 日高點做多，跌破 10 日低點平倉"
-
-msgid "starter_txf_send"
-msgstr "台指期日線：收盤突破 20 日高點做多，跌破 10 日低點平倉。幫我建成策略，回測 2015 年至今。"
-
-# {y} = 回測起始年
-msgid "starter_since"
-msgstr "{y} 起"
+# 歡迎頁①策略卡的回測期間(0.1.34;renderer/welcome.js wcCard);{span} =「2020–2025」或單一年
+msgid "workspace_lib_bt_span"
+msgstr "回測 {span}"
 
 # 用戶拿得到的資料列(單一清單、對比版的免費欄);{name} = wd.r.<id>.an。只填不送
 msgid "wd.ask.build"
@@ -9032,6 +9053,10 @@ msgstr "Bitget 換成統一帳戶後，{n} 個倉位跟換之前對不上。暫�
 msgid "tr.haltBitgetMismatchClassic"
 msgstr "Bitget 換成經典帳戶後，{n} 個倉位跟換之前對不上。暫停期間什麼單都不送。"
 
+# Bitget 40731 讓對帳器 HALT(reason 帶 [bitget_copy_trading_key];trade.js trHaltReasonText)
+msgid "tr.haltBitgetCopyKey"
+msgstr "Bitget 跟單或帶單帳戶的金鑰下不了單。用一般帳戶在「API 管理」建交易金鑰，勾讀取與交易、不勾提領。"
+
 # 對不上的倉位清單(trade.js trPaintMismatch):欄名與出口句
 msgid "tr.mm.colSym"
 msgstr "標的"
@@ -9079,3 +9104,232 @@ msgstr "Bitget 有倉位沒有止損"
 # 事件列 P3 的註解:Blave 自己的下單紀錄讀不到,無法確認換帳戶後止損還在不在
 msgid "tr.ov.evBitgetStopsUnknown"
 msgstr "無法確認止損：讀不到 Blave 的下單紀錄，請到 Bitget 看止損還在不在。"
+
+# 報告頁「成交測試」分頁(renderer/report-xt.js;spec lag-test-tab-2026-10-26):字與 web workspace_xt_* 逐字同一份
+# (web 的 %% 是 Jinja 的轉義,畫面上是 %;tests/check_web_desktop_parity.js 比對前還原)
+msgid "rp.tab.xt"
+msgstr "成交測試"
+
+msgid "xt.verdict"
+msgstr "{lag}。{cost}。"
+
+msgid "xt.lagFlat"
+msgstr "晚到 10 根 Sharpe 都在 {lo}–{hi}"
+
+msgid "xt.lagOne"
+msgstr "晚一根 Sharpe {m1}"
+
+msgid "xt.lagOneFive"
+msgstr "晚一根 Sharpe {m1}，晚五根 {m5}"
+
+msgid "xt.lagMixed"
+msgstr "晚 5 根內 Sharpe 最低 {lo}、最高 {hi}，晚 10 根 {v10}"
+
+msgid "xt.lagLow"
+msgstr "現行 Sharpe {s0}，晚 1 根 {s1}、晚 10 根 {s10}"
+
+msgid "xt.up"
+msgstr "升 {p}"
+
+msgid "xt.down"
+msgstr "掉 {p}"
+
+msgid "xt.costDown"
+msgstr "每邊成本多 {x}，Sharpe 從 {s0} 掉到 {s1}"
+
+msgid "xt.costTo"
+msgstr "每邊成本多 {x}，Sharpe 從 {s0} 到 {s1}"
+
+msgid "xt.few"
+msgstr "交易太少（回測期間換倉 {n} 次），延遲和成本都測不出東西。"
+
+msgid "xt.lagH"
+msgstr "晚幾根成交"
+
+msgid "xt.lagSub"
+msgstr "1 根＝{one}，晚 10 根＝{ten}"
+
+msgid "xt.unit.m"
+msgstr "{n} 分鐘"
+
+msgid "xt.unit.h"
+msgstr "{n} 小時"
+
+msgid "xt.unit.d"
+msgstr "{n} 天"
+
+msgid "xt.unit.td"
+msgstr "{n} 個交易日"
+
+msgid "xt.unit.w"
+msgstr "{n} 週"
+
+msgid "xt.lagLbl"
+msgstr "{metric} · 晚幾根成交"
+
+msgid "xt.colLag"
+msgstr "晚幾根"
+
+msgid "xt.cur"
+msgstr "現行"
+
+msgid "xt.m.sharpe"
+msgstr "Sharpe"
+
+msgid "xt.m.ann"
+msgstr "年化"
+
+msgid "xt.m.mdd"
+msgstr "最大回撤"
+
+msgid "xt.closeAte"
+msgstr "訊號那根收盤就成交：Sharpe {a}（現行 {b}）。開盤跳空吃掉 {c}。"
+
+msgid "xt.closeGain"
+msgstr "訊號那根收盤就成交：Sharpe {a}（現行 {b}）。開盤跳空反而多賺 {c}。"
+
+msgid "xt.lagHow"
+msgstr "每一點是整個部位晚 k 根成交的結果，虛線是現行。點表頭換圖上的指標。"
+
+msgid "xt.costH"
+msgstr "成本高一點"
+
+msgid "xt.costSub"
+msgstr "現行每邊 {fee}・年換手 {n} 倍"
+
+msgid "xt.costLbl"
+msgstr "{metric} · 每邊交易成本再多（%）"
+
+msgid "xt.colCost"
+msgstr "每邊交易成本"
+
+msgid "xt.free"
+msgstr "不計交易成本"
+
+msgid "xt.freeAx"
+msgstr "不計"
+
+msgid "xt.perSide"
+msgstr "每邊 {fee}"
+
+msgid "xt.beK"
+msgstr "Sharpe 歸零的交易成本"
+
+msgid "xt.beLine"
+msgstr "Sharpe 歸零：每邊 {fee}"
+
+msgid "xt.beOut"
+msgstr "Sharpe 歸零在每邊 {fee}，超出此圖"
+
+msgid "xt.clip"
+msgstr "方點＝低於 {v}，實際值看下表。"
+
+msgid "xt.costHow"
+msgstr "每一點是每邊交易成本多 X% 的結果。交易成本含手續費、稅、滑價。"
+
+msgid "xt.fogOld"
+msgstr "舊版本沒存這一頁的數字。"
+
+msgid "xt.behind"
+msgstr "先更新主機程式，才能跑成交測試。"
+
+msgid "xt.updFail"
+msgstr "沒測成功"
+
+# 〔開始測試〕／〔重新測試〕(spec lag-test-tab §3.6;按了才算,同 web workspace_xt_btn_* 等)
+msgid "xt.btnRun"
+msgstr "開始測試"
+
+msgid "xt.btnRerun"
+msgstr "重新測試"
+
+msgid "xt.btnBusy"
+msgstr "測試中"
+
+msgid "xt.btnTip"
+msgstr "用最新資料重跑回測，績效會一起更新。"
+
+msgid "xt.verdictStale"
+msgstr "績效更新過，重新測試後才會更新。"
+
+msgid "xt.busyRefresh"
+msgstr "績效正在更新，跑完再按一次。"
+
+msgid "xt.busyTurn"
+msgstr "agent 正在回覆，可能還在改策略，回覆完再測。"
+
+# 下單結果不明(order_unconfirmed,canon notifications §3):事件列標題／說明、本機 P1 通知內文、列下那一句;策略段(策略檔名)組字
+msgid "tr.ov.evUnconfirmed"
+msgstr "下單結果不明"
+
+msgid "tr.ov.evUnconfirmedStuck"
+msgstr "下單結果還是不明"
+
+msgid "tr.ov.evUnconfirmedNote"
+msgstr "這筆單可能已經成交，不要手動補單。這個標的暫停開倉，平倉照常，查到結果自動接續。"
+
+msgid "tr.ov.evUnconfirmedStuckNote"
+msgstr "還是查不到結果，這個標的仍暫停開倉。請核對交易所部位、告訴 agent 成交多少，不要手動補單。"
+
+msgid "tm.evUnconfirmedNote"
+msgstr "這筆單可能已經成交，不要手動補單。這個標的暫停開倉，平倉照常。"
+
+msgid "tr.err.unconfirmed"
+msgstr "結果不明，可能已經成交，不要手動補單。這個標的暫停開倉，平倉照常。"
+
+msgid "tr.ov.evStratOne"
+msgstr "策略 {name}"
+
+msgid "tr.ov.evStratTwo"
+msgstr "策略 {a}、{b}"
+
+msgid "tr.ov.evStratMany"
+msgstr "{name} 等 {n} 支策略"
+
+msgid "tm.evWithStrat"
+msgstr "{strat}：{note}"
+
+# 下單結果不明:停車解除後那一列(灰字,released／filled),以及追蹤不了而整台暫停(HALT reason [order_unconfirmed_unparked])的狀態句與事件說明
+msgid "tr.ov.evUnconfirmedReleased"
+msgstr "下單結果已查到"
+
+msgid "tr.ov.evUnconfirmedReleasedFilled"
+msgstr "這筆單已成交，已記進帳本，這個標的恢復開倉。"
+
+msgid "tr.ov.evUnconfirmedReleasedNone"
+msgstr "這筆單沒有成交，這個標的恢復開倉。"
+
+msgid "tr.haltUnconfirmed"
+msgstr "{sym} 有一筆單結果不明、可能已成交，什麼單都不送。不要手動補單，告訴 agent 成交多少再按「啟動下單」。"
+
+msgid "tr.ov.evHaltUnconfirmedNote"
+msgstr "{sym} 有一筆單結果不明、可能已成交，什麼單都不送。不要手動補單，告訴 agent 成交多少再按「啟動下單」。"
+
+# 下單結果不明(designer v034 UX 定稿):全部平倉沒平到那一型與它的收尾、整台暫停沒有標的的退路與本機通知內文、manual 停車部位表那句
+msgid "tr.ov.evHaltUnconfirmedNoteNosym"
+msgstr "有一筆單結果不明、可能已成交，什麼單都不送。不要手動補單，告訴 agent 成交多少再按「啟動下單」。"
+
+msgid "tm.evHaltUnconfirmedNote"
+msgstr "有一筆單結果不明、可能已成交，什麼單都不送。不要手動補單，告訴 agent 成交多少再按「啟動下單」。"
+
+msgid "tr.ov.evUnconfirmedCloseAll"
+msgstr "沒有一起平倉"
+
+msgid "tr.ov.evUnconfirmedCloseAllNote"
+msgstr "有一筆單結果不明，不在這次平倉裡。不要自己下單，告訴 agent 成交多少再按「暫停並關閉部位」。"
+
+msgid "tr.ov.evUnconfirmedReleasedCloseAllFilled"
+msgstr "這筆單已成交、已記進帳本。要全平，再按「暫停並關閉部位」。"
+
+msgid "tr.ov.evUnconfirmedReleasedCloseAllNone"
+msgstr "這筆單沒有成交，不用再處理。"
+
+msgid "tr.ov.evUnconfirmedInterruptedNote"
+msgstr "改看「前次執行中斷」那則。"
+
+msgid "tr.err.unconfirmedManual"
+msgstr "結果不明，可能已經成交，不要手動補單。告訴 agent 成交多少才會恢復開倉。"
+
+# 追蹤不了而整台暫停、HALT reason 讀不到標的時的狀態句(大寫開頭;同網頁 workspace_pf_halt_unconfirmed_nosym)
+msgid "tr.haltUnconfirmedNosym"
+msgstr "有一筆單結果不明、可能已成交，什麼單都不送。不要手動補單，告訴 agent 成交多少再按「啟動下單」。"

@@ -4,6 +4,7 @@
 //   3. replyTitleOf:第一句用戶的話、拿掉附件那幾行、截 60 字、空的用 Blave
 //   4. replyCue 整條:一輪一則(用掉就清)、awaiting 把 done 升成 await、show／click／failed 的埋點、點了開那條對話、不碰 Dock 紅點
 //   5. 接線:runTurn 記 awaiting、結束記 pending、送出失敗那條也記;IPC 只收自家頁面;畫面算完 faulted 才送
+//   7. 提示音(canon › Sound):通知一律 silent;聲音自己一個開關、不排在通知的早退後面;畫面 2 秒內只響一聲、ctx 不是 running 不響
 // 不開 Electron、不建真的 Notification。跑法:node tests/check_shell_reply_cue.js
 const fs = require("fs"), path = require("path"), vm = require("vm");
 const S = path.join(__dirname, "..", "shell");
@@ -56,16 +57,18 @@ const mk = (o = {}) => {
   const ctx = { Notification: FakeN, tmLabels: o.labels || L, p1Alive: new Set(), p1Badge: 0, console: { error: () => {} },
     BrowserWindow: { getFocusedWindow: () => (o.focused ? win : null), getAllWindows: () => [win] }, isOurPageUrl: () => true,
     app: { dock: { setBadge: (v) => { badge = v; } } }, showMain: () => { shown++; }, tm: () => ({ track: (ev, p) => tracked.push(ev + ":" + p.act) }),
-    replyNotifyGet: () => o.pref !== false, okSessionId: (id) => typeof id === "string" && /^desktop-[a-z0-9]{4,16}$/.test(id), replyTitle: (sid) => "T:" + sid, require };
+    replyNotifyGet: () => o.pref !== false, replySoundGet: () => o.sound !== false, okSessionId: (id) => typeof id === "string" && /^desktop-[a-z0-9]{4,16}$/.test(id), replyTitle: (sid) => "T:" + sid, require };
   vm.createContext(ctx);
   vm.runInContext(["let replyPending = null, replyLast = null, replyOsOff = false;", PURE, fn(main, "notifWatch"), fn(main, "replyCue"), fn(main, "replyTurnStart"),
     "this.get = () => ({ replyPending, replyLast, replyOsOff }); this.setPending = (p) => { replyPending = p; };"].join("\n"), ctx);
-  return { ctx, made, tracked, sent, badge: () => badge, shown: () => shown, cue: (c) => ctx.replyCue(c) };
+  const snd = [], sender = { isDestroyed: () => !!o.senderGone, send: (ch) => snd.push(ch) };
+  return { ctx, made, tracked, sent, snd, badge: () => badge, shown: () => shown, cue: (c) => ctx.replyCue(c, sender) };
 };
 const SID = "desktop-abcd1234";
 let x = mk(); x.ctx.setPending({ sid: SID, awaiting: false });
 ok("背景、開著、done:發一則,標題是那條對話、內文是摘錄", x.cue({ kind: "done", snippet: "回測完成" }) === true && x.made.length === 1 && x.made[0].a.title === "T:" + SID && x.made[0].a.body === "回測完成");
-ok("…不另設 sound／silent(聲音同 P1 通知)", !("silent" in x.made[0].a) && !("sound" in x.made[0].a));
+ok("…系統通知 silent(不跟回覆音疊響;P1 另一條,照用系統聲)", x.made[0].a.silent === true && !("sound" in x.made[0].a));
+ok("…提示音開著:叫送 reply-cue 的那個畫面響一聲", JSON.stringify(x.snd) === '["reply-sound"]');
 ok("…show 事件記 reply_notif done", x.tracked.join() === "reply_notif:done");
 ok("…pending 用掉就清:畫面再送一次發不出第二則", x.ctx.get().replyPending === null && x.cue({ kind: "done", snippet: "again" }) === false && x.made.length === 1);
 ok("…不碰 Dock 紅點、不加 p1Badge", x.badge() === null && x.ctx.p1Badge === 0);
@@ -107,8 +110,8 @@ ok("runTurn:一開始先收掉上一則(replyTurnStart)", /replyTurnStart\(\);\n
 ok("runTurn:done chunk 記 awaiting(同 sessWaitingSave 那個值)", /turnAwaiting = c\.awaiting === true; sessWaitingSave\(sessionId, turnAwaiting\);/.test(rt));
 ok("runTurn:close 時記 pending(用 runTurn 的 sessionId,不看畫面開著哪條)、在送 turn-end 之前", /replyPending = \{ sid: sessionId, awaiting: turnAwaiting \};[^\n]*\n[^\n]*\n    if \(!win\.isDestroyed\(\)\) win\.webContents\.send\("turn-end"/.test(rt));
 ok("send-message:runTurn 失敗那條(畫面也會收到 turn-end)也記 pending", /\.catch\(\(err\) => \{[^\n]*\n      replyPending = \{ sid: payload && payload\.sessionId, awaiting: false \};\n      if \(win && !win\.isDestroyed\(\)\) win\.webContents\.send\("turn-end"/.test(main));
-ok("IPC:reply-cue 與三支設定 handler 都只收自家頁面", /ipcMain\.on\("reply-cue", \(e, cue\) => \{ if \(fromOurPage\(e\)\) replyCue\(cue\); \}\);/.test(main)
-  && /handle\("reply-notify", /.test(main) && /handle\("reply-notify-set", /.test(main) && /handle\("reply-notify-os", /.test(main));
+ok("IPC:reply-cue(聲音交回 e.sender)與四支設定 handler 都只收自家頁面", /ipcMain\.on\("reply-cue", \(e, cue\) => \{ if \(fromOurPage\(e\)\) replyCue\(cue, e\.sender\); \}\);/.test(main)
+  && /handle\("reply-notify", \(\) => \(\{ on: replyNotifyGet\(\), osOff: replyOsOff, sound: replySoundGet\(\) \}\)/.test(main) && /handle\("reply-notify-set", /.test(main) && /handle\("reply-sound-set", \(_e, on\) => replySoundSet\(on === true\)/.test(main) && /handle\("reply-notify-os", /.test(main));
 ok("「開啟系統設定」網址寫死(Windows ms-settings:notifications;macOS 系統設定的通知頁)", /ms-settings:notifications/.test(fn(main, "replyOsSettings")) && /x-apple\.systempreferences:/.test(fn(main, "replyOsSettings")));
 ok("tmLabels 預先列好五個 rc_ 鍵(trade-labels 只收已經在表上的鍵)", /rc_await: "", rc_fail: "", rc_doneEmpty: "", rc_awaitEmpty: "", rc_failEmpty: "",/.test(main));
 ok("回合結束提示那段不碰 p1Badge／setBadge", !/p1Badge|setBadge/.test(fn(main, "replyCue") + fn(main, "replyTurnStart") + fn(main, "replyBody")));
@@ -128,5 +131,97 @@ for (const lang of ["zh", "en"]) { const src = po(lang); ok(lang + ".po:八個�
 const tr = fs.readFileSync(path.join(S, "renderer", "trade.js"), "utf8");
 ok("trade-labels 交五個 rc_ 字給主行程", /rc_await: t\("rc\.await"\), rc_fail: t\("rc\.fail"\), rc_doneEmpty: t\("rc\.doneEmpty"\), rc_awaitEmpty: t\("rc\.awaitEmpty"\), rc_failEmpty: t\("rc\.failEmpty"\),/.test(tr));
 
-console.log(red ? red + " 紅" : "ALL PASS");
-process.exit(red ? 1 : 0);
+// ---- 7. 提示音
+// 整條列舉:kind × 前景 × 通知開關 × 聲音開關。聲音只看自己的開關;通知只看通知開關;兩個都不在前景、停止不出
+for (const kind of ["done", "await", "fail", "stopped", "nope"]) for (const focused of [true, false]) for (const pref of [true, false]) for (const sound of [true, false]) {
+  const y = mk({ focused, pref, sound }); y.ctx.setPending({ sid: SID, awaiting: false });
+  y.cue({ kind, snippet: "x" });
+  const live = !focused && ["done", "await", "fail"].includes(kind);
+  ok(`kind=${kind} focused=${focused} notify=${pref} sound=${sound} → 通知 ${live && pref} 聲音 ${live && sound}`,
+    y.made.length === (live && pref ? 1 : 0) && y.snd.length === (live && sound ? 1 : 0) && y.made.every((n) => n.a.silent === true), { made: y.made.length, snd: y.snd });
+}
+{ const y = mk({ supported: false }); y.ctx.setPending({ sid: SID, awaiting: false }); y.cue({ kind: "done", snippet: "x" });
+  ok("系統不支援通知:提示音照響", y.made.length === 0 && y.snd.length === 1); }
+{ const y = mk({ labels: {} }); y.ctx.setPending({ sid: SID, awaiting: false }); y.cue({ kind: "done", snippet: "x" });
+  ok("通知的字還沒交過來:提示音照響", y.made.length === 0 && y.snd.length === 1); }
+{ const y = mk(); y.cue({ kind: "done", snippet: "x" });
+  ok("沒有 pending:不響", y.snd.length === 0); }
+{ const y = mk(); y.ctx.setPending({ sid: SID, awaiting: false }); y.cue({ kind: "done", snippet: "x" }); y.cue({ kind: "done", snippet: "x" });
+  ok("一輪一聲:同一輪畫面再送一次不再響", y.snd.length === 1); }
+{ const y = mk({ senderGone: true }); y.ctx.setPending({ sid: SID, awaiting: false });
+  ok("畫面已銷毀:不送、不拋", y.cue({ kind: "done", snippet: "x" }) === true && y.snd.length === 0); }
+ok("silent: true 整個 main.js 只有一處、在 replyCue 裡(P1 與其他通知照用系統聲)", (main.match(/silent: true/g) || []).length === 1 && /silent: true/.test(fn(main, "replyCue")));
+// 主行程:replySound 沒存過跟著 replyNotify;存過就各管各的;檔不在／壞掉／null 一律算開
+{ const getSrc = line(/const replySoundGet = .*;/);
+  const run = (raw) => new Function("fs", "uiPrefsPath", getSrc + "\nreturn replySoundGet();")({ readFileSync: () => { if (raw === undefined) throw new Error("ENOENT"); return raw; } }, () => "/x");
+  const CASES = [[undefined, true], ["{}", true], ['{"replyNotify":false}', false], ['{"replyNotify":true}', true], ['{"replyNotify":false,"replySound":true}', true],
+    ['{"replyNotify":true,"replySound":false}', false], ["null", true], ["{bad", true], ['{"replyNotify":false,"replySound":"x"}', false]];
+  for (const [raw, exp] of CASES) ok(`replySoundGet(${raw}) → ${exp}`, run(raw) === exp);
+  ok("…寫入只動 replySound", /uiPrefsPatch\(\{ replySound: on === true \}\)/.test(fn(main, "replySoundSet"))); }
+// 切「回覆好了通知我」:提示音沒存過 → 先把當下的值存下來(之後脫鉤);存過 → 不動它。寫不進去照舊值
+{ const PREFS = [line(/const replySoundSaved = .*;/), line(/const replySoundGet = .*;/), line(/const replyNotifyGet = .*;/), fn(main, "uiPrefsPatch"), fn(main, "replyNotifySet")].join("\n");
+  const run = (raw, on, failWrite) => { let file = raw; const tracked = [];
+    const fsx = { readFileSync: () => { if (file === undefined) throw new Error("ENOENT"); return file; }, writeFileSync: (p, d) => { if (failWrite) throw new Error("EROFS"); fsx.tmp = d; }, renameSync: () => { file = fsx.tmp; }, unlinkSync: () => {} };
+    const r = new Function("fs", "uiPrefsPath", "tm", PREFS + "\nreturn { set: replyNotifySet, snd: replySoundGet };")(fsx, () => "/x", () => ({ track: (e, p) => tracked.push(p.act) }));
+    const ret = r.set(on); return { ret, snd: r.snd(), file: file === undefined ? {} : JSON.parse(file), tracked }; };
+  let x = run(undefined, false);
+  ok("沒存過、通知 開→關:提示音存成開(脫鉤),之後照樣是開", x.ret === false && x.file.replySound === true && x.snd === true && x.tracked.join() === "off");
+  x = run('{"replyNotify":false}', true);
+  ok("沒存過、通知 關→開:提示音存成關(之前跟著通知是關),不突然變開", x.ret === true && x.file.replySound === false && x.snd === false);
+  x = run('{"replyNotify":true,"replySound":false}', false);
+  ok("存過:切通知不動提示音", x.file.replySound === false && x.snd === false && x.file.replyNotify === false);
+  x = run(undefined, false, true);
+  ok("寫不進去:回舊值、不記埋點", x.ret === true && x.tracked.length === 0); }
+// 畫面:rsArm／rsPlay 用假的 AudioContext 跑;playRise 照表排兩個正弦音
+const asyncChecks = (async () => {
+  const RS = [/^const RISE = \[[\s\S]*?^\];$/m, /^const RISE_GAIN = .*;/m, /^const SOUND_GAP_MS = .*;/m].map((re) => (app.match(re) || [""])[0]).join("\n");
+  const calls = [], tracked = [];
+  const param = (n) => ({ value: 1, setValueAtTime: (v, t) => calls.push([n, "set", v, +t.toFixed(4)]), linearRampToValueAtTime: (v, t) => calls.push([n, "lin", v, +t.toFixed(4)]), exponentialRampToValueAtTime: (v, t) => calls.push([n, "exp", v, +t.toFixed(4)]) });
+  // o.resumeTo:resume 之後變成的 state(undefined = 照舊);o.made 記建了幾個
+  const env = { made: 0, failCreate: false, state: "running", resumeTo: "running", resumes: 0 };
+  class FakeCtx {
+    constructor() { if (env.failCreate) throw new Error("no audio"); env.made++; this.state = env.state; this.currentTime = 1; this.destination = {}; }
+    resume() { env.resumes++; if (env.resumeTo) this.state = env.resumeTo; return Promise.resolve(); }
+    close() { this.closed = true; return Promise.resolve(); }
+    createGain() { return { gain: param("g"), connect: () => {} }; }
+    createOscillator() { const o = { type: "", frequency: param("f"), connect: () => {}, start: (t) => calls.push(["o", "start", o.type, +t.toFixed(4)]), stop: (t) => calls.push(["o", "stop", +t.toFixed(4)]) }; return o; }
+  }
+  const R = new Function("window", "trackFeature", "RN", RS + "\nlet rsCtx = null, rsLast = 0;\n" + fn(app, "playRise") + "\n" + fn(app, "rsArm") + "\nasync " + fn(app, "rsPlay")
+    + "\nreturn { rsArm, rsPlay, ctx: () => rsCtx, setCtx: (c) => { rsCtx = c; }, RISE_GAIN, SOUND_GAP_MS };")({ AudioContext: FakeCtx }, (n) => tracked.push(n), env.RN = { sound: false });
+  R.rsArm();
+  ok("rsArm:提示音關著不建", R.ctx() === null && env.made === 0);
+  env.RN.sound = true; env.failCreate = true; R.rsArm();
+  ok("rsArm:建不起來 → rsCtx 歸零、不拋", R.ctx() === null);
+  env.failCreate = false; env.state = "suspended"; R.rsArm();
+  ok("rsArm:建好了是 suspended → 呼叫 resume", env.made === 1 && env.resumes === 1 && R.ctx().state === "running");
+  R.rsArm();
+  ok("rsArm:已經 running → 不重建、不再 resume", env.made === 1 && env.resumes === 1);
+  R.setCtx(null); env.state = "running";
+  ok("rsPlay:還沒建 → 當場建、響(Electron 免手勢)、記 reply_snd_play", await R.rsPlay(10000) === true && env.made === 2 && tracked.join() === "reply_snd_play");
+  ok("…兩個正弦音、C5 從 +0.02、G5 晚 110 ms;6 ms 線性起音、指數衰減 120／160 ms 到 0.0001", JSON.stringify(calls) === JSON.stringify([
+    ["g", "set", 0, 1.02], ["g", "lin", 1, 1.026], ["g", "exp", 0.0001, 1.146], ["g", "set", 0, 1.147], ["f", "set", 523.25, 1.02], ["o", "start", "sine", 1.02], ["o", "stop", 1.156],
+    ["g", "set", 0, 1.13], ["g", "lin", 1, 1.136], ["g", "exp", 0.0001, 1.296], ["g", "set", 0, 1.297], ["f", "set", 783.99, 1.13], ["o", "start", "sine", 1.13], ["o", "stop", 1.306]]), calls);
+  ok("多條對話 2 秒內接連結束只響一聲(擋掉的不記埋點)", await R.rsPlay(11999) === false && tracked.length === 1 && await R.rsPlay(12000) === true);
+  R.ctx().state = "suspended"; calls.length = 0; tracked.length = 0;
+  ok("rsPlay:睡醒掛起 → 先 resume 再響", await R.rsPlay(20000) === true && calls.length > 0 && tracked.join() === "reply_snd_play");
+  R.ctx().state = "suspended"; env.resumeTo = undefined; calls.length = 0; tracked.length = 0;
+  ok("rsPlay:resume 後仍不是 running → 不響、記 reply_snd_block", await R.rsPlay(30000) === false && calls.length === 0 && tracked.join() === "reply_snd_block");
+  R.setCtx(null); env.failCreate = true; tracked.length = 0;
+  ok("rsPlay:建不起來 → 不響、不拋、記 reply_snd_block", await R.rsPlay(40000) === false && tracked.join() === "reply_snd_block");
+  ok("回覆音峰值 ≤ −20 dBFS(主增益 × 相對峰值 1)", 20 * Math.log10(R.RISE_GAIN) <= -20 && R.SOUND_GAP_MS === 2000);
+})();
+ok("畫面:每個送出入口都經過的 submitMessage 第一行就 rsArm(在任何 await 之前);sendDraft 不再自己叫", /^function submitMessage\(msg, opts\) \{[^\n]*\n  rsArm\(\);/.test(fn(app, "submitMessage")) && !/rsArm/.test(fn(app, "sendDraft")));
+ok("畫面:切提示音送 reply_snd_on／off(值真的變了才送);開 → arm,關 → close 並放掉", /if \(typeof r !== "boolean" \|\| r === RN\.sound\) return;[^\n]*\n  RN\.sound = r; rnPaint\(\);\n  trackFeature\(r \? "reply_snd_on" : "reply_snd_off"\);\n  if \(r\) rsArm\(\);\n  else if \(rsCtx\) \{ rsCtx\.close\(\)\.catch\(\(\) => \{\}\); rsCtx = null; \}/.test(app));
+ok("畫面:主行程叫 reply-sound 才響(onReplySound → rsPlay)", /window\.blave\.onReplySound\(\(\) => \{ rsPlay\(Date\.now\(\)\); \}\);/.test(app)
+  && /onReplySound: \(fn\) => ipcRenderer\.on\("reply-sound", /.test(fs.readFileSync(path.join(S, "preload.js"), "utf8")));
+const TM = require(path.join(S, "telemetry.js"));
+ok("四個 reply_snd_* 在 feature_used 白名單上", ["reply_snd_on", "reply_snd_off", "reply_snd_play", "reply_snd_block"].every((n) => TM.EVENTS.feature_used.name.includes(n)));
+ok("設定列:「提示音」緊接在「回覆好了通知我」下面、自己一個 switch、說明收 .tip", html.indexOf('id="set-rs-sw"') > html.indexOf('id="set-rn-os"') && html.indexOf('id="set-rs-sw"') < html.indexOf('id="set-sug-sw"')
+  && /<span class="set-rs-l" id="set-rs-l" data-i18n="set\.rs"><\/span><span class="tip" id="set-rs-tip" role="tooltip" data-i18n="set\.rs\.tip"><\/span><\/label><button type="button" class="sw" id="set-rs-sw" role="switch" aria-checked="true" aria-labelledby="set-rs-l" aria-describedby="set-rs-tip">/.test(html));
+{ const RS_WANT = { zh: { "set.rs": "提示音", "set.rs.tip": "視窗不在前面時，回覆好了響一聲。" }, en: { "set.rs": "Sound", "set.rs.tip": "When the window isn’t in front, a reply plays a short sound." } };
+  for (const lang of ["zh", "en"]) { const src = po(lang); ok(lang + ".po:提示音兩句", Object.entries(RS_WANT[lang]).every(([k, v]) => str(src, k) === v)); } }
+
+asyncChecks.catch((e) => { ok("非同步段跑完", false, String(e && e.stack)); }).then(() => {
+  console.log(red ? red + " 紅" : "ALL PASS");
+  process.exit(red ? 1 : 0);
+});

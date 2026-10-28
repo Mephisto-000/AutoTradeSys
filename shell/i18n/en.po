@@ -16,7 +16,7 @@ msgid "cn.h.free"
 msgstr "Start with Blave AI"
 
 msgid "cn.blave.descFree"
-msgstr "Sign in for {q} TWD of AI credit; you only need a card once it runs out"
+msgstr "Sign in and start right away"
 
 # 設定 › 模型接入 的 Blave AI 那一列,固定一行(12px:zh ≤ 346px、en ≤ 302px),句尾不加句號。沒登入且拿得到贈額數字時用這句
 msgid "cn.blave.descSet"
@@ -561,6 +561,9 @@ msgstr "Switch AI"
 msgid "mp.locked"
 msgstr "Add a card or top up to use other models"
 
+msgid "mp.lockedRow"
+msgstr "Add a card or top up"
+
 msgid "mp.na"
 msgstr "Not on your plan"
 
@@ -677,6 +680,18 @@ msgstr "Buy"
 
 msgid "tr.sell"
 msgstr "Sell"
+
+msgid "tr.fillUnconfirmed"
+msgstr "Fill unconfirmed"
+
+msgid "tr.fillUnconfirmedTip"
+msgstr "Lots with no fill report aren't counted in the strategy position. The broker's app shows the actual position."
+
+msgid "tr.fillNone"
+msgstr "Not filled"
+
+msgid "tr.pxUnreported"
+msgstr "Price not reported"
 
 msgid "tr.kind.open"
 msgstr "Open"
@@ -1015,14 +1030,8 @@ msgstr "Credit is in. You can send again."
 msgid "fault.needCard"
 msgstr "Blave AI needs a card on file or a top-up, so this turn didn’t run."
 
-msgid "acct.freeUp"
-msgstr "Your {q} TWD of AI credit is used up."
-
 msgid "acct.freeUpNoNum"
 msgstr "Your AI credit is used up."
-
-msgid "fault.freeUp"
-msgstr "Your {q} TWD of AI credit is used up, so this turn didn’t finish."
 
 msgid "fault.freeUpNoNum"
 msgstr "Your AI credit is used up, so this turn didn’t finish."
@@ -1047,9 +1056,6 @@ msgstr "Blave balance"
 
 msgid "plan.balNa"
 msgstr "Balance unavailable right now"
-
-msgid "plan.free"
-msgstr "AI credit"
 
 msgid "plan.month"
 msgstr "{p} TWD / month"
@@ -1491,6 +1497,14 @@ msgstr "Bitget UTA accounts aren't supported yet, so this account can't be read.
 msgid "cx.err.bitgetClassic"
 msgstr "This is a Bitget Classic key, so it wasn't saved. Upgrade to UTA in the Bitget app and reconnect, or use another exchange."
 
+# Bitget 40731:跟單金鑰或帶單帳戶,一般帳戶讀不到也不能下單(lib [bitget_copy_trading_key] → trade.js trErrToken);連接框拒收那一句
+msgid "cx.err.bitgetCopyKey"
+msgstr "This key belongs to a copy-trading or elite-trader account, so it wasn't saved. Create a trading key from a regular account in API Management: Read and Trade, no Withdraw."
+
+# 同上,已綁的金鑰讀帳失敗那一列
+msgid "cx.err.bitgetCopyKeyBound"
+msgstr "Keys of a copy-trading or elite-trader account can't read the account. Create a trading key from a regular account in API Management: Read and Trade, no Withdraw."
+
 msgid "cx.failShort"
 msgstr "Connection failed"
 
@@ -1637,6 +1651,10 @@ msgstr "Bitget doesn't let this account trade {sym}, so no order was placed. Ask
 # Bitget 統一帳戶還沒開放,下單被 lib 擋下(trade.js trErrToken bitget_uta_unsupported)
 msgid "tr.err.bitgetUta"
 msgstr "{sym} not placed: Bitget UTA accounts aren't supported yet. Connect a Classic account or another exchange."
+
+# 同上,下單被拒
+msgid "tr.err.bitgetCopyKey"
+msgstr "{sym} not placed: this is a copy-trading or elite-trader account. Create a trading key from a regular account in API Management: Read and Trade, no Withdraw."
 
 msgid "tr.err.key"
 msgstr "{sym} not placed: the exchange rejected this key. Check the account in Auto trading › Settings; press Retest connection if it’s there."
@@ -1834,6 +1852,14 @@ msgstr "System notifications are off."
 
 msgid "set.rn.osGo"
 msgstr "Open System Settings"
+
+# 設定 › 一般「回覆好了通知我」下面那列:回覆好了響回覆音(ui-prefs replySound,跟通知開關各管各的)。字同網頁 workspace_rn_sound
+msgid "set.rs"
+msgstr "Sound"
+
+# 上面那個開關的說明泡泡(網頁講「分頁在背景」,電腦版是視窗)
+msgid "set.rs.tip"
+msgstr "When the window isn’t in front, a reply plays a short sound."
 
 msgid "rc.await"
 msgstr "Waiting for you:"
@@ -3077,6 +3103,13 @@ msgstr "Once you sign in, your account also records which AI you’re connected 
 # 0.1.13 策略庫免登入下載(/public_code)帶安裝識別碼算安裝人數;面板排在 priv.collect.4 之後
 msgid "priv.collect.8"
 msgstr "When you download a no-sign-in library strategy: which one (its library number) and the installation ID, to count installs; once you sign in, it is linked to your Blave account"
+
+# 0.1.35 本機 AI 登入方式(cli_auth)與登入失敗(auth_fail);面板排在 priv.collect.6 之後
+msgid "priv.collect.9"
+msgstr "How the local AI is signed in, e.g. subscription or API key; no account or key data"
+
+msgid "priv.collect.10"
+msgstr "Which kind of sign-in failure, and whether the AI counted as signed in"
 
 msgid "priv.never.h"
 msgstr "Not in usage data"
@@ -4577,7 +4610,7 @@ msgid "lib.years"
 msgstr "{n}-yr sample"
 
 msgid "lib.annLabel"
-msgstr "Annualized · backtest"
+msgstr "Annual Return · backtest"
 
 msgid "lib.installs"
 msgstr "{n} installs"
@@ -4616,13 +4649,13 @@ msgid "lib.kv.listed"
 msgstr "Listed"
 
 msgid "lib.kv.ann"
-msgstr "Annualized"
+msgstr "Annual Return"
 
 msgid "lib.kv.sharpe"
 msgstr "Sharpe"
 
 msgid "lib.kv.mdd"
-msgstr "Max DD"
+msgstr "Max Drawdown"
 
 msgid "lib.kv.sample"
 msgstr "Sample"
@@ -4635,6 +4668,14 @@ msgstr "Installs"
 
 msgid "lib.sampleYrs"
 msgstr "{n} yrs"
+
+# 策略庫詳情「回測」對照表的欄名(spec library-benchmark-2026-10-27 B):指標｜策略｜{sym} 持有;只在 /report 有買進持有基準時出現。同 web workspace_lib_cmp_strategy
+msgid "lib.cmp.strategy"
+msgstr "Strategy"
+
+# 同一張對照表的「總報酬」列;字同 web bc_mp_report_total(en 大寫 R)。沒有基準時的兩欄 kv 照舊用 lib.kv.total
+msgid "lib.cmp.total"
+msgstr "Total Return"
 
 msgid "lib.gates.title"
 msgstr "Quality Gates"
@@ -6020,7 +6061,7 @@ msgstr "Open anyway"
 
 # 策略轉出(renderer/export.js;spec-desktop-strategy-export-0.1.8)。觸發器、選單、確認框、轉出卡的字照 web 工作頁 workspace_xp_*
 msgid "xp.btn"
-msgstr "Export Code"
+msgstr "Export"
 
 msgid "xp.lang.xq"
 msgstr "XS language"
@@ -6322,7 +6363,7 @@ msgid "ver.rerunDoneSr"
 msgstr "The backtest for {v} has rerun on the latest data."
 
 msgid "ver.frozenRerun"
-msgstr "The Trades tab fills in once the backtest reruns; run the parameter scan and out-of-sample validation again."
+msgstr "The Trades tab fills in once the backtest reruns. Run the parameter scan, out-of-sample validation and fill test again."
 
 msgid "ver.frozenRerunFailed"
 msgstr "The greyed-out tabs have no data until the backtest reruns."
@@ -8621,29 +8662,9 @@ msgstr "Margin {v}"
 msgid "po.dLev"
 msgstr " ({x}×)"
 
-# Welcome page starters (0.1.26; renderer/welcome.js; spec-starters §1.7 / §5.1). Key names borrowed from the web workspace.
-# Row text shows the rule only; the _send sentence is what gets sent. Rows use U+2011 (non-breaking hyphen) in "N‑day" so it never breaks at the hyphen; _send keeps a plain hyphen. Never add a return figure or a comparison with the market / 0050.
-msgid "starter_crypto_row"
-msgstr "BTC daily: buy on a close above the 200‑day MA, sell on a close below"
-
-msgid "starter_crypto_send"
-msgstr "BTC daily: buy on a close above the 200-day MA, sell on a close below. Build it as a strategy and backtest from 2020."
-
-msgid "starter_tw_row"
-msgstr "Hold TSMC, MediaTek, Hon Hai, Delta Electronics and Fubon Financial in equal weights, rebalanced monthly"
-
-msgid "starter_tw_send"
-msgstr "Hold TSMC (2330), MediaTek (2454), Hon Hai (2317), Delta Electronics (2308) and Fubon Financial (2881) in equal weights, rebalanced monthly. Build it as a strategy and backtest from 2022."
-
-msgid "starter_txf_row"
-msgstr "TAIEX futures daily: go long on a close above the 20‑day high, exit on a close below the 10‑day low"
-
-msgid "starter_txf_send"
-msgstr "TAIEX futures daily: go long on a close above the 20-day high, exit on a close below the 10-day low. Build it as a strategy and backtest from 2015."
-
-# {y} = the year the backtest starts
-msgid "starter_since"
-msgstr "From {y}"
+# Welcome page step ① strategy card meta (0.1.34; renderer/welcome.js wcCard): {span} = "2020–2025" or a single year
+msgid "workspace_lib_bt_span"
+msgstr "Backtest {span}"
 
 # Data rows the user can actually use (single list; the free column of the two-column version); {name} = wd.r.<id>.an. Filled in, not sent
 msgid "wd.ask.build"
@@ -9004,6 +9025,10 @@ msgstr "After Bitget switched to a unified account (UTA), {n} positions don’t 
 msgid "tr.haltBitgetMismatchClassic"
 msgstr "After Bitget switched to a classic account, {n} positions don’t match what was there before. Nothing is sent while paused."
 
+# Bitget 40731 讓對帳器 HALT(reason 帶 [bitget_copy_trading_key];trade.js trHaltReasonText)
+msgid "tr.haltBitgetCopyKey"
+msgstr "Keys of a Bitget copy-trading or elite-trader account can't trade. Create a trading key from a regular account in API Management: Read and Trade, no Withdraw."
+
 # 對不上的倉位清單(trade.js trPaintMismatch):欄名與出口句
 msgid "tr.mm.colSym"
 msgstr "Symbol"
@@ -9051,3 +9076,232 @@ msgstr "Bitget positions without a stop-loss"
 # 事件列 P3 的註解:Blave 自己的下單紀錄讀不到,無法確認換帳戶後止損還在不在
 msgid "tr.ov.evBitgetStopsUnknown"
 msgstr "Stops couldn’t be confirmed: Blave’s order record is unreadable. Check your stops on Bitget."
+
+# 報告頁「成交測試」分頁(renderer/report-xt.js;spec lag-test-tab-2026-10-26):字與 web workspace_xt_* 逐字同一份
+# (web 的 %% 是 Jinja 的轉義,畫面上是 %;tests/check_web_desktop_parity.js 比對前還原)
+msgid "rp.tab.xt"
+msgstr "Fill Test"
+
+msgid "xt.verdict"
+msgstr "{lag}. {cost}."
+
+msgid "xt.lagFlat"
+msgstr "Up to 10 bars late, Sharpe stays within {lo}–{hi}"
+
+msgid "xt.lagOne"
+msgstr "One bar late, Sharpe {m1}"
+
+msgid "xt.lagOneFive"
+msgstr "One bar late, Sharpe {m1}, five bars late {m5}"
+
+msgid "xt.lagMixed"
+msgstr "Up to 5 bars late, Sharpe ranges from {lo} to {hi}, and is {v10} at 10 bars late"
+
+msgid "xt.lagLow"
+msgstr "Sharpe is {s0} now, {s1} one bar late, {s10} 10 bars late"
+
+msgid "xt.up"
+msgstr "rises {p}"
+
+msgid "xt.down"
+msgstr "falls {p}"
+
+msgid "xt.costDown"
+msgstr "With {x} more cost per side, Sharpe falls from {s0} to {s1}"
+
+msgid "xt.costTo"
+msgstr "With {x} more cost per side, Sharpe goes from {s0} to {s1}"
+
+msgid "xt.few"
+msgstr "Too few trades (position changed {n} times in the backtest) for delay or cost to show anything."
+
+msgid "xt.lagH"
+msgstr "Late Fills"
+
+msgid "xt.lagSub"
+msgstr "1 bar = {one}, 10 bars late = {ten}"
+
+msgid "xt.unit.m"
+msgstr "{n} min"
+
+msgid "xt.unit.h"
+msgstr "{n} hr"
+
+msgid "xt.unit.d"
+msgstr "{n} day(s)"
+
+msgid "xt.unit.td"
+msgstr "{n} trading day(s)"
+
+msgid "xt.unit.w"
+msgstr "{n} wk"
+
+msgid "xt.lagLbl"
+msgstr "{metric} · Late Fills"
+
+msgid "xt.colLag"
+msgstr "Bars late"
+
+msgid "xt.cur"
+msgstr "Current"
+
+msgid "xt.m.sharpe"
+msgstr "Sharpe"
+
+msgid "xt.m.ann"
+msgstr "Annualized"
+
+msgid "xt.m.mdd"
+msgstr "Max Drawdown"
+
+msgid "xt.closeAte"
+msgstr "Filled at the signal bar's close: Sharpe {a} (now {b}). The opening gap takes {c}."
+
+msgid "xt.closeGain"
+msgstr "Filled at the signal bar's close: Sharpe {a} (now {b}). The opening gap adds {c}."
+
+msgid "xt.lagHow"
+msgstr "Each point fills the whole position k bars late; the dashed line is current. Click a column header to chart it."
+
+msgid "xt.costH"
+msgstr "Higher Costs"
+
+msgid "xt.costSub"
+msgstr "Now {fee} per side · {n}× turnover a year"
+
+msgid "xt.costLbl"
+msgstr "{metric} · Extra cost per side (%)"
+
+msgid "xt.colCost"
+msgstr "Cost per side"
+
+msgid "xt.free"
+msgstr "No trading cost"
+
+msgid "xt.freeAx"
+msgstr "None"
+
+msgid "xt.perSide"
+msgstr "{fee} per side"
+
+msgid "xt.beK"
+msgstr "Trading cost where Sharpe hits zero"
+
+msgid "xt.beLine"
+msgstr "Sharpe zero: {fee} per side"
+
+msgid "xt.beOut"
+msgstr "Sharpe hits zero at {fee} per side, off this chart"
+
+msgid "xt.clip"
+msgstr "Square points are below {v}; the table has the actual values."
+
+msgid "xt.costHow"
+msgstr "Each point adds X% cost per side. Trading cost covers fees, tax and slippage."
+
+msgid "xt.fogOld"
+msgstr "Older versions didn't save this tab's numbers."
+
+msgid "xt.behind"
+msgstr "Update your server first to run the fill test."
+
+msgid "xt.updFail"
+msgstr "Test failed."
+
+# 〔開始測試〕／〔重新測試〕(spec lag-test-tab §3.6;按了才算,同 web workspace_xt_btn_* 等)
+msgid "xt.btnRun"
+msgstr "Start Test"
+
+msgid "xt.btnRerun"
+msgstr "Rerun Test"
+
+msgid "xt.btnBusy"
+msgstr "Testing"
+
+msgid "xt.btnTip"
+msgstr "Reruns the backtest on the latest data. Performance updates too."
+
+msgid "xt.verdictStale"
+msgstr "Performance was updated. Rerun the test to update this."
+
+msgid "xt.busyRefresh"
+msgstr "Performance is updating. Press again when it finishes."
+
+msgid "xt.busyTurn"
+msgstr "The agent is replying and may still be editing strategies. Test after it finishes."
+
+# 下單結果不明(order_unconfirmed,canon notifications §3):事件列標題／說明、本機 P1 通知內文、列下那一句;策略段(策略檔名)組字
+msgid "tr.ov.evUnconfirmed"
+msgstr "Order outcome unknown"
+
+msgid "tr.ov.evUnconfirmedStuck"
+msgstr "Order outcome still unknown"
+
+msgid "tr.ov.evUnconfirmedNote"
+msgstr "This order may have filled — don't place it again yourself. New entries on this symbol are paused, closes still run, and it resumes once the result is found."
+
+msgid "tr.ov.evUnconfirmedStuckNote"
+msgstr "Still no result, so new entries on this symbol stay paused. Check the exchange, tell your agent how much filled, and don't place it again yourself."
+
+msgid "tm.evUnconfirmedNote"
+msgstr "This order may have filled — don't place it again yourself. New entries on this symbol are paused; closes still run."
+
+msgid "tr.err.unconfirmed"
+msgstr "Outcome unknown — it may have filled; don't place it again yourself. New entries on this symbol are paused; closes still run."
+
+msgid "tr.ov.evStratOne"
+msgstr "strategy {name}"
+
+msgid "tr.ov.evStratTwo"
+msgstr "strategies {a}, {b}"
+
+msgid "tr.ov.evStratMany"
+msgstr "{name} and {more} more strategies"
+
+msgid "tm.evWithStrat"
+msgstr "{strat}: {note}"
+
+# 下單結果不明:停車解除後那一列(灰字,released／filled),以及追蹤不了而整台暫停(HALT reason [order_unconfirmed_unparked])的狀態句與事件說明
+msgid "tr.ov.evUnconfirmedReleased"
+msgstr "Order outcome found"
+
+msgid "tr.ov.evUnconfirmedReleasedFilled"
+msgstr "It filled and is in the book; new entries on this symbol resume."
+
+msgid "tr.ov.evUnconfirmedReleasedNone"
+msgstr "It did not fill; new entries on this symbol resume."
+
+msgid "tr.haltUnconfirmed"
+msgstr "An order on {sym} may have filled, so nothing goes out. Don't place it again yourself: tell your agent how much filled, then press Start trading."
+
+msgid "tr.ov.evHaltUnconfirmedNote"
+msgstr "an order on {sym} may have filled, so nothing goes out. Don't place it again yourself: tell your agent how much filled, then press Start trading."
+
+# 下單結果不明(designer v034 UX 定稿):全部平倉沒平到那一型與它的收尾、整台暫停沒有標的的退路與本機通知內文、manual 停車部位表那句
+msgid "tr.ov.evHaltUnconfirmedNoteNosym"
+msgstr "an order may have filled, so nothing goes out. Don't place it again yourself: tell your agent how much filled, then press Start trading."
+
+msgid "tm.evHaltUnconfirmedNote"
+msgstr "An order may have filled, so nothing goes out. Don't place it again yourself: tell your agent how much filled, then press Start trading."
+
+msgid "tr.ov.evUnconfirmedCloseAll"
+msgstr "Not closed with the rest"
+
+msgid "tr.ov.evUnconfirmedCloseAllNote"
+msgstr "An order here has an unknown outcome and was left out of this close. Don't trade it yourself: tell your agent how much filled, then press Pause and close positions again."
+
+msgid "tr.ov.evUnconfirmedReleasedCloseAllFilled"
+msgstr "It filled and is in the book. To close it, press Pause and close positions again."
+
+msgid "tr.ov.evUnconfirmedReleasedCloseAllNone"
+msgstr "It did not fill. Nothing else to do."
+
+msgid "tr.ov.evUnconfirmedInterruptedNote"
+msgstr "See “Previous execution interrupted”."
+
+msgid "tr.err.unconfirmedManual"
+msgstr "Outcome unknown — it may have filled; don't place it again yourself. New entries resume once you tell your agent how much filled."
+
+# 追蹤不了而整台暫停、HALT reason 讀不到標的時的狀態句(大寫開頭;同網頁 workspace_pf_halt_unconfirmed_nosym)
+msgid "tr.haltUnconfirmedNosym"
+msgstr "An order may have filled, so nothing goes out. Don't place it again yourself: tell your agent how much filled, then press Start trading."

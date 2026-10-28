@@ -9,8 +9,8 @@ Asserts: the signature is Base64(HMAC-SHA256(ts + METHOD + path?query + body)) a
 is signed is what is sent; attribution header absent while the code is empty, present on
 every signed and order request once set; error codes → CREDENTIAL / TRANSIENT, a UTA key
 (40085) refused with what to do, timestamp codes resync once, the key and passphrase never
-appear in a message; contract rules (step / minimum / 5 USDT value / tick / isRwa /
-symbolStatus); symbols both ways (US *STOCKUSDT, the eight Taiwan tokens, no TW prefix
+appear in a message; contract rules (step / minimum / 5 USDT value / tick / symbolStatus,
+and 'equity' from the v3 instrument class, not isRwa); symbols both ways (US *STOCKUSDT, the eight Taiwan tokens, no TW prefix
 rule); the four side combinations in one-way and hedge mode; a reduce capped at the leg;
 below-minimum → False with nothing sent; a reduce reply without orderId found by
 clientOid; a dropped or 5xx POST looked up, never resent; HALT; limit / post-only /
@@ -112,7 +112,7 @@ acct.SWITCH_HOLD_S = 0
 
 # Binance's class of each symbol (lib/stock_perps reads exchangeInfo; stubbed, no network)
 BINANCE = {"BTCUSDT": ("COIN", "BTC"), "NVDAUSDT": ("EQUITY", "NVDA"), "ACNUSDT": ("EQUITY", "ACN"),
-           "BBUSDT": ("COIN", "BB"), "ZZZUSDT": ("EQUITY", "ZZZ")}
+           "BBUSDT": ("COIN", "BB"), "ZZZUSDT": ("EQUITY", "ZZZ"), "PAXGUSDT": ("COIN", "PAXG")}
 stock_perps.binance_rows = lambda: BINANCE
 
 
@@ -131,7 +131,12 @@ CONTRACTS = [contract("BTCUSDT", "BTC", "0.0001", place="1", rwa="NO"),
              contract("TWLOUSDT", "TWLO"), contract("HALFUSDT", "HALF", place="2", step="5", rwa="NO"),
              contract("SHUTUSDT", "SHUT", status="restrictedAPI", rwa="NO"),
              contract("GONEUSDT", "GONE", status="off", rwa="NO"),
-             contract("WAITUSDT", "WAIT", status="limit_open", rwa="NO")]
+             contract("WAITUSDT", "WAIT", status="limit_open", rwa="NO"),
+             contract("PAXGUSDT", "PAXG", "0.001"), contract("BHPUSDT", "BHP")]
+# v3 (symbolType, instrumentType) as /api/v3/market/instruments answered 2026-10-28; every
+# other row: isRwa YES → stock/stock, NO → crypto/crypto
+CLASSES = {"PAXGUSDT": ("metal", "metal"), "BHPUSDT": ("crypto", "stock"),
+           "TWTSMUSDT": ("stock", "crypto"), "TWUMCUSDT": ("stock", "crypto")}
 
 
 def contracts(p):
@@ -142,6 +147,27 @@ def contracts(p):
 
 
 route("GET", "/api/v2/mix/market/contracts", contracts)
+
+
+def instruments(p):
+    if p.get("category") != "USDT-FUTURES":
+        return err("40034", "bad category")
+    out = []
+    for c in CONTRACTS:
+        if p.get("symbol") not in (None, c["symbol"]) or c["symbol"] in V3_MISSING:
+            continue
+        st, it = CLASSES.get(c["symbol"]) or (("stock",) * 2 if c["isRwa"] == "YES" else ("crypto",) * 2)
+        out.append({"symbol": c["symbol"], "category": p.get("category"), "baseCoin": c["baseCoin"],
+                    "symbolType": st, "instrumentType": it, "isRwa": c["isRwa"], "status": "online"})
+    if "symbol" in p and not out:
+        return err("25100", f"Trading pair {p['symbol']} does not exist")
+    return ok(out)
+
+
+V3_MISSING = set()  # on v2, not (yet) on v3
+
+
+route("GET", "/api/v3/market/instruments", instruments)
 TICKERS = {"NVDAUSDT": ("182.10", "182.12", "182.11"), "BTCUSDT": ("81000.1", "81000.2", "81000"),
            "TWTSMUSDT": ("73.51", "73.76", "73.63"), "ACNSTOCKUSDT": ("250.1", "250.3", "250.2"),
            "TWUMCUSDT": ("1.401", "1.405", "1.403")}
@@ -208,10 +234,43 @@ check(normalize_symbol("TWTSMUSDT") == "TWTSMUSDT" and normalize_symbol("acnstoc
 # ── rules ────────────────────────────────────────────────────────────────────
 r = order.get_contract_rules(ENV, "NVDAUSDT")
 check(r == {"step": "0.01", "min_qty": 0.01, "min_notional": 5.0, "contract_value": 1.0, "tick": "0.01",
-            "equity": True, "status": "normal"}, "rules: base step, minimum, 5 USDT value, tick, isRwa", r)
+            "equity": True, "status": "normal"}, "rules: base step, minimum, 5 USDT value, tick, v3 stock class", r)
 check(order.get_contract_rules(ENV, "BTCUSDT")["tick"] == "0.1" and order.get_contract_rules(ENV, "HALFUSDT")["tick"] == "0.05"
       and order.get_contract_rules(ENV, "BTCUSDT")["equity"] is False,
       "tick = priceEndStep × 10^-pricePlace; a coin is equity False")
+check(order.get_contract_rules(ENV, "PAXGUSDT")["equity"] is False,
+      "PAXG: isRwa YES but v3 metal/metal → equity False (not a stock)")
+check(order.get_contract_rules(ENV, "BHPUSDT")["equity"] is True
+      and order.get_contract_rules(ENV, "TWTSMUSDT")["equity"] is True,
+      "v3 fields disagreeing (crypto/stock, stock/crypto) → a stock contract")
+V3_MISSING.add("HALFUSDT")
+order._rules_cache.clear()
+check(order.get_contract_rules(ENV, "HALFUSDT")["equity"] is None and "HALFUSDT" not in order._rules_cache,
+      "v3 single read answers 25100: equity None, not cached")
+V3_MISSING.clear()
+check(order.get_contract_rules(ENV, "HALFUSDT")["equity"] is False and "HALFUSDT" in order._rules_cache,
+      "next call reads v3 again: equity False, cached")
+_v3 = ROUTES[:]
+route("GET", "/api/v3/market/instruments", lambda p: requests.exceptions.ConnectionError("stub: v3 down"))
+order._rules_cache.clear()
+acct._instruments.update(rows=None, at=0.0)
+r = order.get_contract_rules(ENV, "BBUSDT")
+check(r["equity"] is None and r["step"] == "1" and "BBUSDT" not in order._rules_cache,
+      "v3 unreadable → equity None (never isRwa, not cached), the v2 step still read", r)
+try:
+    acct.canonical("ACNSTOCKUSDT")
+    check(False, "v3 unreadable: a renamed stock position is not read back as its venue name")
+except requests.exceptions.ConnectionError:
+    check(True, "v3 unreadable: canonical(ACNSTOCKUSDT) raises ConnectionError, never read as flat")
+check(acct.canonical("BTCUSDT") == "BTCUSDT" and acct.canonical("PAXGUSDT") == "PAXGUSDT",
+      "v3 unreadable: Binance coins (BTC, PAXG) still read back as is")
+try:
+    stock_perps.canonical("bitget", "ACNSTOCKUSDT", CONTRACTS)
+    check(False, "v2 rows handed to stock_perps are refused")
+except requests.exceptions.ConnectionError:
+    check(True, "v2 rows (no instrumentType) handed to stock_perps → ConnectionError, not every stock read as a coin")
+ROUTES[:] = _v3
+order._rules_cache.clear()
 for sym, why in (("SHUTUSDT", "不開放 API"), ("GONEUSDT", "已下架"), ("NOPEUSDT", "沒有")):
     try:
         order.get_contract_rules(ENV, sym)
@@ -254,6 +313,51 @@ except Exception as e:
           and "[bitget_account_mode:uta]" in str(e),
           "UTA closed: 40085 while the UTA settings refuse the key → UNKNOWN, says UTA is not supported yet", str(e))
 acct.VERIFIED_MODES = BOTH
+# a copy-trading key: signature passes, every account read answers 40731. Both probe orders — the
+# v3 settings refusing like a trading key's (40084), or answering accountMode "classic"
+COPY_MSG = "This product does not support copy trading"
+route("GET", "/api/v2/mix/account/accounts", lambda p: err("40731", COPY_MSG))
+for label, settings in (("v3 settings 40084", lambda p: err("40084", "not a unified account")),
+                        ("v3 settings accountMode classic", lambda p: ok({"uid": "1", "accountMode": "classic",
+                                                                          "accountLevel": "basic", "holdMode": "hedge_mode"}))):
+    route("GET", "/api/v3/account/settings", settings)
+    acct._mode.update(mode=None, at=0.0)
+    try:
+        acct.get_equity(ENV)
+        check(False, f"copy-trading key ({label}) raises")
+    except Exception as e:
+        check(acct.classify(e) == "credential" and "[bitget_copy_trading_key]" in str(e)
+              and str(e).startswith("[order_reject:key_permission]") and "帳戶模式是" not in str(e)
+              and "[bitget_account_mode:" not in str(e),
+              f"copy-trading key ({label}) → CREDENTIAL, key_permission + [bitget_copy_trading_key], "
+              "never the mode-unsupported sentence", str(e))
+# v3 settings themselves answering 40731: the reason as is, even when the classic API reads
+route("GET", "/api/v3/account/settings", lambda p: err("40731", COPY_MSG))
+route("GET", "/api/v2/mix/account/accounts", lambda p: ok([]))
+acct._mode.update(mode=None, at=0.0)
+try:
+    acct.account_mode(ENV)
+    check(False, "v3 settings 40731 raises")
+except acct.BitgetError as e:
+    check(acct.classify(e) == "credential" and "[bitget_copy_trading_key]" in str(e),
+          "v3 settings 40731 (classic API reads) → the copy-trading reason, never read as classic", str(e))
+# an accountMode outside the documented enum is never traded on, whatever the classic API answers:
+# a read that passes, or 40085 (a UTA) — refused with the mode sentence, no guessed API
+for am, v2, label in (("classic", lambda p: ok([]), "classic + v2 reads"),
+                      ("classic", lambda p: err("40085", "You are in Unified Account mode"), "classic + v2 40085"),
+                      ("", lambda p: ok([]), "empty + v2 reads"),
+                      ("portfolio", lambda p: ok([]), "a new value + v2 reads")):
+    route("GET", "/api/v3/account/settings", lambda p, am=am: ok({"uid": "1", "accountMode": am}))
+    route("GET", "/api/v2/mix/account/accounts", v2)
+    acct._mode.update(mode=None, at=0.0)
+    try:
+        got = acct.account_mode(ENV)
+        check(False, f"accountMode {label} → refused, not {got!r}")
+    except acct.BitgetError as e:
+        check(e.code == acct.MODE_UNSUPPORTED and "還沒支援這種模式" in str(e) and acct._mode["mode"] is None,
+              f"accountMode {label} → refused with the mode sentence (MODE_UNSUPPORTED), nothing cached", str(e))
+route("GET", "/api/v2/mix/account/accounts", lambda p: ok([]))
+route("GET", "/api/v3/account/settings", lambda p: err("40084", "not a unified account"))
 acct._mode.update(mode="classic", at=acct.time.time())  # back to the classic account for the sections below
 route("GET", "/api/v2/mix/account/accounts", lambda p: err("429", "Too Many Requests", 429))
 try:
@@ -421,6 +525,19 @@ try:
     check(False, "40762 raises")
 except Exception as e:
     check(str(e).startswith("[order_reject:insufficient_margin]"), "40762 tags insufficient_margin", str(e))
+COPY_MSG = "This product does not support copy trading"
+n_place = sum(1 for c in CALLS if c["path"] == "/api/v2/mix/order/place-order")
+route("POST", "/api/v2/mix/order/place-order", lambda p: err("40731", COPY_MSG))
+try:
+    order.place_market_order(ENV, "NVDAUSDT", "long", 0.03)
+    check(False, "40731 on an order raises")
+except Exception as e:
+    check(str(e).startswith("[order_reject:key_permission]") and "[bitget_copy_trading_key]" in str(e)
+          and sum(1 for c in CALLS if c["path"] == "/api/v2/mix/order/place-order") == n_place + 1,
+          "40731 on an order: key_permission + the copy-trading marker, sent once (not retried)", str(e))
+    check(acct.COPY_KEY_TAG in str(e)[:200] and acct.COPY_KEY_TAG in reject_token.to_front("close_symbol: " + str(e))[:200],
+          "40731: the [bitget_copy_trading_key] marker survives order_errors' 200-char cut", str(e))
+route("POST", "/api/v2/mix/order/place-order", place)
 
 
 def place_no_id(p):
@@ -754,6 +871,7 @@ _env, _detect = vw.read_env, vw.detect_venue
 vw.read_env, vw.detect_venue = (lambda path=".env": ENV), (lambda env: "bitget")
 BINANCE["ONUSDT"] = ("COIN", "ON")
 CONTRACTS.append(contract("ONUSDT", "ON"))  # a stock perp under a name Binance has as a coin
+acct._instruments.update(rows=None, at=0.0)
 try:
     vw.instrument_gate("ONUSDT")
     check(False, "the gate refuses a stock perp Binance has as a coin")

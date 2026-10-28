@@ -252,6 +252,19 @@ function trHaltMismatch(r) {
   const h = r && r.halt, m = h && h.halted ? h.mismatch : null;
   return m && typeof m === "object" && m.kind === "bitget_mode_mismatch" && Array.isArray(m.legs) && m.legs.length ? m : null;
 }
+/* 下單結果不明、Blave 追蹤不了而整台暫停(lib/portfolio.UNPARKED_TAG 開頭的 HALT reason):回那個標的,不是就 null。
+   英文 reason 不顯示,換成 tr.haltUnconfirmed / tr.ov.evHaltUnconfirmedNote */
+function trHaltUnconfirmedSym(h) {
+  const reason = String((h && h.reason) || "");
+  if (!/^\[order_unconfirmed_unparked\]/.test(reason)) return null;
+  const m = /^\[order_unconfirmed_unparked\] (\S+?):/.exec(reason);
+  return m ? m[1].replace(/@spot$/, "") : "";   // "" = tagged, symbol unreadable → the nosym sentence
+}
+/* 事件列「已自動暫停下單 — 」後面那句:帶標的;讀不到標的用沒有標的的那句 */
+function trHaltUnconfirmedNote(h) {
+  const sym = trHaltUnconfirmedSym(h);
+  return sym ? t("tr.ov.evHaltUnconfirmedNote", { sym }) : t("tr.ov.evHaltUnconfirmedNoteNosym");
+}
 function trHaltReasonText(r, done) {
   const rk = trRestartKind(r), z = trNoAmounts(r) && !trRestartUnconfirmed(r), H = !!(r && r.halt && r.halt.halted);
   const vl = (v) => (typeof trVenueLabel === "function" ? trVenueLabel(v, true) : v), bh = trBookHold(r);
@@ -259,7 +272,12 @@ function trHaltReasonText(r, done) {
   if (H && !bh && done && (done.outcome === "kept" || done.outcome === "reset")) return t(done.outcome === "kept" ? (trHaltFreeze(r) ? "tr.acct.doneSameFreeze" : "tr.acct.doneSame") : "tr.acct.doneDiff", { v: vl(done.venue) });
   // 主機重開停住(machine)仍優先:那時什麼單都不下的原因是重開,清單照樣畫
   const mm = rk !== "machine" ? trHaltMismatch(r) : null;
+  const us = H && rk !== "machine" ? trHaltUnconfirmedSym(r.halt) : null;
+  if (us) return t("tr.haltUnconfirmed", { sym: us });
+  if (us === "") return t("tr.haltUnconfirmedNosym");   // 讀不到標的:大寫開頭、留「不要手動補單」的那句(designer 複查 P3)
   if (mm) return t(mm.mode === "classic" ? "tr.haltBitgetMismatchClassic" : "tr.haltBitgetMismatchUta", { n: mm.legs.length });
+  // Bitget 40731 的 CREDENTIAL HALT:通用那句叫人「修金鑰」,同一種金鑰重綁也沒用,講要換哪一種
+  if (H && rk !== "machine" && /\[bitget_copy_trading_key\]/.test(String((r.halt && r.halt.reason) || ""))) return t("tr.haltBitgetCopyKey");
   // 照 HALT 的實際原因講(Mac e2e 10-14:解綁造成的暫停被講成「Blave 重開過」)。主機重開停住(machine)那一種最根本,照舊優先;
   // 解綁那一種再分下單程式在不在跑:沒在跑就什麼單都不下,在跑照 A 的規則(不開新倉、平倉照常)
   // 「平倉與停損停利照常執行」只有對帳器真的活著才成立(從沒啟動過、自己掛了、解綁時被停掉都不成立;稽核 r4 P1-2)
@@ -1134,6 +1152,8 @@ function trErrToken(err) {
   const e = String(err == null ? "" : err);
   // Bitget 40092(地區／帳戶資格):lib 照樣標 symbol_unavailable(舊外殼走 tr.err.symbol),後面多一個固定標記——要先認,不然被通用那條吃掉
   if (/\[bitget_account_eligibility\]/.test(e)) return "bitget_account_eligibility";
+  // Bitget 40731(跟單金鑰):lib 標 key_permission 加這個標記,同上要先認,不然講成「交易所拒絕這把金鑰」、不知道要換哪種金鑰
+  if (/\[bitget_copy_trading_key\]/.test(e)) return "bitget_copy_trading_key";
   // Bitget 統一帳戶還沒開放:lib 標 key_permission,不先認會講成「交易所拒絕這把金鑰」(同 cloudcmd 的 MODE_UNVERIFIED 判法)
   if (/\[bitget_account_mode:uta\]/.test(e) && BITGET_VERIFIED_MODES.indexOf("uta") < 0) return "bitget_uta_unsupported";
   // lib/order_reject 的拒單分類(spec-0.1.13-order-copy #14):lib 放在最前面、六種之一;舊 lib 沒有 → 照舊認下面那兩個或原文
@@ -1145,7 +1165,8 @@ function trErrToken(err) {
 // 拒單分類 → 那一句的 key(每句自己帶標的)
 const TR_REJECT_TEXT = { insufficient_margin: "tr.err.margin", below_min_size: "tr.err.minSize", symbol_unavailable: "tr.err.symbol",
   key_permission: "tr.err.key", reduce_only_rejected: "tr.err.reduceOnly", paper_margin: "tr.err.paperMargin",
-  bitget_account_eligibility: "tr.err.bitgetEligibility", bitget_uta_unsupported: "tr.err.bitgetUta" };
+  bitget_account_eligibility: "tr.err.bitgetEligibility", bitget_uta_unsupported: "tr.err.bitgetUta",
+  bitget_copy_trading_key: "tr.err.bitgetCopyKey" };
 /* 拒單原文 → { kind, … }:lib 的 token 先認;lib/order_paper.py 比對英文原文是權宜(之後 order_errors[] 有 code 欄位就改認 code)。比不到回 null */
 function trOrderErrParse(err) {
   const tok = trErrToken(err);
@@ -1205,7 +1226,7 @@ function trLiveOrderErrs(errs, pending, ctx) {
     if (!okAt[k] || at > okAt[k]) okAt[k] = at;
   });
   errs.forEach((e) => {
-    if (!e || typeof e !== "object") return;
+    if (!e || typeof e !== "object" || e.released === true) return;   // 已解除的停車單(lib/portfolio.mark_park_released)不是現況
     const closeAll = String(e.error || "").indexOf("close-all:") === 0, tw = e.exchange === "capital" || e.exchange === "president";
     const k = tw && (closeAll || e.exchange !== "capital") ? trTwFutCanon(e.symbol) : trCanonKey(e.symbol);
     if (closeAll) {
@@ -1215,6 +1236,33 @@ function trLiveOrderErrs(errs, pending, ctx) {
     if (okAt[k] && okAt[k] > (trMs(e.ts) || 0)) return;
     const prev = out.get(k);
     if (!prev || (trMs(e.ts) || 0) >= (trMs(prev.ts) || 0)) out.set(k, e);
+  });
+  return out;
+}
+/* 下單結果不明在事件列:同一張單(park_id,全部平倉那種 inflight_id)只畫一列(designer v034 UX P2-1)——
+   解除了就畫那一列 P3(時間用 released_at),還沒解除畫最新那列;manual 停車沒解除前不畫(同一刻的 HALT 已講,
+   只掛部位表那句)。沒有 id 的舊列、其他列照原樣。回 [{ e, ms }] */
+function trUnconfirmedRows(errs) {
+  const out = [], groups = new Map();
+  (Array.isArray(errs) ? errs : []).forEach((e) => {
+    if (!e || typeof e !== "object") return;
+    const id = e.kind === "order_unconfirmed" ? (e.park_id || (e.inflight_id ? "i:" + e.inflight_id : null)) : null;
+    if (!id) { out.push({ e, ms: trMs(e.ts) }); return; }
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push(e);
+  });
+  groups.forEach((list) => {
+    const rel = list.filter((e) => e.released === true);
+    if (rel.length) {
+      const e = rel.reduce((a, b) => ((trMs(b.released_at) || 0) >= (trMs(a.released_at) || 0) ? b : a));
+      // the close-all row says what to do next; prefer it over the plain one when both were released
+      const pick = rel.find((x) => x.close_all === true) || e;
+      out.push({ e: pick, ms: trMs(pick.released_at) || trMs(pick.ts) });
+      return;
+    }
+    const e = list.reduce((a, b) => ((trMs(b.ts) || 0) >= (trMs(a.ts) || 0) ? b : a));
+    if (e.manual === true && e.stuck !== true) return;
+    out.push({ e, ms: trMs(e.ts) });
   });
   return out;
 }
@@ -1778,6 +1826,12 @@ function trPushLabels() {
     ev_execution_stuck: t("tr.ov.evExecStuck"), ev_execution_stuck_n: t("tr.ov.evExecStuckNote"),
     ev_machine_restart_stopped: t("tr.ov.evRestartStopped"), ev_machine_restart_stopped_n: t("tm.evRestartStoppedNote"),
     ev_venue_stops_missing: t("tm.evBitgetNoStop"), ev_venue_stops_missing_n: t("tr.ov.evBitgetNoStopNote"),
+    ev_order_unconfirmed: t("tr.ov.evUnconfirmed"), ev_order_unconfirmed_n: t("tm.evUnconfirmedNote"),
+    ev_halt_unconfirmed_n: t("tm.evHaltUnconfirmedNote"),   // 大寫開頭、不帶標的(標題已帶「· 標的」)
+    ev_order_unconfirmed_close_all: t("tr.ov.evUnconfirmedCloseAll"), ev_order_unconfirmed_close_all_n: t("tr.ov.evUnconfirmedCloseAllNote"),
+    ev_order_unconfirmed_stuck: t("tr.ov.evUnconfirmedStuck"), ev_order_unconfirmed_stuck_n: t("tr.ov.evUnconfirmedStuckNote"),
+    stratOne: t("tr.ov.evStratOne", { name: "{name}" }), stratTwo: t("tr.ov.evStratTwo", { a: "{a}", b: "{b}" }),
+    stratMany: t("tr.ov.evStratMany", { name: "{name}", n: "{n}", more: "{more}" }), withStrat: t("tm.evWithStrat", { strat: "{strat}", note: "{note}" }),
     // 選單列兩行狀態、app 選單「顯示」兩項與官網、結束攔截多的那一句、通知標題的前綴(主行程:traytext.js / main.js)
     lang: LANG, stLocal: t("tm.stLocal"), stLocalOnly: t("tm.stLocalOnly"), noAccount: t("tr.noAccount"), runningZ: t("tr.runningZ"), stCloud: t("tm.stCloud"), stOn: t("tm.stOn"), stPaused: t("tm.stPaused"), stUnknown: t("tm.stUnknown"), stMayTrade: t("tm.stMayTrade"), stNotStarted: t("tr.notStarted"),
     moneyPaper: t("tr.mode.paper"), moneyReal: t("tr.mode.real"), venueCapital: t("cap.venue"), venuePresident: t("pres.venue"), venueSinopac: t("sino.venue"), pauseLocal: t("tm.pauseLocal"), quitCloudNote: t("tm.quitCloudNote"),
@@ -1848,6 +1902,7 @@ async function trPoll() {
         if (typeof libCloudChanged === "function") libCloudChanged(C.list);   // 策略庫雲端視角的「已安裝」(renderer/library.js):清單多了那支才算下載完成
         if (typeof rpCloudWatch === "function") rpCloudWatch(C.list);   // 開著那支在平台上換了內容(回合結束後才同步到、或網頁發起的回合):補抓
         if (typeof rpWfSync === "function") rpWfSync();   // 雲端主機的 config_supports_wf 翻面:樣本外驗證分頁跟著換(落後態 ↔ 旋鈕)
+        if (typeof rpXtSync === "function") rpXtSync();   // config_supports_exec_test 翻面:成交測試的霧跟著換
       } catch (_) { }
     }
     // 策略清單另外接:它失敗不能連累狀態,也不能把「沒載入」當成「一支都沒有」(listLoaded 只有成功才會變 true)
@@ -4338,7 +4393,8 @@ function poSigTable(r, stored, states, mode) {
   const errs = firstRead ? new Map() : trLiveOrderErrs(r.order_errors, pending, { open: openSet, twOpen: [...openSet].some((k) => !!trTxfSpec(k)), running, orders: r.orders });
   errs.forEach((le, key) => {
     const sym = String(le.symbol || "—").replace(/@spot$/, ""), err = String(le.error || le.message || ""), closeAll = err.indexOf("close-all:") === 0;
-    const plain = trOrderErrParse(err) ? trOrderErrText("", err).replace(/^[\s:：—-]+/, "").replace(/^[a-z]/, (c) => c.toUpperCase()) : null;
+    const plain = le.kind === "order_unconfirmed" ? t(le.close_all === true ? "tr.ov.evUnconfirmedCloseAllNote"   // close_all 優先(同網頁)
+      : le.manual === true ? "tr.err.unconfirmedManual" : "tr.err.unconfirmed") : trOrderErrParse(err) ? trOrderErrText("", err).replace(/^[\s:：—-]+/, "").replace(/^[a-z]/, (c) => c.toUpperCase()) : null;
     const loud = !closeAll && trErrLoud(le, hs, TR.startAt, r.last_reconcile);
     const line = trEl("span", loud ? "pf-note err" : "pf-note past");
     // 節流中的重複失敗只更新那一列的 last_at／count(4647a2e):時間寫最後一次失敗;哪一筆還在失敗照舊看 ts(trLiveOrderErrs)
@@ -4467,20 +4523,72 @@ function trPaintMargin(box, m, ccy, twd) {
   }
   box.appendChild(list);
 }
+// 「未確認成交」的說明:body 層級的 fixed 單例(同 report-wf 的 .wf-tip)——列在橫捲容器裡,行內氣泡會被裁掉。
+// hover 與鍵盤 focus 開,點一下切換(觸控);leave / blur / Esc 收
+let trHistTipEl = null, trHistTipAt = null, trHistTipOpened = 0, trHistTipQuiet = false;
+function trHistTipBox() {
+  if (trHistTipEl) return trHistTipEl;
+  trHistTipEl = trEl("div", "tip hist-tip");
+  trHistTipEl.id = "hist-tip";
+  trHistTipEl.setAttribute("role", "tooltip");
+  trHistTipEl.setAttribute("aria-hidden", "true");
+  document.body.appendChild(trHistTipEl);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") trHistTipHide(); });
+  const gone = () => { if (trHistTipAt && !trHistTipAt.getClientRects().length) trHistTipHide(); };
+  document.addEventListener("pointermove", gone);
+  document.addEventListener("keyup", gone);
+  document.addEventListener("scroll", trHistTipHide, true);   // fixed 的氣泡不跟著觸發鈕捲
+  if (window.blave && window.blave.onWindowActive) window.blave.onWindowActive((on) => { if (!on) trHistTipHide(); });
+  return trHistTipEl;
+}
+function trHistTipShow(anchor, text) {
+  const tip = trHistTipBox(), r = anchor.getBoundingClientRect();
+  trHistTipAt = anchor; trHistTipOpened = Date.now();
+  tip.textContent = text;
+  tip.style.left = Math.max(0, Math.min(r.left, window.innerWidth - 272)) + "px";
+  tip.classList.add("is-on");   // 先顯示才量得到高度:下方放不下(最舊那列在視窗底)就放上方
+  const h = tip.offsetHeight;
+  tip.style.top = (r.bottom + 6 + h > window.innerHeight ? Math.max(0, r.top - 6 - h) : r.bottom + 6) + "px";
+  tip.setAttribute("aria-hidden", "false");
+}
+function trHistTipHide() {
+  if (!trHistTipEl) return;
+  trHistTipAt = null;
+  trHistTipEl.classList.remove("is-on");
+  trHistTipEl.setAttribute("aria-hidden", "true");
+}
+function trHistTipBtn(text, tip, fk) {
+  const b = trEl("button", "tr-tipb px", text);
+  b.type = "button"; b.dataset.fk = fk;
+  b.setAttribute("aria-describedby", "hist-tip");
+  trHistTipBox();   // 先建好:讀屏第一次 focus 就念得到 aria-describedby 指的說明
+  const open = () => { if (!trHistTipQuiet) trHistTipShow(b, tip); };
+  b.addEventListener("mouseenter", open);
+  b.addEventListener("focus", open);
+  b.addEventListener("mouseleave", trHistTipHide);
+  b.addEventListener("blur", trHistTipHide);
+  // 觸控一點會先 focus 再 click:剛被 focus 打開的那一下不算「再點一次收起」
+  b.addEventListener("click", () => { if (trHistTipAt === b && Date.now() - trHistTipOpened > 400) trHistTipHide(); else open(); });
+  return b;
+}
 function trPaintHist() {
   const box = $("tr-hist"), r = trReport() || {};
   const orders = trOrdersShown(r).slice().reverse();
   if (!trShould("hist", box, [orders, trUnit(), TR.list.map((x) => x.displayName)])) return;
+  const refocus = trPosFocusOf(box), tipWasOn = !!trHistTipAt;
+  trHistTipHide();
   box.textContent = "";
   box.appendChild(trSec(trEl("span", "label", t("tr.recentOrders"))));
   if (!orders.length) { box.appendChild(trEl("div", "pf-state", t("tr.noOrders"))); return; }
   const log = trEl("div", "pf-log");
   orders.forEach((o) => {
     if (!o || typeof o !== "object") return;
-    const row = trEl("div", "pf-log-row");
+    // fill_state:runtime portfolio_reporter.pair_unconfirmed_orders 配好的(各表面同一份規則,這裡只照著畫)
+    const fstate = o.fill_state, unsettled = fstate === "unconfirmed" || fstate === "unfilled";
+    const row = trEl("div", fstate === "unfilled" ? "pf-log-row unfilled" : "pf-log-row");
     row.appendChild(trEl("span", "ts mono", trStamp(o.ts)));
     const sell = o.action === "SELL";
-    const act = trEl("span", "act " + (sell ? "sell" : "buy"), sell ? t("tr.sell") : t("tr.buy"));
+    const act = trEl("span", "act " + (unsettled ? "pend" : sell ? "sell" : "buy"), sell ? t("tr.sell") : t("tr.buy"));
     // 由哪些策略觸發:除錯用的補充,收進 title(這一列在橫捲容器裡,氣泡會被裁掉)
     const who = (Array.isArray(o.contributors) ? o.contributors : []).map((c) => (typeof c === "string" ? c : c && c.strategy)).filter(Boolean);
     if (who.length) act.title = t("tr.contributors", { names: who.map(trDisplay).join(LANG === "zh" ? "、" : ", ") });
@@ -4516,13 +4624,19 @@ function trPaintHist() {
     }
     row.appendChild(amt);
     const px = legs.map((l) => trFmtPrice(l && l.fill_price)).filter(Boolean);
-    row.appendChild(trEl("span", "px mono", px.length ? "@ " + px.join(" → ") : ""));
+    if (fstate === "unconfirmed") row.appendChild(trHistTipBtn(t("tr.fillUnconfirmed"), t("tr.fillUnconfirmedTip"), "hist:" + o.ts + ":" + sym + ":" + o.action));
+    else if (fstate === "unfilled") row.appendChild(trEl("span", "px", t("tr.fillNone")));
+    else if (fstate === "late" && !px.length) row.appendChild(trEl("span", "px", t("tr.pxUnreported")));
+    else row.appendChild(trEl("span", "px mono", px.length ? "@ " + px.join(" → ") : ""));
     row.appendChild(trEl("span", "ex mono", trVenueLabel(String(o.exchange || ""), true)));
     log.appendChild(row);
   });
   box.appendChild(log);
   // 窄欄(<520)時列內的幣別收到這一行;口數單的「口」留在列內,全是口數單時這一行沒有對象,不出
   if (orders.some((o) => o && typeof o === "object" && !trOrderLots(o))) box.appendChild(trUnit() ? trEl("div", "pf-foot unit-note", t("tr.unitNote", { c: trUnit() })) : trEl("div", "pf-foot", t("tr.ccyUnknown")));
+  // 重畫後焦點回到同一顆「未確認成交」;那一列不在了就不搶焦點(不走 trPosFocusBack 的 #po-h 兜底:那在別的分頁)
+  // 焦點還回去會再觸發 focus:重畫前氣泡是收著的(例如剛按 Esc)就別讓它自己打開
+  if (refocus) { const b = [...box.querySelectorAll("[data-fk]")].find((x) => trPosKey(x) === refocus); if (b) { trHistTipQuiet = !tipWasOn; b.focus(); trHistTipQuiet = false; } }
 }
 function trPaintSet() {
   const box = $("tr-set"), r = trReport(), id = trVenueId(), ro = TR.env === "cloud";
@@ -4597,6 +4711,7 @@ function trPaintSet() {
     if (!ro && trPresLoginStopped(r, id)) box.appendChild(errLine(t("cx.presStopped")));
     // 帳戶模式擋下(Bitget 統一帳戶還沒開放;OKX 不支援合約):讀帳戶就會擋,講怎麼改,不出原文
     else if (trErrToken(ae.msg) === "bitget_uta_unsupported") box.appendChild(errLine(t("cx.err.bitgetUtaBound")));
+    else if (trErrToken(ae.msg) === "bitget_copy_trading_key") box.appendChild(errLine(t("cx.err.bitgetCopyKeyBound")));
     else if (trErrToken(ae.msg) === "okx_account_mode") box.appendChild(errLine(t("cx.err.okxMode")));
     // 列上已有「串接失敗」記號與交易所名:這一行只留原因,有階段代碼才帶括號(設計稽核 desktop-10-08 #5)
     else box.appendChild(errLine(ae.stage === "—" ? ae.msg.slice(0, 200) : t("cx.fail", { stage: ae.stage, msg: ae.msg.slice(0, 200) })));
@@ -5034,11 +5149,27 @@ function trOrderErrText(sym, err) {
 }
 /* 事件級別:先讀 api 帶的 level(trEvApiLevel),缺欄位才用這張表——鏡射 api agent_events.SPECS + level_for
    (halt 看 source、主機重開看 trigger),同網頁 ovEvLevel;不在表裡的當 P3。標題顏色只看它:1 紅、2 強調、3 一般字 */
-const TR_EV_P1 = ["order_error", "manual_close_required", "execution_interrupted", "execution_fallback_market", "execution_stuck",
+const TR_EV_P1 = ["order_error", "order_unconfirmed", "manual_close_required", "execution_interrupted", "execution_fallback_market", "execution_stuck",
   "market_hold", "settings_unsafe", "machine_restart_stop_failed", "downtime_paused", "venue_stops_missing"];
 const TR_EV_P2 = ["reconciler_dead", "venue_disconnected", "strategy_failed", "bar_stale", "target_stale", "dead_members", "scheduler_error",
   "venue_unbound", "market_check_off", "ui_override", "settings_rollback_failed", "report_degraded", "exchange_unreachable",
   "machine_silent", "disk_full", "memory_low", "report_rejected"];
+// 下單那一腿背後的策略(策略檔名):一支、兩支照列,三支以上「A 等 N 支策略」;沒有回 null。三個 key 同網頁
+// workspace_ov_ev_strat_one/two/many。檔名包 .mono、其餘字灰(designer v034 UX P3),一律走 textContent
+function trStratEl(names) {
+  const list = Array.isArray(names) ? names.filter((x) => typeof x === "string" && x).map((x) => x.slice(0, 40)) : [];
+  if (!list.length) return null;
+  const A = "\u0001", B = "\u0002", N = "\u0003", M = "\u0004";
+  const tpl = list.length === 1 ? t("tr.ov.evStratOne", { name: A }) : list.length === 2 ? t("tr.ov.evStratTwo", { a: A, b: B })
+    : t("tr.ov.evStratMany", { name: A, n: N, more: M });
+  const mono = { [A]: list[0], [B]: list[1], [N]: String(list.length), [M]: String(list.length - 1) };   // 數字也 mono(同網頁)
+  const span = trEl("span", "dim");
+  tpl.split(/([\u0001-\u0004])/).forEach((part) => {
+    if (Object.prototype.hasOwnProperty.call(mono, part)) span.appendChild(trEl("span", "mono", mono[part]));
+    else if (part) span.append(part);
+  });
+  return span;
+}
 // api(/cloud/events)每筆帶的級別 "P1"/"P2"/"P3";沒帶或認不得(舊 api、這台電腦記的那份)回 null,交給 trEvLevel
 function trEvApiLevel(ev) { const m = /^P([123])$/.exec(ev && typeof ev.level === "string" ? ev.level : ""); return m ? Number(m[1]) : null; }
 function trEvLevel(type, d) {
@@ -5104,6 +5235,8 @@ function trEventText(type, d) {
     return out(t("tr.ov.evManualClose"), t("tr.ov.evManualCloseNote"), null, syms);
   }
   if (type === "downtime_paused") return out(t("tr.ov.evHaltAuto"), t("tr.ov.evDowntimeNote"));   // 不是 HALT:連平倉都凍結,不能用 evHaltNote 那句
+  // order_error / order_unconfirmed / order_unconfirmed_released 不在這裡:都從 order_errors[] 那列畫(trOvEvents,released 那列畫成灰字),
+  // 雲端事件流再畫一次就是兩列
   // 以下同網頁 ovEventRow(網頁原本就有、電腦版補上的 8 種,加稽核補畫的 5 種)
   if (type === "reconciler_dead") return out(t("tr.ov.evRecDead"), null);
   if (type === "reconciler_recovered") return out(t("tr.ov.evRecBack"), null);
@@ -5177,7 +5310,8 @@ function trEvBody(body, head, note, lv, tip, count, code, tail) {
    這裡標題列右側數成交筆數帶路過去。數的是連結打開的那一組(交易歷史畫的 trOrdersShown,不分區間):
    只數事件區間內的話,區間外的舊單會讓「成交 6 筆」對上 7 列(0.1.28 Wei 實測)。0 筆整行不出 */
 function trOvFills(r) {
-  const n = trOrdersShown(r).length;
+  // 送出沒確認／確認沒成交的列(fill_state)在交易歷史照列,但不算「成交」
+  const n = trOrdersShown(r).filter((o) => !(o && (o.fill_state === "unconfirmed" || o.fill_state === "unfilled"))).length;
   if (!n) return null;
   const acts = trEl("div", "pf-acts ev-fills"), cnt = trEl("span", "");
   const parts = t(n === 1 ? "tr.ov.evFillsOne" : "tr.ov.evFills").split("{n}");   // 數字單獨一個 .mono,字串自己決定數字落在哪
@@ -5208,7 +5342,7 @@ function trOvEvents(r, z) {
     let head = null, note = null, lv = 3, tip = null, code = null, tail = null;
     // 誰按的看 source(鏡射平台的 _HALT_AUTO_SOURCES);這台電腦記的那一筆沒有 source = 人按的
     // halt 的字照 source(trEvLevel);顏色在 push 那裡讓 api 的 level 蓋過
-    if (ev.type === "halt" || ev.type === "halt_close") { lv = trEvLevel(ev.type, d); const closes = lv !== 1 && trHaltCloses(ev.type, trHaltNow(ev, d, r)); head = t(lv === 1 ? "tr.ov.evHaltAuto" : closes ? "tr.ov.evHaltClose" : "tr.ov.evHalt"); note = trHaltStopsAll(d) || trHaltFreeze(r) ? t("tr.ov.evRestartStoppedNote") : closes ? null : t("tr.ov.evHaltNote"); uiHalts.push(ev.ts * 1000); lastRun = "halt"; }
+    if (ev.type === "halt" || ev.type === "halt_close") { lv = trEvLevel(ev.type, d); const closes = lv !== 1 && trHaltCloses(ev.type, trHaltNow(ev, d, r)); head = t(lv === 1 ? "tr.ov.evHaltAuto" : closes ? "tr.ov.evHaltClose" : "tr.ov.evHalt"); note = trHaltUnconfirmedSym(d) != null ? trHaltUnconfirmedNote(d) : trHaltStopsAll(d) || trHaltFreeze(r) ? t("tr.ov.evRestartStoppedNote") : closes ? null : t("tr.ov.evHaltNote"); uiHalts.push(ev.ts * 1000); lastRun = "halt"; }
     // 前一筆是暫停才叫「恢復」;第一次啟動(或之前的暫停不在紀錄裡,例如對帳器自動暫停)寫「已啟動下單」。標題已經講完,不帶說明
     else if (ev.type === "resume" || ev.type === "resume_wait") { head = t(lastRun === "halt" ? "tr.ov.evResume" : "tr.ov.evStart"); lastRun = "resume"; }
     else if (ev.type === "venue_connected" && venue) head = ["tr.ov.evConnected", { venue }];
@@ -5227,14 +5361,30 @@ function trOvEvents(r, z) {
     const closes = !auto && trHaltCloses("halt", halt);
     body.appendChild(trEl("span", trEvClass(trEvLevel("halt", halt)), auto ? t("tr.ov.evHaltAuto") : t(closes ? "tr.ov.evHaltClose" : "tr.ov.evHalt")));
     // 平倉那一列標題已經講完,不再帶「平倉與停損停利照常執行」(設計稽核 S2);什麼單都不下那句照舊
-    if (trHaltStopsAll(halt) || !closes) body.append(" ", trEl("span", "dim", "— " + (trHaltStopsAll(halt) ? t("tr.ov.evRestartStoppedNote") : t("tr.ov.evHaltNote"))));   // A′:什麼單都不下,同重開那一句
+    if (trHaltUnconfirmedSym(halt) != null) body.append(" ", trEl("span", "dim", "— " + trHaltUnconfirmedNote(halt)));
+    else if (trHaltStopsAll(halt) || !closes) body.append(" ", trEl("span", "dim", "— " + (trHaltStopsAll(halt) ? t("tr.ov.evRestartStoppedNote") : t("tr.ov.evHaltNote"))));   // A′:什麼單都不下,同重開那一句
   });
-  (Array.isArray(r.order_errors) ? r.order_errors : []).forEach((e) => {
-    if (!e || typeof e !== "object") return;
-    push(trMs(e.ts), (body) => {
+  trUnconfirmedRows(r.order_errors).forEach(({ e, ms }) => {
+    push(ms, (body) => {
+      const sym = String(e.symbol || "").replace(/@spot$/, ""), raw = String(e.error || e.message || ""), twn = trTwName(sym), tw = trTwNameEl(sym);
+      const strat = trStratEl(e.strategies);
+      const tail = (note) => { body.append(" ", trEl("span", "mono", sym)); if (tw) body.appendChild(tw); if (strat) body.append(" ", strat); body.append(" ", trEl("span", "dim", "— " + note)); };
+      if (e.kind === "order_unconfirmed" && e.released === true) {   // 查到結果、解除了:P3 列(標題一般字、說明灰),講結果
+        if (e.interrupted === true) { body.appendChild(trEl("span", "", t("tr.ov.evUnconfirmedCloseAll"))); tail(t("tr.ov.evUnconfirmedInterruptedNote")); return; }
+        body.appendChild(trEl("span", "", t("tr.ov.evUnconfirmedReleased")));
+        tail(t(e.close_all === true ? (e.filled === true ? "tr.ov.evUnconfirmedReleasedCloseAllFilled" : "tr.ov.evUnconfirmedReleasedCloseAllNone")
+          : e.filled === true ? "tr.ov.evUnconfirmedReleasedFilled" : "tr.ov.evUnconfirmedReleasedNone"));
+        return;
+      }
+      if (e.kind === "order_unconfirmed") {   // 停車的單(lib/portfolio):原文不進畫面,講後果
+        if (e.close_all === true) { body.appendChild(trEl("span", "err", t("tr.ov.evUnconfirmedCloseAll"))); tail(t("tr.ov.evUnconfirmedCloseAllNote")); return; }
+        body.appendChild(trEl("span", "err", t(e.stuck === true ? "tr.ov.evUnconfirmedStuck" : "tr.ov.evUnconfirmed")));
+        tail(t(e.stuck === true ? "tr.ov.evUnconfirmedStuckNote" : "tr.ov.evUnconfirmedNote"));
+        return;
+      }
       body.appendChild(trEl("span", "err", t("tr.ov.evErr")));
       trEvCount(body, e.count);   // lib/portfolio._record_order_error 同標的同原因併成一列、累加 count
-      const sym = String(e.symbol || "").replace(/@spot$/, ""), raw = String(e.error || e.message || ""), twn = trTwName(sym), tw = trTwNameEl(sym);
+      if (strat) body.append(" ", strat);
       if (trOrderErrParse(raw)) body.append(" ", trEl("span", "dim", "— " + trOrderErrText(twn ? sym + " " + twn : sym, raw)));   // 認得的原因:整句在地化(句子自己帶標的;台股帶名字)
       else { body.append(" ", trEl("span", "mono", sym)); if (tw) body.appendChild(tw); body.append(" ", trEl("span", "dim", "— " + raw.slice(0, 160))); }
     });
@@ -5359,6 +5509,7 @@ function cxChkTextVenue(r) {
   if (c === "INCOMPLETE_PAIR") return CX_VENUES[CXF.venue] && CX_VENUES[CXF.venue].pass ? t("cx.chk.incompletePass") : t("cx.chk.incomplete");
   if (c === "MODE_UNVERIFIED") return d.mode === "uta" ? t("cx.err.bitgetUta") : t("cx.err.bitgetClassic");
   if (c === "REJECTED" && trErrToken(d.reason) === "bitget_uta_unsupported") return t("cx.err.bitgetUta");
+  if (c === "REJECTED" && trErrToken(d.reason) === "bitget_copy_trading_key") return t("cx.err.bitgetCopyKey");
   if (c === "REJECTED") return trErrToken(d.reason) === "okx_account_mode" ? t("cx.err.okxMode") : t("cx.chk.rejectedV", { venue: name, reason: String(d.reason || "—").slice(0, 200) });
   if (c === "UNKNOWN") return t("cx.chk.unknownV", { venue: name });
   if (c === "NO_CHECK") return t("cx.chk.noCheckV", { venue: name });
@@ -5395,7 +5546,8 @@ function cxChkTextCloud(r) {
     : c === "BAD_SECRET" ? t("cx.chk.secret") : c === "CLOCK" ? t("cx.chk.clockCloud") : c === "NETWORK" ? t("cx.chk.networkCloud")
     : c === "RATE_LIMITED" ? t("cx.chk.rateCloud") : c === "RATE_BANNED" ? t("cx.chk.bannedCloud") : c === "RATE_BACKOFF" ? t("cx.chk.backoffCloud")
     : c === "REJECTED" ? (trErrToken(d.error) === "okx_account_mode" ? t("cx.err.okxMode")
-      : trErrToken(d.error) === "bitget_uta_unsupported" ? t("cx.err.bitgetUta") : t("tr.cloud.cmdRejected", { err: String(d.error || "—").slice(0, 200) }))
+      : trErrToken(d.error) === "bitget_uta_unsupported" ? t("cx.err.bitgetUta")
+      : trErrToken(d.error) === "bitget_copy_trading_key" ? t("cx.err.bitgetCopyKey") : t("tr.cloud.cmdRejected", { err: String(d.error || "—").slice(0, 200) }))
     : c === "CMD_UNKNOWN" ? t("tr.cloud.cxUnknown")
     : c === "UNDELIVERED" ? (trSendError({ error: d.error, kind: d.kind || "undelivered", machineState: d.machineState }, "connect", "cloud") || t("side.stopped"))
     : t("cx.chk.unknown");

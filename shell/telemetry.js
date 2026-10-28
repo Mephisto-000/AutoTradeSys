@@ -1,6 +1,6 @@
 // Blave 電腦版 — 使用追蹤(主行程用)。契約:blave-canon output/backend/2026-09-21-desktop-telemetry-contract.md
 //
-// 只回答一件事:「哪一步發生了(或卡在哪一步)、什麼時候、哪個版本」。二十八個事件、每個事件的屬性都是列舉——
+// 只回答一件事:「哪一步發生了(或卡在哪一步)、什麼時候、哪個版本」。三十個事件、每個事件的屬性都是列舉——
 // 這個檔**沒有任何自由文字的入口**:對話、策略碼、策略名、標的、金額、部位、金鑰、路徑進不來,
 // 不是靠呼叫端自律,是 track() 只認下面這張表(api 端還有同一張白名單再擋一次)。唯一的表外屬性是 strat_* 的 sid:
 // 只收 16 hex、由 strategySteps 用本機秘密對資料夾名算出(sidOf),名字本身照樣不出門。
@@ -68,6 +68,12 @@ const EVENTS = {
   // 回合結束提示(0.1.30;主行程 main.js replyCue / replyNotifySet):該型系統通知真的出了(show)、點了、作業系統關了通知(failed)、
   // 設定 › 一般切開關。不帶對話標題、摘錄或對話 id
   reply_notif: { act: ["done", "await", "fail", "click", "os_off", "on", "off"] },
+  // 0.1.35 本機 AI 登入失敗(renderer 送,turn_failed 記 auth 的那一輪):why = 引擎_來源_狀態,判法在 renderer/app.js authFailSrc／authFailWhy。
+  // probe 判成已登入或問不到不算 auth,所以沒有 *_probe_in／_unk;Codex 的失敗只走 error chunk,只有 probe
+  auth_fail: { why: ["c_nologin_in", "c_nologin_out", "c_nologin_no", "c_nologin_unk", "c_401_in", "c_401_out", "c_401_no", "c_401_unk",
+    "c_403_in", "c_403_out", "c_403_no", "c_403_unk", "c_probe_out", "c_probe_no", "x_probe_out", "x_probe_no"] },
+  // Claude 的登入方式(主行程 saveConnection／開 app、renderer 回合後問 CLI 時送):值由 cliAuthHow 從 authMethod 換來
+  cli_auth: { how: ["claude_ai", "api_key", "api_key_helper", "oauth_token", "third_party", "none", "other"] },
   // 用了哪個功能:名字是白名單(canon .claude/docs/product-telemetry.md 的登記表;api 端 desktop_telemetry.EVENTS 同一份),
   // api 每安裝每 name 每 UTC 日去重——回答「誰、哪天、用過哪些功能」,不做逐點擊計數。library_* 的送出點在 renderer/library.js(libTrack),
   // reports_* 在 renderer/reports.js、strategy_new 在 renderer/newstrategy.js(都經 libTrack)。
@@ -188,8 +194,8 @@ const EVENTS = {
     "po_help_cfg", "po_help_opt",
     // 策略庫市場選單(0.1.26;renderer/library.js libMktPick):選了不同的市場才送,重選同一項不送;不帶選了哪個市場。網頁 GA4 同一件事是 library_filter_change(filter=market)
     "lib_mkt_pick",
-    // 歡迎頁起手句(0.1.26;renderer/welcome.js):starter_crypto / _tw / _txf = 點了、回合真的跑起來;starter_fill = Blave AI 跑不了、只填進輸入框(不分市場);
-    // starter_new / starter_no_new = 送出起手句的那一輪結束時本機策略清單有沒有多一支(同 lib_installed / library_no_new);wd_fold_open = 點開「可以回測的資料」
+    // 歡迎頁起手句(0.1.26–0.1.33):starter_* 六個本版起沒有送出點(0.1.34 換成①的策略卡 wcard_*),0.1.33 以前的外殼還在送,api 兩端逐字比對,留著;
+    // wd_fold_open = 點開「可以回測的資料」(renderer/welcome.js,照舊有送出點)
     "starter_crypto", "starter_tw", "starter_txf", "starter_fill", "starter_new", "starter_no_new", "wd_fold_open",
     // 按下「登入 Blave」、瀏覽器打開之前(0.1.26;renderer/app.js blaveGo / blaveLoginFlow / planLogin):對 login_done 算 app 帶去網頁登入／註冊的完成率
     "login_click",
@@ -236,14 +242,27 @@ const EVENTS = {
     // 0.1.33 第一次對話 modal(renderer/intro.js):真的顯示出來(同一刻寫 introSeen)、主鈕送出且回合跑起來、✕／Esc 關掉、〔我有想法，自己打〕
     "intro_shown", "intro_send", "intro_close", "intro_type",
     // 0.1.33 綁卡前額度只能用 DeepSeek V4 Pro(renderer/app.js):點了鎖住的型號列、撞到鎖的錯誤卡上按綁卡
-    "mp_locked_click", "bind_model"] },
+    "mp_locked_click", "bind_model",
+    // 成交測試分頁:切到分頁(renderer/app.js 分頁列)、表頭換指標且值有變(report-xt.js 經 opts.onMetric)、
+    // 霧卡〔更新績效〕ack 排進佇列(perf.js perfClick;回測數據分頁那顆照舊是 perf_update,web 同一顆是 perf_update_request placement exec_test)
+    "report_xt", "xt_metric", "perf_update_xt",
+    // 歡迎頁①策略卡(0.1.34;renderer/library.js libSend、welcome.js wcCard):從卡確認後回合真的跑起來、點策略名開詳情;雲端視角寫進名字
+    "wcard_use", "wcard_use_cloud", "wcard_open", "wcard_open_cloud",
+    // 0.1.34 回覆音(renderer/app.js):設定 › 一般切「提示音」開／關;回合結束該響時真的響了／resume 後仍不是 running 沒響
+    "reply_snd_on", "reply_snd_off", "reply_snd_play", "reply_snd_block",
+    // 0.1.35 本機 AI 登入成功(renderer/app.js):連結畫面按登入後偵測確實已登入、聊天裡登入卡按登入回 ok
+    "claude_login_ok", "codex_login_ok"] },
 };
+// `claude auth status` 的 authMethod 原值 → cli_auth 的 how(隨包 CLI 2.1.281 的 auth status 只會給這六個)。唯一的一份:
+// 主行程 detectAgents 算好放進 out.claude.how,畫面與主行程都讀那一欄。null／缺 = none,表外 = other
+const CLI_AUTH_HOW = { "claude.ai": "claude_ai", api_key: "api_key", api_key_helper: "api_key_helper", oauth_token: "oauth_token", third_party: "third_party", none: "none" };
+const cliAuthHow = (m) => (m == null ? "none" : typeof m === "string" && Object.prototype.hasOwnProperty.call(CLI_AUTH_HOW, m) ? CLI_AUTH_HOW[m] : "other");
 const ONCE = ["app_first_open", "first_backtest_done", "first_reply_done"];   // 每個安裝只送一次:自己記,不靠 api 去重
 // 每安裝每屬性值每 UTC 日只送一次(契約 §「外殼端同日同 name 也不重送」):送過的記在狀態檔、換日整組清掉。
 // 放主行程而不是畫面:被攻破的 renderer 對 track-feature 灌合法名字也只會出門 20 次,搶不到 api 那顆全域熔斷
 const DAILY = ["feature_used", "acct_card_shown", "acct_card_click", "acct_card_back", "turn_failed", "connect_failed",
   "plan_start_res", "update_failed", "lib_blocked", "heartbeat", "engine_setup", "engine_opt_fail", "lib_pick", "idea_sent", "detect_fail",
-  "device_type", "reply_notif"];
+  "device_type", "reply_notif", "auth_fail", "cli_auth"];
 // 每日一則、不分屬性值:心跳一天只要一列(live 記當天第一次送出那一刻的),下單中途開關不多送
 const DAILY_ONE = ["heartbeat"];
 const HEARTBEAT_MS = 10 * 60 * 1000;   // 啟動後 10 分鐘起每 10 分鐘看一次;當天送過就不出門(啟動當天另有 app_open)
@@ -261,7 +280,7 @@ const SID_ON = ["strat_created", "strat_backtested", "strat_deployed"];
 const SID_RE = /^[0-9a-f]{16}$/;
 const SID_KEY_RE = /^[0-9a-f]{64}$/;
 // 畫面(track-event)只准送這幾個;里程碑(app_first_open、login_done…)與主行程自己判的(plan_start_res、update_failed)不收
-const FROM_RENDERER = ["acct_card_shown", "acct_card_click", "acct_card_back", "turn_failed", "connect_failed", "first_reply_done", "lib_blocked", "lib_pick", "idea_sent", "detect_fail"];
+const FROM_RENDERER = ["acct_card_shown", "acct_card_click", "acct_card_back", "turn_failed", "connect_failed", "first_reply_done", "lib_blocked", "lib_pick", "idea_sent", "detect_fail", "auth_fail", "cli_auth"];
 const DAY_RE = /^[0-9]{8}$/;
 const DEFAULT_ON = true;   // Wei 2026-09-21:預設開、照實告知、可關
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -358,7 +377,7 @@ function createTelemetry(opts) {
       return true;
     } catch (_) { return false; }   // 追蹤永遠不能炸掉呼叫端
   }
-  /* 策略三步(0.1.18)。kinds = runtime/local_daemon.strategy_kinds 寫進狀態檔的 {資料夾名: {type, market, bt, funded}}(null = 這輪不知道,整輪跳過)。
+  /* 策略三步(0.1.18)。kinds = runtime/local_daemon.strategy_kinds 寫進狀態檔的 {資料夾名: {type, market, market_hint, bt, funded}}(null = 這輪不知道,整輪跳過)。
      資料夾名只在這裡變成雜湊、不出門:本機記帳用 sha256 前 16 hex(stratHash);出門的是 kind 與 sid
      (sidOf = 以本機秘密 sid_key 做 HMAC-SHA256 取前 16 hex;沒加鹽的雜湊對常見策略名可以用字典反推)。
      - 升級後第一次拿到 kinds(狀態檔在、沒有 strat):每支策略已經到的步驟全記成送過、一則都不送——不然升級那一刻每台把存量灌一輪(同 api 第一份回報只 seed)。
@@ -371,8 +390,10 @@ function createTelemetry(opts) {
     if (!st.sid_key) { st.sid_key = crypto.randomBytes(32).toString("hex"); save(); }
     return crypto.createHmac("sha256", Buffer.from(st.sid_key, "hex")).update(name).digest("hex").slice(0, 16);
   }
+  // market 判不出才用 market_hint(0.1.35;只給埋點的推斷,runtime strategy_reporter.strategy_market_hint)
+  const stratMkt = (v) => (typeof v === "string" && Object.prototype.hasOwnProperty.call(STRAT_MARKETS, v) ? STRAT_MARKETS[v] : null);
   const stratKind = (k) => (["A", "B", "C"].indexOf(k.type) >= 0 ? k.type : "unk") + "."
-    + (typeof k.market === "string" && Object.prototype.hasOwnProperty.call(STRAT_MARKETS, k.market) ? STRAT_MARKETS[k.market] : "unk");
+    + (stratMkt(k.market) || stratMkt(k.market_hint) || "unk");
   const stratDue = (k, step) => step === "created" || (step === "backtested" ? k.bt === true : k.funded === true);
   function stratNote(step, h) {
     const a = st.strat[step];
@@ -440,6 +461,10 @@ function createTelemetry(opts) {
     // 重新打開立即恢復:這次啟動的那兩則補送(app_open 由 api 每日去重;app_first_open 送過就不會再送)
     setEnabled(on) { const was = load().enabled; st.enabled = !!on; save(); if (st.enabled && !was) this.start(); },
     installId: () => load().install_id,
+    // 這個每日事件今天(任一值)送過或正在送:主行程拿來決定要不要為了它開子行程(cli_auth 開 app 那一則)
+    sentToday(event) {
+      try { load(); const p = event + ":"; return dailyKeys().some((k) => k.startsWith(p)) || [...inflight].some((k) => k.startsWith(p)); } catch (_) { return false; }
+    },
   };
 }
 
@@ -463,4 +488,4 @@ function anyBacktest(stratDir) {
   return false;
 }
 
-module.exports = { createTelemetry, EVENTS, FROM_RENDERER, STRAT_KINDS, STRAT_MARKETS, statusHeaders, anyBacktest };
+module.exports = { createTelemetry, EVENTS, FROM_RENDERER, STRAT_KINDS, STRAT_MARKETS, statusHeaders, anyBacktest, cliAuthHow };

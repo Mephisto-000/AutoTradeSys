@@ -15,6 +15,7 @@ const os = require("os");
 const fs = require("fs");
 const { createDaemonHost } = require("./daemon.js");
 const wsfile = require("./wsfile");
+const { cliAuthHow } = require("./telemetry");
 
 // 打包版的名字 = userData 目錄名(~/Library/Application Support/Blave)與 Keychain 項目名。
 // electron-builder 的 productName 不會寫進 asar 裡的 package.json,不設的話打包版會跟開發版
@@ -161,8 +162,8 @@ function detectLogWrite(f, entry) {
 }
 
 // 偵測結果契約(renderer 據此畫各列):
-// { claude: {installed, loggedIn, authMethod, email, path, why}, codex: {installed, loggedIn, path, why, via} }
-// why = detectWhy,能用時 null;via = codex 是哪種裝法("app" = ChatGPT.app / Store 版內附那顆,"cli" = 其他),失敗時給哪一種退路看它
+// { claude: {installed, loggedIn, authMethod, email, path, why, how}, codex: {installed, loggedIn, path, why, via} }
+// why = detectWhy,能用時 null;how = cliAuthHow(authMethod)(telemetry.js),JSON 讀不出來是 null;via = codex 是哪種裝法("app" = ChatGPT.app / Store 版內附那顆,"cli" = 其他),失敗時給哪一種退路看它
 const CODEX_IN_CHATGPT = "/Applications/ChatGPT.app/Contents/Resources/codex";
 /* Windows 的 codex.cmd 要解到真的 codex.exe:runtime/codex_engine.py 用 create_subprocess_exec 起它,吃不了 .cmd。
    npm 的 bin/codex.js(0.156.1)找的是 <平台套件>/vendor/<triple>/bin/codex.exe,退路是 @openai/codex 自己的 vendor/;
@@ -245,7 +246,7 @@ async function codexBinNow() { return codexPath(await loginShellPath()); }
 async function detectAgents() {
   const envPath = await loginShellPath();
   const out = {
-    claude: { installed: false, loggedIn: false, authMethod: null, email: null, path: null, why: null, authOutside: false },
+    claude: { installed: false, loggedIn: false, authMethod: null, email: null, path: null, why: null, authOutside: false, how: null },
     codex: { installed: false, loggedIn: false, path: null, why: null, via: null, authOutside: false },
   };
   const rec = { claude: {}, codex: {} };
@@ -286,6 +287,7 @@ async function detectAgents() {
       const j = JSON.parse(r.stdout);
       out.claude.loggedIn = !!j.loggedIn;
       out.claude.authMethod = j.authMethod || null;
+      out.claude.how = cliAuthHow(j.authMethod);   // cli_auth 的值;JSON 讀不出來(逾時、跑不起來)留 null = 不送
       out.claude.email = j.email || null;
     } catch (_) { if (r.code === 0) rec.claude.json = false; /* 舊版沒有這個子指令:當成未知,顯示成未登入;跑不起來(退出碼非 0、stdout 空)不算壞 JSON */ }
     if (!out.claude.loggedIn && !cantRun(r) && !r.timedOut) {
@@ -372,19 +374,22 @@ function connStore() {
 async function saveConnection(choice) {
   const kind = choice && choice.kind;
   let agentPath = null;
-  if (kind === "claude" || kind === "codex") { agentPath = ((await detectAgents())[kind] || {}).path || null; if (!agentPath) return false; }
+  let d = null;
+  if (kind === "claude" || kind === "codex") { d = await detectAgents(); agentPath = (d[kind] || {}).path || null; if (!agentPath) return false; }
   if (kind === "apikey" && !loadLlmKey()) return false;   // 連得上的前提是這台電腦上有一把驗過的金鑰
   const saved = connStore().save({ kind, path: agentPath, email: choice && choice.email });
   if (!saved) return false;
   tm().track("connect_done", { kind: saved.kind });
+  if (saved.kind === "claude" && d) tm().track("cli_auth", { how: d.claude.how });
   accountStatus();   // 換了 AI:現況立刻帶給 api(提醒信 K 型以它為準;沒登入就不打)
   return true;
 }
 const clearConnection = () => { const r = connStore().clear(); accountStatus(); return r; };
 const loadConnection = () => connStore().load();
 
-// ── 使用追蹤(telemetry.js:十八個事件、屬性只有列舉、沒有自由文字的入口;設定裡可關)──
+// ── 使用追蹤(telemetry.js:三十個事件、屬性只有列舉、沒有自由文字的入口;設定裡可關)──
 let _tm = null;
+let cliAuthTried = false;   // 開 app 補 cli_auth 的背景偵測:這次啟動試過了
 let _deviceKind = null;   // device_type:啟動時偵測一次(devicetype.js),之後心跳那一輪補跨日那一則都用這個值
 const telemetryLive = () => app.isPackaged || process.env.BLAVE_TELEMETRY === "1";
 function tm() {
@@ -2343,7 +2348,7 @@ async function publicPricing() {
   const n = (v) => (Number(v) > 0 ? Number(v) : null);
   const hr = st ? n(st.twd_per_hour) : null, pl = b.plan && typeof b.plan === "object" ? b.plan : {};
   // 方案制的月價／年價一律讀 api(monthly_twd / annual_twd);舊 api 沒有 monthly_twd 才退回時價 × 720
-  // free_ai_credit:綁卡前的 AI 額度(連結畫面的數字);api 沒給或 0(停發)→ null,畫面維持原字
+  // free_ai_credit:綁卡前的 AI 額度(連結畫面換版與否看它;數字本身不上畫面);api 沒給或 0(停發)→ null,畫面維持原字
   return { trial: b.trial, free_ai_credit: n(b.free_ai_credit), starter_hourly: hr, starter_monthly: (st && n(st.monthly_twd)) || (hr ? Math.round(hr * 720) : null),
     starter_annual: st ? n(st.annual_twd) : null,
     plan: { monthly_billing_active: pl.monthly_billing_active === true, annual_pay_months: n(pl.annual_pay_months),
@@ -2484,7 +2489,17 @@ async function libraryList(langRaw, force) {
 function libReportSanitize(body) {
   if (!body || typeof body !== "object") return null;
   const r = { equity: libCurveOk(body.equity, LIB_EQUITY_MAX), equity_from: libDay(body.equity_from), equity_to: libDay(body.equity_to), backtest_start: libDay(body.backtest_start), backtest_end: libDay(body.backtest_end) };
+  r.benchmark = libBenchSanitize(body.benchmark, r.equity);
   return r.equity || r.backtest_start || r.backtest_end ? r : null;   // 全空(S3 暫時讀不到時 api 回 200 + 全 null)= 沒東西可套:當失敗、不進快取,下次再問
+}
+/* 買進持有基準(api marketplace._benchmark_payload):哪一欄壞了就整個 null、報告照用;曲線要跟策略那條同長,第 i 點才是同一天。
+   代號只收英數與 . _ -(畫面要拼進字串);總報酬是表上一定有的那格,沒有就不算有基準 */
+const LIB_BENCH_SYM_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,19}$/;
+function libBenchSanitize(b, equity) {
+  if (!b || typeof b !== "object" || Array.isArray(b) || !equity) return null;
+  const eq = libCurveOk(b.equity, LIB_EQUITY_MAX), sym = typeof b.symbol === "string" ? b.symbol.trim() : "";
+  if (!eq || eq.length !== equity.length || !LIB_BENCH_SYM_RE.test(sym) || typeof b.adjusted !== "boolean" || libFin(b.total_return) === null) return null;
+  return { symbol: sym, adjusted: b.adjusted, total_return: b.total_return, annual_return: libFin(b.annual_return), max_drawdown: libFin(b.max_drawdown), sharpe: libFin(b.sharpe), equity: eq, as_of: libDay(b.as_of) };
 }
 const libReportCache = new Map();   // `${id}:${lang}` → { at, report }
 async function libraryReport(id, langRaw) {
@@ -2915,11 +2930,21 @@ function keepAwakeSet(on) {
 /* 設定 › 一般「回覆好了通知我」(spec agent-reply-notifications-0130 §3.6):ui-prefs replyNotify,缺 = 開;按裝置存,不是帳號偏好 */
 const replyNotifyGet = () => { try { return JSON.parse(fs.readFileSync(uiPrefsPath(), "utf8")).replyNotify !== false; } catch (_) { return true; } };
 function replyNotifySet(on) {
-  const was = replyNotifyGet();
-  try { uiPrefsPatch({ replyNotify: on === true }); } catch (_) { /* 寫不進去:照舊值 */ }
+  const was = replyNotifyGet(), patch = { replyNotify: on === true };
+  // 提示音沒存過(跟著通知走):切通知前先把它當下的值存下來,之後兩個各管各的;不然設定頁的提示音開關不跟著動、實際卻變了
+  if (!replySoundSaved()) patch.replySound = replySoundGet();
+  try { uiPrefsPatch(patch); } catch (_) { /* 寫不進去:照舊值 */ }
   const now = replyNotifyGet();
   if (now !== was) tm().track("reply_notif", { act: now ? "on" : "off" });
   return now;
+}
+/* 設定 › 一般「提示音」:ui-prefs replySound,跟 replyNotify 各管各的(canon › Sound:要橫幅不要聲音、要聲音不要橫幅是兩群人)。
+   沒存過時跟著 replyNotify:0.1.33 以前關通知＝連系統聲一起關,升級後不該突然有聲音(Wei 定) */
+const replySoundSaved = () => { try { return typeof JSON.parse(fs.readFileSync(uiPrefsPath(), "utf8")).replySound === "boolean"; } catch (_) { return false; } };
+const replySoundGet = () => { try { const p = JSON.parse(fs.readFileSync(uiPrefsPath(), "utf8")); return typeof p.replySound === "boolean" ? p.replySound : p.replyNotify !== false; } catch (_) { return true; } };
+function replySoundSet(on) {
+  try { uiPrefsPatch({ replySound: on === true }); } catch (_) { /* 寫不進去:照舊值 */ }
+  return replySoundGet();
 }
 function awakeSync() {
   const st = _tradeHost ? _tradeHost.status() : null;
@@ -3094,13 +3119,17 @@ function replyTitle(sid) {
   try { const r = db.prepare("SELECT content FROM turns WHERE session_id = ? AND role = 'user' ORDER BY id LIMIT 1").get(sid); return replyTitleOf(r && r.content); }
   catch (_) { return replyTitleOf(""); } finally { db.close(); }
 }
-function replyCue(cue) {
+// sender = 送 reply-cue 的那個畫面:提示音交回它播(Web Audio 只在畫面裡有)
+function replyCue(cue, sender) {
   const p = replyPending; replyPending = null;
   if (!p || !okSessionId(p.sid) || !cue || typeof cue !== "object") return false;
-  const show = replyCuePick({ kind: cue.kind === "done" && p.awaiting ? "await" : cue.kind, focused: !!BrowserWindow.getFocusedWindow(), pref: replyNotifyGet() });
+  const o = { kind: cue.kind === "done" && p.awaiting ? "await" : cue.kind, focused: !!BrowserWindow.getFocusedWindow() };
+  // 聲音不排在通知的早退後面:通知關著、系統不支援通知、字還沒交過來,提示音照響。2 秒內只響一聲由畫面管
+  if (replyCuePick({ ...o, pref: replySoundGet() }) && sender && !sender.isDestroyed()) sender.send("reply-sound");
+  const show = replyCuePick({ ...o, pref: replyNotifyGet() });
   if (!show || !Notification.isSupported()) return false;
   const body = replyBody(show, cue.snippet, tmLabels); if (!body) return false;
-  const n = new Notification({ title: replyTitle(p.sid), body });
+  const n = new Notification({ title: replyTitle(p.sid), body, silent: true });   // 一律不出系統聲:回覆的聲音只有 Blave 那一聲(canon › Sound),P1 照用系統聲
   p1Alive.add(n); replyLast = n;
   const drop = () => { p1Alive.delete(n); if (replyLast === n) replyLast = null; };
   n.on("show", () => { replyOsOff = false; tm().track("reply_notif", { act: show }); });
@@ -3705,10 +3734,11 @@ app.whenReady().then(() => {
   // 側欄偏好(renderer/stratflags.js):順序與旗標只收自家頁面;拒絕時回空的 = 照預設序、沒旗標
   handle("keep-awake", () => keepAwakeGet(), true);
   handle("keep-awake-set", (_e, on) => keepAwakeSet(on === true), null);
-  handle("reply-notify", () => ({ on: replyNotifyGet(), osOff: replyOsOff }), { on: true, osOff: false });
+  handle("reply-notify", () => ({ on: replyNotifyGet(), osOff: replyOsOff, sound: replySoundGet() }), { on: true, osOff: false, sound: true });
   handle("reply-notify-set", (_e, on) => replyNotifySet(on === true), null);
+  handle("reply-sound-set", (_e, on) => replySoundSet(on === true), null);
   handle("reply-notify-os", () => replyOsSettings(), false);
-  ipcMain.on("reply-cue", (e, cue) => { if (fromOurPage(e)) replyCue(cue); });
+  ipcMain.on("reply-cue", (e, cue) => { if (fromOurPage(e)) replyCue(cue, e.sender); });
   handle("theme", () => themeGet(), "system");
   handle("theme-set", (_e, v) => themeSet(v), null);
   handle("welcome-prefs", () => onbPrefsGet(), { done: false, cloudDone: false });
@@ -3788,6 +3818,14 @@ app.whenReady().then(() => {
   startStep("tray", trayStart);
   startStep("inbound prune", () => require("./attach").prune(WS));   // 聊天附件放超過七天的(雲端由 runtime/prune_job.py 清)
   startStep("telemetry", () => tm().start());
+  // cli_auth:存好 Claude 連線的人開 app 直接進工作頁、畫面不跑偵測,這裡每天補問一次;今天送過就不開子行程。
+  // 一次啟動最多試一次(不管偵測結果、送沒送成功)
+  if (app.hasSingleInstanceLock()) startStep("cli auth", () => {
+    const c = loadConnection();
+    if (cliAuthTried || !c || c.kind !== "claude" || !telemetryLive() || !tm().isEnabled() || tm().sentToday("cli_auth")) return;
+    cliAuthTried = true;
+    detectAgents().then((d) => { tm().track("cli_auth", { how: d.claude.how }); }).catch(() => {});
+  });
   startStep("device type", () => require("./devicetype").detectDeviceType().then((kind) => { _deviceKind = kind; tm().track("device_type", { kind }); }));
   if (app.hasSingleInstanceLock()) startStep("mobile view", () => mobileView().start());   // 第二份 app 不送:兩份會搶同一個裝置代號
   // 帳號 token 輪替:開 app 就檢查一次(0.1.15 以前沒有期限的那顆在這裡第一次換掉),之後每 10 分鐘看一次。
@@ -3861,6 +3899,11 @@ let tmLabels = { running: "Auto trading is running", paperVenue: "Paper trading"
   ev_execution_stuck: "Execution is stuck", ev_execution_stuck_n: "Later orders for this symbol are waiting on it.",
   ev_machine_restart_stopped: "Machine restarted — trading paused", ev_machine_restart_stopped_n: "No orders are going out — nothing is managing your positions, and exits and stops won't run. Press Start trading to resume.",
   ev_venue_stops_missing: "Bitget positions without a stop-loss", ev_venue_stops_missing_n: "After the account switch some positions have no stop-loss on Bitget. Trading continues; Blave won’t re-place them.",
+  ev_halt_unconfirmed_n: "An order may have filled, so nothing goes out. Don't place it again yourself: tell your agent how much filled, then press Start trading.",
+  ev_order_unconfirmed_close_all: "Not closed with the rest", ev_order_unconfirmed_close_all_n: "An order here has an unknown outcome and was left out of this close. Don't trade it yourself: tell your agent how much filled, then press Pause and close positions again.",
+  ev_order_unconfirmed: "Order outcome unknown", ev_order_unconfirmed_n: "This order may have filled — don't place it again yourself. New entries on this symbol are paused; closes still run.",
+  ev_order_unconfirmed_stuck: "Order outcome still unknown", ev_order_unconfirmed_stuck_n: "Still no result, so new entries on this symbol stay paused. Check the exchange, tell your agent how much filled, and don't place it again yourself.",
+  stratOne: "", stratTwo: "", stratMany: "", withStrat: "",
   // 有了雲端視角之後的字(字串表 tm.*)。**預設是空的 = renderer 還沒交**:空的時候相關的那一行 / 那一句 / 那個前綴整個不出現,
   // 行為跟以前一樣——不拿英文退路硬塞進中文的選單列。app 選單(menu*)例外:退路是 MENU_EN。
   // Binance 金鑰重查(tm.key.*):空的 = renderer 還沒交,那一則通知不發(不拿英文退路塞給中文用戶;下一輪 24 小時重查 verdict 還在,畫面上看得到)
@@ -4149,8 +4192,9 @@ function traySync() {
    - 點通知 = 把視窗叫出來;視窗回前景就清紅點。 */
 // machine_restart_stopped 取代 downtime_paused(api 已改;設計定稿:不講時間,講部位沒人管、平倉停損不會執行、按啟動下單)
 const P1_TYPES = ["halt", "order_error", "execution_interrupted", "execution_fallback_market", "execution_stuck", "machine_restart_stopped",
-  "venue_stops_missing"];   // 全部七型(標籤用)
-const P1_EVENT_TYPES = P1_TYPES.filter((ty) => ty !== "halt" && ty !== "order_error");   // 會出現在 events 裡的五型
+  "venue_stops_missing", "order_unconfirmed"];   // 全部八型(標籤用)
+// order_unconfirmed 跟拒單同一個來源:order_errors[] 帶 kind 的那列(lib/portfolio 停車時寫),不在 events 裡
+const P1_EVENT_TYPES = P1_TYPES.filter((ty) => ty !== "halt" && ty !== "order_error" && ty !== "order_unconfirmed");   // 會出現在 events 裡的五型
 const HALT_AUTO_SOURCES = ["reconciler", "portfolio"];   // 同 api openclaw/agent_events._HALT_AUTO_SOURCES
 const notifiedPath = () => path.join(app.getPath("userData"), "p1-notified.json");
 let p1Marks = undefined, p1Badge = 0; const p1LastShown = {}, p1Alive = new Set();   // p1Alive:Notification 沒人持有會被 GC,click 就不觸發
@@ -4168,22 +4212,43 @@ const p1Sec = (v) => {
   const ms = Date.parse(/(Z|[+-]\d{2}:?\d{2})$/.test(v) ? v : v + "Z");
   return !Number.isFinite(ms) ? NaN : ms / 1000 + (us ? Number("0." + us) - Number("0." + us.slice(0, 3)) : 0);
 };
+// 追蹤不了而整台暫停的 HALT:內文換專屬那句,標題帶「· 標的」(p1Sync 接 payload.symbol)
+function p1HaltPayload(h) {
+  const reason = String((h && h.reason) || ""), unconfirmed = /^\[order_unconfirmed_unparked\]/.test(reason);
+  const m = unconfirmed ? /^\[order_unconfirmed_unparked\] (\S+?):/.exec(reason) : null;
+  return m ? { unconfirmed, symbol: m[1] } : { unconfirmed };
+}
 function p1FromState(r, mark, nowS) {   // 純函式:halt / 拒單從狀態檔現況推導。mark = { halt, err }(null = 第一次,只記不發)
   const out = { halt: mark.halt, err: mark.err, show: [] }, h = r && r.halt;
   const at = h && h.halted ? p1Sec(h.at) : NaN;
   if (at > (mark.halt == null ? -1 : mark.halt)) {
     out.halt = at;
-    if (mark.halt != null && HALT_AUTO_SOURCES.indexOf(h.source) >= 0 && nowS - at <= 900) out.show.push({ type: "halt", ts: at, payload: {} });
+    if (mark.halt != null && HALT_AUTO_SOURCES.indexOf(h.source) >= 0 && nowS - at <= 900)
+      out.show.push({ type: "halt", ts: at, payload: p1HaltPayload(h) });
   } else if (mark.halt == null) out.halt = 0;
   let top = mark.err == null ? -1 : mark.err;
   for (const e of r && Array.isArray(r.order_errors) ? r.order_errors : []) {
     const ts = e && typeof e === "object" ? p1Sec(e.ts) : NaN;
     if (!(ts > (mark.err == null ? -1 : mark.err))) continue;
     if (ts > top) top = ts;
-    if (mark.err != null && nowS - ts <= 900) out.show.push({ type: "order_error", ts, payload: { symbol: typeof e.symbol === "string" ? e.symbol : "" } });
+    // manual 停車的第一列不叫:同一刻的 HALT 已經叫了(只有部位表那句用它)
+    if (mark.err != null && nowS - ts <= 900 && !(e.kind === "order_unconfirmed" && e.manual === true && e.stuck !== true)) {
+      const strategies = Array.isArray(e.strategies) ? e.strategies.filter((x) => typeof x === "string" && x).slice(0, 10) : [];
+      out.show.push({ type: e.kind === "order_unconfirmed" ? "order_unconfirmed" : "order_error", ts,
+        payload: { symbol: typeof e.symbol === "string" ? e.symbol : "", strategies, stuck: e.stuck === true, close_all: e.close_all === true } });
+    }
   }
   out.err = top < 0 ? 0 : top;
   return out;
+}
+// 策略名(策略檔名)放在通知內文前面(canon §3 下單失敗列:一支、兩支、三支以上);字還沒交或沒有策略名 → 原句
+function p1WithStrat(names, note) {
+  const list = Array.isArray(names) ? names.filter((x) => typeof x === "string" && x).map((x) => x.slice(0, 40)) : [];
+  if (!list.length || !tmLabels.withStrat || !tmLabels.stratOne || !tmLabels.stratTwo || !tmLabels.stratMany) return note;
+  const strat = list.length === 1 ? tmLabels.stratOne.replace("{name}", () => list[0])
+    : list.length === 2 ? tmLabels.stratTwo.replace("{a}", () => list[0]).replace("{b}", () => list[1])
+      : tmLabels.stratMany.replace("{name}", () => list[0]).replace("{n}", String(list.length)).replace("{more}", String(list.length - 1));
+  return tmLabels.withStrat.replace("{strat}", () => strat).replace("{note}", () => note);
 }
 function p1Pick(events, mark, nowS) {   // 純函式(tests/check_shell_p1_notify.js):回 { mark, show:[事件] }
   let top = mark == null ? -1 : mark; const show = [];
@@ -4214,7 +4279,14 @@ function p1Sync() {
     const sym = e.payload && typeof e.payload.symbol === "string" ? e.payload.symbol.replace(/@spot$/, "").slice(0, 24) : "";
     if (!Notification.isSupported()) continue;
     // 這裡的事件全部來自這台電腦的狀態檔:標題第一個詞講是哪一邊(雲端的通知之後由它自己的來源加 notifPrefixCloud)
-    const n = new Notification({ title: TT.notifTitle(tmLabels.notifPrefixLocal, tmLabels["ev_" + e.type] + (sym ? " · " + sym : "")), body: tmLabels["ev_" + e.type + "_n"] });
+    const closeAll = e.type === "order_unconfirmed" && e.payload && e.payload.close_all === true;
+    const stuck = !closeAll && e.type === "order_unconfirmed" && e.payload && e.payload.stuck === true;
+    const variant = closeAll ? "_close_all" : stuck ? "_stuck" : "";
+    const head = tmLabels["ev_" + e.type + variant] || tmLabels["ev_" + e.type];
+    // 下單結果不明、追蹤不了而整台暫停:講可能已成交、不要手動補單、怎麼恢復,不是只有「什麼單都不送」
+    const note = e.type === "halt" && e.payload && e.payload.unconfirmed && tmLabels.ev_halt_unconfirmed_n ? tmLabels.ev_halt_unconfirmed_n
+      : tmLabels["ev_" + e.type + variant + "_n"] || tmLabels["ev_" + e.type + "_n"];
+    const n = new Notification({ title: TT.notifTitle(tmLabels.notifPrefixLocal, head + (sym ? " · " + sym : "")), body: p1WithStrat(e.payload && e.payload.strategies, note) });
     p1Alive.add(n); const drop = () => p1Alive.delete(n);
     n.on("click", () => { drop(); showMain(); }); n.on("close", drop); n.on("failed", drop); notifWatch(n, "p1 " + e.type);
     if (p1Alive.size > 20) p1Alive.delete(p1Alive.values().next().value);

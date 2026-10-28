@@ -340,8 +340,8 @@ if (!process.versions.electron) {
   ok("③ stratRefresh:只跑了驗證的那一輪(wfMtime 變了)開著的那支也原地重讀", /if \(was && now && \(resStratSub\(was, now\) \|\| \(now\.wfMtime \|\| 0\) !== \(was\.wfMtime \|\| 0\)\)\) \{ await stratReload\(RP\.name\); return; \}/.test(app));
   const { interpretStrategy } = require(path.join(SHELL, "cloud.js"));
   ok("③ cloud.js interpretStrategy 留 wf(物件才給,否則 null)", interpretStrategy({ status: 200, body: { strategy: { name: "m", wf: SAMPLE } } }, "m").strategy.wf.n_runs === 11 && interpretStrategy({ status: 200, body: { strategy: { name: "m", wf: [1] } } }, "m").strategy.wf === null);
-  ok("③ 分頁列:參數掃描之後、程式碼之前;面板、css、js 都在;js 在 report-robust.js 之後(借它的 _rob)",
-    /data-tab="rob" data-i18n="rp\.tab\.rob"><\/button>\s*<button class="rp-tab" type="button" role="tab" data-tab="wf" data-i18n="rp\.tab\.wf"><\/button>\s*<button[^>]*data-tab="code"/.test(html)
+  ok("③ 分頁列:參數掃描之後、成交測試之前(成交測試之後才是程式碼);面板、css、js 都在;js 在 report-robust.js 之後(借它的 _rob)",
+    /data-tab="rob" data-i18n="rp\.tab\.rob"><\/button>\s*<button class="rp-tab" type="button" role="tab" data-tab="wf" data-i18n="rp\.tab\.wf"><\/button>\s*<button[^>]*data-tab="xt"[^>]*><\/button>\s*<button[^>]*data-tab="code"/.test(html)
     && /id="rp-wf" role="tabpanel" hidden/.test(html) && /report-wf\.css/.test(html) && /<script src="report-robust\.js"><\/script>\s*<script src="report-wf\.js"><\/script>/.test(html));
   ok("③ rpShowTab 把 wf 交給 renderWf(t / busy / turn / scope / gate / onRun / onUpdate / buildMeta 從外面交進去);三處回合開始 / 結束都叫 rpWfSync;雲端狀態輪詢也叫(閘門翻面)",
     /R\.renderWf\(\$\("rp-wf"\), rpWfData\(B\.data, B\.name\), rpWfOpts\(\)\)/.test(app) && /function rpWfData\(data, name\) \{ return \{ stats: data\.stats, wf: data\.wf \|\| null, code: data\.code, name \}; \}/.test(app)
@@ -352,7 +352,7 @@ if (!process.versions.electron) {
   ok("③ 送出:確認框 → 先 begin()(暖機那段也算已送出,稽核 P2-1)→ 固定訊息(msgRun,name 傳資料夾名)→ 成功才記 wf_requested、回合序號;不覆寫 viewing",
     /onOk: \(\) => \{ if \(typeof begin === "function"\) begin\(\); rpWfAuto\.delete\(name\); submitMessage\(t\("wf\.msgRun", \{ name, lookback: String\(lookback\), step: String\(step\) \}\)\)\.then\(\(ok\) => \{ if \(ok\) trackFeature\("wf_requested"\); resolve\(ok \? turnSeq : false\); \}\); \}/.test(app)
     && !/viewing/.test(app.slice(app.indexOf("function rpWfAsk"), app.indexOf("function rpWfUpdate"))) && /lines: \(behindMaybe \? \[t\("wf\.needUpdate"\)\] : \[\]\)\.concat\(\[t\("wf\.emptyBoundary"\), t\("wf\.confirmBody"\)\]\)/.test(app));
-  ok("③ 還原凍結:時光機 / 重跑中 wf 分頁跟進出場、參數掃描一起 disabled、面板一起收", /b\.disabled = b\.dataset\.tab === "tr" \|\| b\.dataset\.tab === "rob" \|\| b\.dataset\.tab === "wf";/.test(ver) && /for \(const k of \["bt", "tr", "rob", "wf", "code"\]\) \$\("rp-" \+ k\)\.hidden = true;/.test(ver));
+  ok("③ 還原凍結:時光機 / 重跑中 wf 分頁跟進出場、參數掃描一起 disabled、面板一起收", /b\.disabled = b\.dataset\.tab === "tr" \|\| b\.dataset\.tab === "rob" \|\| b\.dataset\.tab === "wf" \|\|/.test(ver) && /for \(const k of \["bt", "tr", "rob", "wf", "xt", "code"\]\) \$\("rp-" \+ k\)\.hidden = true;/.test(ver));
 
   { const css = read("renderer/report-wf.css"), wfjs = read("renderer/report-wf.js"), robjs = read("renderer/report-robust.js");
     ok("③ R1 每輪明細:表頭固定 58(折不折行看資料不看語言),捲動框上限 = 表頭 + 12.5 列 × 50(12 輪不捲、13 輪起固定露出半列)",
@@ -472,9 +472,9 @@ if (!process.versions.electron) {
   const vals = (b) => Object.fromEntries([...b.matchAll(/^\s*("(?:[^"\\]|\\.)*"): ("(?:[^"\\]|\\.)*"),?$/gm)].map((m) => [JSON.parse(m[1]), JSON.parse(m[2])]));
   const DT = { en: vals(block("en")), zh: vals(block("zh")) };
   // 設計精簡稽核 A7 / A8 的定稿(逐字照抄 audit-0.1.10-uiux-simplicity.md §2)
-  const FR = { zh: ["回測重跑完就有進出場紀錄；參數掃描與樣本外驗證要再跑一次。", "灰掉的分頁沒有資料，回測重跑完才有。"],
-    en: ["The Trades tab fills in once the backtest reruns; run the parameter scan and out-of-sample validation again.", "The greyed-out tabs have no data until the backtest reruns."] };
-  ok("③ A7 / A8 重跑中 / 沒完成那兩句 = 精簡稽核定稿(zh / en;en 帶 0.1.11 B6 rerun、D1 Trades 分頁)", ["zh", "en"].every((l) => DT[l]["ver.frozenRerun"] === FR[l][0] && DT[l]["ver.frozenRerunFailed"] === FR[l][1]));
+  const FR = { zh: ["回測重跑完就有進出場紀錄。參數掃描、樣本外驗證、成交測試要再跑一次。", "灰掉的分頁沒有資料，回測重跑完才有。"],
+    en: ["The Trades tab fills in once the backtest reruns. Run the parameter scan, out-of-sample validation and fill test again.", "The greyed-out tabs have no data until the backtest reruns."] };
+  ok("③ A7 / A8 重跑中 / 沒完成那兩句 = 精簡稽核定稿(zh / en;en 帶 0.1.11 B6 rerun、D1 Trades 分頁;重跑中那句補成交測試、斷成兩句,lag-test-tab §3.6)", ["zh", "en"].every((l) => DT[l]["ver.frozenRerun"] === FR[l][0] && DT[l]["ver.frozenRerunFailed"] === FR[l][1]));
   ok("③ A10 en 大小寫:Param Scan / Start Scan / Sent — See Chat", DT.en["rp.tab.rob"] === "Param Scan" && DT.en["rob.btnScan"] === "Start Scan" && DT.en["rob.btnSent"] === "Sent — See Chat");
   if (!fs.existsSync(WS)) console.log("SKIP  ③ 字串逐字比對(需要 web 樹)");
   else {
@@ -641,34 +641,57 @@ app.whenReady().then(async () => {
   ok("② L4 閘門 null → true 不重建(打到一半的 400 留著);翻成 false 才整片換成落後態", r.a === "400" && r.b, JSON.stringify(r));
 
   // ── 版面:另開視窗量(預設版面 = panesInit 夾出來的側欄 / 聊天欄;不拖拉)──
-  // B1:最小寬 1024、聊天欄開著,五顆分頁 + 轉出鈕;S1:預設 1280 每輪明細七欄放得下;列高上限 = 表頭 + 12 列
-  const measure = async (width, locale, runs) => {
+  // B1:最小寬 1024、聊天欄開著,六顆分頁 + 轉出鈕;S1:預設 1280 每輪明細七欄放得下;列高上限 = 表頭 + 12 列
+  const measure = async (width, locale, runs, first = "wf") => {
     const pre2 = path.join(app.getPath("userData"), "stub-" + locale + ".js"); fs.writeFileSync(pre2, STUB.replace('getLocale: "zh-TW"', "getLocale: " + JSON.stringify(locale)));
     const w2 = new BrowserWindow({ width, height: 800, show: false, webPreferences: { offscreen: true, preload: pre2, contextIsolation: false, sandbox: false } });
     await w2.loadFile(path.join(SHELL, "renderer", "index.html")); await wait(900);
     const wf = { ...SAMPLE, n_runs: runs, runs: Array.from({ length: runs }, (_, i) => ({ ...SAMPLE.runs[i % 11], k: i + 1 })) };
     const m = await w2.webContents.executeJavaScript(`(async () => {
-      // 帶一筆 trades:沒有逐筆紀錄時進出場分頁收起(同網頁 has_trades),這裡量的是五顆分頁都在的版面
+      // 帶一筆 trades:沒有逐筆紀錄時進出場分頁收起(同網頁 has_trades),這裡量的是六顆分頁都在的版面
       RP.name = "s1"; RP.data = { stats: { symbol: "BTCUSDT", start: "2023-01-01", end: "2024-11-30", "Generated At": 5, trades: [{ t: 1 }] }, wf: ${JSON.stringify(wf)}, code: "ENTRY_TH = 0.002\\nEXIT_TH = -0.002\\n", name: "s1", displayName: "s1", description: "" }; RP.drawn = {}; RP.tab = "wf";
-      document.getElementById("rp").hidden = false; rpPaintHead(RP); rpShowTab("wf"); await new Promise((r) => setTimeout(r, 400));
-      const R = (el) => el.getBoundingClientRect(), main = document.getElementById("rp"), sc = document.getElementById("rp-tabs-scroll"), more = document.getElementById("rp-tabs-more"), xp = document.getElementById("xp-dd");
+      const R = (el) => el.getBoundingClientRect(), sc0 = document.getElementById("rp-tabs-scroll");
+      // 開報告就停在 first 那顆:捷徑是在「捲進可視範圍」之後才冒出來的,那一刻分頁段少一顆捷徑寬,要再捲一次(不然靠右的分頁被切一半)
+      const first = ${JSON.stringify(first)}; RP.tab = first; document.getElementById("rp").hidden = false; rpPaintHead(RP); rpShowTab(first); await new Promise((r) => setTimeout(r, 400));
+      const s0 = sc0.querySelector('[aria-selected="true"]'), pad0 = parseFloat(getComputedStyle(sc0).paddingRight) || 0;
+      const firstSel = s0 && s0.dataset.tab, firstMore = !document.getElementById("rp-tabs-more").hidden, firstIn = !!s0 && R(s0).right <= R(sc0).right - pad0 + 1 && R(s0).left >= R(sc0).left - 1;
+      if (first !== "wf") { rpShowTab("wf"); await new Promise((r) => setTimeout(r, 400)); }
+      const main = document.getElementById("rp"), sc = document.getElementById("rp-tabs-scroll"), more = document.getElementById("rp-tabs-more"), xp = document.getElementById("xp-dd");
       const box = document.querySelector(".wf-scroll"), tb = box.querySelector("table"), rows = [...tb.querySelectorAll("tbody tr")].map((r) => R(r).height);
-      const out = { main: Math.round(R(main).width), mainR: Math.round(R(main).right), xpShown: !xp.hidden, xpR: Math.round(R(xp).right), over: sc.scrollWidth > sc.clientWidth + 1, more: !more.hidden,
+      const out = { firstSel, firstMore, firstIn, main: Math.round(R(main).width), mainR: Math.round(R(main).right), xpShown: !xp.hidden, xpR: Math.round(R(xp).right), over: sc.scrollWidth > sc.clientWidth + 1, more: !more.hidden,
         boxW: box.clientWidth, tblW: tb.scrollWidth, head: R(tb.querySelector("thead tr")).height, row: rows[0], rowsSame: rows.slice(0, -1).every((h) => Math.abs(h - rows[0]) < 0.5), boxH: box.clientHeight, boxSH: box.scrollHeight,
         selBottom: Math.round(R(sc.querySelector('[aria-selected="true"]')).bottom), barBottom: Math.round(R(document.getElementById("rp-tabs")).bottom) };
       rpShowTab("code"); await new Promise((r) => setTimeout(r, 100));
       const code = sc.querySelector('[data-tab="code"]'); out.codeIn = R(code).right <= R(sc).right + 1 && R(code).left >= R(sc).left - 1;
       if (!more.hidden) { const cls = more.className; out.back = cls.includes("is-back"); }
       rpShowTab("bt"); await new Promise((r) => setTimeout(r, 100)); const bt = sc.querySelector('[data-tab="bt"]'); out.btIn = R(bt).left >= R(sc).left - 1;
+      // 六顆逐一選:捷徑收起時這一列還剩多少(捷徑在的話把它佔的寬加回去);en 選中加粗會寬 1–2px,取最小
+      const gap = parseFloat(getComputedStyle(sc).columnGap) || 0, fitNow = () => { const tabs = [...sc.querySelectorAll(".rp-tab")].filter((b) => !b.hidden);
+        return sc.clientWidth + (more.hidden ? 0 : more.offsetWidth + gap) - (tabs.reduce((s, b) => s + R(b).width, 0) + (tabs.length - 1) * gap + 8); };
+      out.nTabs = [...sc.querySelectorAll(".rp-tab")].filter((b) => !b.hidden).length; out.fitMin = Infinity; out.overAny = false; out.moreAny = false;
+      for (const k of ["bt", "tr", "rob", "wf", "xt", "code"]) { rpShowTab(k); await new Promise((r) => setTimeout(r, 100));
+        out.fitMin = Math.min(out.fitMin, +fitNow().toFixed(1)); out.overAny = out.overAny || sc.scrollWidth > sc.clientWidth + 1; out.moreAny = out.moreAny || !more.hidden; }
+      // 拖寬聊天欄再拖回(拖曳時 body.resizing 關掉寬度轉場,不然 ResizeObserver 會在轉場中途觸發)
+      const root = document.documentElement, cw = root.style.getPropertyValue("--chat-w"); document.body.classList.add("resizing");
+      root.style.setProperty("--chat-w", "540px"); await new Promise((r) => setTimeout(r, 200)); out.dragMore = !more.hidden;
+      if (cw) root.style.setProperty("--chat-w", cw); else root.style.removeProperty("--chat-w"); await new Promise((r) => setTimeout(r, 200));
+      out.backMore = !more.hidden; out.backOver = sc.scrollWidth > sc.clientWidth + 1; document.body.classList.remove("resizing");
       return out; })()`, true);
     w2.destroy(); return m;
   };
   for (const loc of ["zh-TW", "en-US"]) {
+    const x = await measure(1024, loc, 11, "xt");
+    console.log("      " + loc + " 1024 開在成交測試:" + JSON.stringify({ firstSel: x.firstSel, firstMore: x.firstMore, firstIn: x.firstIn }));
+    ok("② B1 " + loc + " 1024 聊天欄開著、開報告就停在靠右的成交測試:捷徑冒出來之後再捲一次,那顆整顆在可視範圍(不被切一半)",
+      x.firstSel === "xt" && x.firstMore && x.firstIn, JSON.stringify({ firstSel: x.firstSel, firstMore: x.firstMore, firstIn: x.firstIn }));
     const a = await measure(1024, loc, 11), b = await measure(1280, loc, 12), c = await measure(1280, loc, 13);
     console.log("      " + loc + " 1024:" + JSON.stringify(a) + "\n      " + loc + " 1280:" + JSON.stringify(b) + "\n      " + loc + " 1280/13 輪:" + JSON.stringify(c));
     ok("② B1 " + loc + " 1024 聊天欄開著:分頁段溢出 → 捲動捷徑出現;轉出鈕看得到且右緣不出中欄;選程式碼 / 回測都捲得進可視範圍;選中分頁底線壓在列底(窄版 padding 不吃掉 hairline 那 1px)",
       a.over && a.more && a.xpShown && a.xpR <= a.mainR && a.codeIn && a.btIn && a.selBottom === a.barBottom, JSON.stringify(a));
-    ok("② B1 " + loc + " 1280:分頁段放得下,捲動捷徑不出現(版面同 0.1.9)", !b.over && !b.more && b.xpShown && b.xpR <= b.mainR && b.selBottom === b.barBottom, JSON.stringify(b));
+    // 留 8px:Windows Segoe UI 的字寬跟 SF 差幾個百分點
+    ok("② B1 " + loc + " 1280 聊天欄開著:六顆分頁 + 轉出鈕放得下(留 ≥ 8px)、捲動捷徑不出現;選哪一顆都一樣",
+      b.nTabs === 6 && !b.over && !b.more && !b.overAny && !b.moreAny && b.fitMin >= 8 && b.xpShown && b.xpR <= b.mainR && b.selBottom === b.barBottom, JSON.stringify(b));
+    ok("② B1 " + loc + " 1280 聊天欄拖寬到 540 → 捷徑出現;拖回預設 → 捷徑收得回來、不溢出", b.dragMore && !b.backMore && !b.backOver, JSON.stringify(b));
     ok("② S1 " + loc + " 1280:每輪明細日期兩行,七欄放得進捲動框(不橫捲)", b.tblW <= b.boxW + 1, JSON.stringify(b));
     const vis = (c.boxH - c.head) / c.row;   // 13 輪時框裡看得到幾列(R1:表頭固定 58、上限 12.5 列 → 恰好 12.5)
     ok("② S1 " + loc + " .wf-scroll 高度上限:12 輪整張不出直捲;13 輪才捲、框裡看得到 12 列以上不到 13 列(列高一致)", b.boxSH <= b.boxH + 1 && c.rowsSame && c.boxSH > c.boxH + 1 && Math.abs(c.head - 58) < 0.5 && Math.abs(vis - 12.5) < 0.05, JSON.stringify(c) + " 可見 " + vis.toFixed(2) + " 列");

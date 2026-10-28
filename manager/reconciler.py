@@ -652,8 +652,18 @@ def _president_park_unfilled(sym, leg, requested, net_before):
                     lots=unfilled, error=str(e))
         _note_pending_unreadable(sym, e)
         return
-    row = pending.get(pid) or {'root': sym, 'productid': pid, 'lots': 0.0,
-                              'net_expected': float(net_before), 'legs': [], 'reads': []}
+    row = pending.get(pid)
+    booked = _row_booked(pid, row) if row is not None else False
+    if booked:
+        # a claim booked this row but its save was refused: the row is done, and merging
+        # this leg into it would drop the leg with it next round (the id is in the book)
+        guard.audit('late_fill_already_booked', venue=venue_traits.PRESIDENT, symbol=sym, contract=pid,
+                    lots=row.get('lots'), park_id=_park_id(pid, row))
+        row = None
+    elif booked is None:
+        _halt_unknown_booked(sym, pid, row)
+    row = row or {'root': sym, 'productid': pid, 'lots': 0.0,
+                  'net_expected': float(net_before), 'legs': [], 'reads': []}
     rebased = bool(row.pop('halted', None))
     if rebased:
         # the old baseline is the one three snapshots already failed to explain: the
@@ -672,10 +682,109 @@ def _president_park_unfilled(sym, leg, requested, net_before):
                     f"parked; no {sym} entry until a snapshot claims it")
 
 
+def _park_id(key, row):
+    """Stable id of one parked row: its key and the send time of its first leg. The late
+    fill's book line carries it (lib.portfolio.book_late_fill), so a claim cut off after
+    booking is recognised next round instead of booked a second time."""
+    legs = row.get('legs') or [{}]
+    return f"{key}@{legs[0].get('at')}"
+
+
+def _row_booked(key, row):
+    """True when the claim already booked `row` (its park id is in the book), None when
+    orders.jsonl cannot be read to tell."""
+    from lib import portfolio
+    try:
+        return portfolio.late_fill_booked(_park_id(key, row))
+    except OSError as e:
+        logging.error(f"[reconciler] {key}: orders.jsonl unreadable ({e}) — can't tell whether the "
+                      f"parked row was booked")
+        return None
+
+
+def _halt_unknown_booked(sym, pid, row):
+    """A new leg is parked onto a row whether booked or not is unknown (the book went
+    unreadable after this round's send). The merge goes ahead — the order is already
+    out, nothing is left to hold back — but if that row was booked the next claim drops
+    it by its id and this leg with it, so the user is told and HALT is tripped
+    (the _book_late_fill_or_halt pattern)."""
+    from lib import portfolio
+    msg = (f"統一 {pid} 有一筆送出後沒收到成交回報的單,記進等待區時讀不到帳本,確認不了同合約前一筆"
+           f"是否已記帳:已停止下單。請到統一 app 核對 {pid} 的部位,處理好再按恢復下單")
+    guard.audit('order_unfilled_park_unverified', venue=venue_traits.PRESIDENT, symbol=sym, contract=pid,
+                park_id=_park_id(pid, row))
+    try:
+        portfolio._record_order_error(sym, venue_traits.PRESIDENT, msg)
+    except Exception as e:
+        logging.error(f"[reconciler/president] order_errors row not written: {e}")
+    try:
+        guard.trip_halt(msg, 'reconciler')
+    except Exception as e:
+        logging.error(f"[reconciler/president] HALT file not written ({e}) — halted in this process")
+
+
+CLAIM_SAVE_FAILS_MAX = 3
+_claim_save_fails = {}
+
+
+def _save_claimed(pending, venue, end_of_round=False):
+    """A claim's save of the park file. Never raises: a row the file still holds is
+    settled again next round (a booked one by its park id), and a locked file here is
+    not a failed account read (it would be counted as one by _get_positions_guarded).
+    The claim's last save of a round (`end_of_round`) counts: CLAIM_SAVE_FAILS_MAX
+    failed rounds in a row → one order_errors row (P1), since rows the file keeps hold
+    their roots' entries back, unseen otherwise."""
+    try:
+        _save_pending_sent(pending)
+        if end_of_round:
+            _claim_save_fails.pop(venue, None)
+        return True
+    except OSError as e:
+        n = _claim_save_fails.get(venue, 0)
+        if end_of_round:
+            n = _claim_save_fails[venue] = n + 1
+        logging.warning(f"[reconciler/{venue}] park file not saved ({type(e).__name__}: {e}, {n} in a row) — "
+                        f"the row is settled again next round")
+        if end_of_round and n == CLAIM_SAVE_FAILS_MAX:
+            from lib import portfolio
+            portfolio._record_order_error('TXF/MXF/TMF', venue,
+                                          f"等待成交確認的紀錄檔連續 {n} 次存不進去({type(e).__name__}):"
+                                          f"還在等待區的商品暫停進場(平倉照常)。請檢查 {PENDING_SENT_PATH} "
+                                          f"是否被其他程式(例如防毒)鎖住")
+        return False
+
+
+def _book_late_fill_or_halt(name, root, venue, contract, lots, park_id):
+    """book_late_fill with the park id. Any failure (book unreadable, append refused,
+    HALT file refused inside it) → one order_errors row + HALT here, then re-raised:
+    the park row is still on disk, so the next round books it — once, by its id."""
+    from lib import portfolio
+    try:
+        return portfolio.book_late_fill(root, venue, contract, lots, park_id=park_id)
+    except Exception as e:
+        msg = (f"{name} {contract} 送出後晚到的 {lots:+g} 口成交記不進帳本({type(e).__name__}):"
+               f"已停止下單。這筆仍在等待區,下一輪會重新記帳;恢復下單前請先核對 {root} 的部位")
+        logging.error(f"[reconciler/{venue}] {contract}: late fill of {lots:+g} lots not booked "
+                      f"({type(e).__name__}: {e}) — HALT, the park row is kept")
+        try:
+            portfolio._record_order_error(root, venue, msg)
+        except Exception as e2:
+            logging.error(f"[reconciler/{venue}] order_errors row not written: {e2}")
+        try:
+            guard.trip_halt(msg, 'reconciler')
+        except Exception as e2:
+            logging.error(f"[reconciler/{venue}] HALT file not written ({e2}) — halted in this process; "
+                          f"the park row keeps the root waiting after a restart")
+        raise
+
+
 def _president_claim_pending(started):
     """Match every parked order against the snapshot whose read started at
-    `started` (already caught up with the last send). Each claim is saved the
-    moment it is booked: a process killed in between must not book it twice."""
+    `started` (already caught up with the last send). A matched row is booked
+    first, under its park id (_park_id), then dropped from the file: a failure
+    or a kill anywhere in between leaves the row, and the next round either
+    finds the id in the book (drops the row) or books it — never twice, never
+    silently lost. A booking failure HALTs (_book_late_fill_or_halt)."""
     try:
         pending = _pending_sent()
     except PendingUnreadable as e:
@@ -685,20 +794,32 @@ def _president_claim_pending(started):
         return
     from lib import account_president, portfolio
     nets = _president_nets()
+    try:
+        booked = portfolio._booked_park_ids('late_fill_park_id')
+    except OSError:
+        booked = set()  # unreadable book: a matching row's booking below raises and HALTs
     for pid, row in list(pending.items()):
         root, lots, expected = row['root'], float(row['lots']), float(row['net_expected'])
         net = float(nets.get(pid, 0))
-        if abs(net - (expected + lots)) < 1e-9:
-            portfolio.book_late_fill(root, venue_traits.PRESIDENT, pid, lots)
+        park_id = _park_id(pid, row)
+        if park_id in booked:
+            # booked last time, the file kept the row (save refused, or killed before it)
             del pending[pid]
-            _save_pending_sent(pending)
+            _save_claimed(pending, venue_traits.PRESIDENT)
+            guard.audit('late_fill_already_booked', venue=venue_traits.PRESIDENT, symbol=root,
+                        contract=pid, lots=lots, park_id=park_id)
+            logging.info(f"[reconciler/president] {pid}: park {park_id} is already in the book — row dropped")
+        elif abs(net - (expected + lots)) < 1e-9:
+            _book_late_fill_or_halt('統一', root, venue_traits.PRESIDENT, pid, lots, park_id)
+            del pending[pid]
+            _save_claimed(pending, venue_traits.PRESIDENT)
             guard.audit('late_fill_adopted', venue=venue_traits.PRESIDENT, symbol=root, contract=pid,
-                        lots=lots, legs=row['legs'])
+                        lots=lots, legs=row['legs'], park_id=park_id)
             logging.warning(f"[reconciler/president] {pid}: the account shows the {lots:+g} lots the "
                             f"order reported no fill for — booked, not re-sent")
         elif abs(net - expected) < 1e-9:
             del pending[pid]
-            _save_pending_sent(pending)
+            _save_claimed(pending, venue_traits.PRESIDENT)
             guard.audit('unfilled_order_cleared', venue=venue_traits.PRESIDENT, symbol=root,
                         contract=pid, lots=lots, legs=row['legs'])
             logging.info(f"[reconciler/president] {pid}: the {lots:+g} lots did not fill (account "
@@ -708,7 +829,7 @@ def _president_claim_pending(started):
                 continue  # still waiting for the user; the account may yet match above
             # the user cleared HALT after sorting the lots out in the app: theirs now
             del pending[pid]
-            _save_pending_sent(pending)
+            _save_claimed(pending, venue_traits.PRESIDENT)
             guard.audit('parked_order_dropped', venue=venue_traits.PRESIDENT, symbol=root,
                         contract=pid, lots=lots, legs=row['legs'])
             logging.warning(f"[reconciler/president] {pid}: HALT cleared with {lots:+g} parked lots "
@@ -730,8 +851,8 @@ def _president_claim_pending(started):
             portfolio._record_order_error(root, venue_traits.PRESIDENT, msg)
             guard.trip_halt(msg, 'reconciler')
             row['halted'] = True
-            _save_pending_sent(pending)
-    _save_pending_sent(pending)
+            _save_claimed(pending, venue_traits.PRESIDENT)
+    _save_claimed(pending, venue_traits.PRESIDENT, end_of_round=True)
 
 
 def _president_get_positions(claim=False):
@@ -1139,6 +1260,9 @@ def _reset_outage():
         _save_outage()
 
 
+_BITGET_COPY_KEY = "[bitget_copy_trading_key]"  # lib/account_bitget.COPY_KEY_TAG (40731)
+
+
 def _on_read_failure(venue, exc, kind, now):
     global _consecutive_failures, _guard_due
     if isinstance(exc, CapitalCacheLagError):
@@ -1170,6 +1294,14 @@ def _on_read_failure(venue, exc, kind, now):
         return
     if kind == venue_errors.CREDENTIAL:
         logging.error(f"get_positions: the venue rejected the API key ({what}): {exc}")
+        if _BITGET_COPY_KEY in str(exc):
+            # a rebind of the same kind of key cannot fix this one: say which kind. Readable text
+            # first, the marker the desktop / api read last (the reason stays far under 200)
+            why = ("a copy-trading or elite-trader account's key — bind a trading key of a regular "
+                   "account (read + trade, no withdrawal)")
+            _halt(f"the exchange rejected the API key ({venue} {code}): {why} {_BITGET_COPY_KEY}",
+                  f"🚨 HALT engaged: the exchange rejected the API key ({venue} {code}): {why}, then resume")
+            return
         _halt(f"the exchange rejected the API key / permission ({venue} {code})",
               f"🚨 HALT engaged: the exchange rejected the API key / permission "
               f"({venue} {code}) — fix or rebind the key, then resume")

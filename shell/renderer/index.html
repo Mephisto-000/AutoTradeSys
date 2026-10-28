@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="report-trades.css">
 <link rel="stylesheet" href="report-robust.css">
 <link rel="stylesheet" href="report-wf.css">
+<link rel="stylesheet" href="report-xt.css">
 <link rel="stylesheet" href="trade.css">
 <link rel="stylesheet" href="capital.css">
 <link rel="stylesheet" href="president.css">
@@ -171,9 +172,9 @@
         <div class="main-head"><div class="txt"><h5 class="main-head-name" id="cv-h" tabindex="-1" data-i18n="env.empty.title"></h5><div class="main-head-desc" id="cv-desc"></div></div></div>
         <div class="pf" id="cv-body"></div>
       </div>
-      <!-- 策略報告(選了策略才出現;沒選時是下面的 welcome)。五個分頁:回測 / 進出場 / 參數掃描 /
-           樣本外驗證 / 程式碼。前四個各自一支檔(report-backtest.js / report-trades.js / report-robust.js / report-wf.js),
-           介面是 window.BlaveReport.renderBacktest(el, stats) / renderTrades(el, stats) / renderRobust(el, data, opts) / renderWf(el, data, opts)。 -->
+      <!-- 策略報告(選了策略才出現;沒選時是下面的 welcome)。六個分頁:回測 / 進出場 / 參數掃描 /
+           樣本外驗證 / 成交測試 / 程式碼。前五個各自一支檔(report-backtest.js / report-trades.js / report-robust.js / report-wf.js / report-xt.js),
+           介面是 window.BlaveReport.renderBacktest(el, stats) / renderTrades(el, stats) / renderRobust(el, data, opts) / renderWf(el, data, opts) / renderXt(el, data, opts)。 -->
       <div class="rp" id="rp" hidden>
         <!-- 精簡標題(同雲端):給人看的名字 + 一句說明 -->
         <div class="rp-head">
@@ -216,6 +217,7 @@
             <button class="rp-tab" type="button" role="tab" data-tab="tr" data-i18n="rp.tab.trades"></button>
             <button class="rp-tab" type="button" role="tab" data-tab="rob" data-i18n="rp.tab.rob"></button>
             <button class="rp-tab" type="button" role="tab" data-tab="wf" data-i18n="rp.tab.wf"></button>
+            <button class="rp-tab" type="button" role="tab" data-tab="xt" data-i18n="rp.tab.xt"></button>
             <button class="rp-tab" type="button" role="tab" data-tab="code" data-i18n="rp.tab.code"></button>
           </div>
           <!-- 分頁段有溢出才出現的捲動捷徑:只給滑鼠與觸控(鍵盤與讀屏本來就能逐顆走到),所以 aria-hidden、不進 tab 順序 -->
@@ -227,6 +229,7 @@
         <div class="rp-panel" id="rp-tr" role="tabpanel" hidden></div>
         <div class="rp-panel" id="rp-rob" role="tabpanel" hidden></div>
         <div class="rp-panel" id="rp-wf" role="tabpanel" hidden></div>
+        <div class="rp-panel" id="rp-xt" role="tabpanel" hidden></div>
         <div class="rp-panel" id="rp-code" role="tabpanel" hidden><pre class="rp-code mono" id="rp-code-pre"></pre></div>
         <!-- 雲端那一份還在路上 / 讀不到:點下去就換頁,這裡先放「載入中…」或讀不到 +〔重新查看〕(app.js rpBodyPaint) -->
         <div class="rp-panel" id="rp-wait" role="status" hidden></div>
@@ -299,9 +302,9 @@
           <div class="rpt-read" id="rpt-read" hidden></div>
         </div>
       </div>
-      <!-- 歡迎頁(renderer/welcome.js;spec agent-onboarding-e-f):只有「這台電腦」視角有。onboarding 期間是步驟清單(#wc,E),
+      <!-- 歡迎頁(renderer/welcome.js;spec agent-onboarding-e-f、desktop-welcome-library-first):兩個視角各一份。onboarding 期間是步驟清單(#wc,E),
            做完之後是淡化記號＋一列籤(#wf,F)。兩個都等第一次策略清單讀完(app.js stratRefresh 設 RP.loaded)與入門偏好讀到才出,不閃錯的步驟。
-           步驟的標題列由 welcome.js onbPaint 畫(完成的那一步是可以重新展開的按鈕);每一步下面的鈕是靜態的,只切 hidden -->
+           步驟的標題列由 welcome.js onbPaint 畫(完成的那一步是可以重新展開的按鈕);①的策略卡由 wcPaint 畫(挑法 library.js wcReco),其餘的鈕是靜態的,只切 hidden -->
       <div class="main-empty" id="main-empty">
         <div class="wc-inner" id="wc" hidden>
           <svg class="wc-mark" viewBox="0 0 180 180" aria-hidden="true">
@@ -311,6 +314,7 @@
             <li class="onb-step" data-step="1">
               <div class="onb-hw" id="onb-h1"></div>
               <div class="onb-body" id="onb-b1">
+                <div class="wc-cards" id="wc-cards" role="group" aria-labelledby="onb-h1" hidden></div>
                 <div class="onb-opts">
                   <!-- 「上網找點子」:只在這台電腦視角、內建瀏覽器開著、引擎跑得動時出(library.js libIdeaPaint 切 hidden) -->
                   <button class="wc-chip" id="chat-idea" type="button" data-i18n="idea.chip" hidden></button>
@@ -321,7 +325,6 @@
             <li class="onb-step" data-step="2">
               <div class="onb-hw" id="onb-h2"></div>
               <div class="onb-body" id="onb-b2">
-                <div class="st-rows" id="st-rows" role="group" aria-labelledby="onb-h2"></div>
                 <div class="onb-opts">
                   <!-- 「新增策略」開框、不送訊息(同雲端歡迎頁那顆) -->
                   <button class="wc-chip" id="chat-ns" type="button" data-i18n="ns.chip"></button>
@@ -354,11 +357,11 @@
           <p class="onb-fin" id="onb-fin" role="status" hidden><span class="num" aria-hidden="true">✓</span><span data-i18n="onb.fin"></span></p>
         </div>
         <!-- 完成後的首頁(F):實色 --color-watermark 的記號(canon 具名例外,不用 opacity)＋一列不分主次的籤;不帶市場 -->
-        <div class="wf" id="wf" hidden>
-          <svg class="wf-mark" viewBox="0 0 180 180" aria-hidden="true">
+        <div class="wc-fin" id="wf" hidden>
+          <svg class="wc-fin-mark" viewBox="0 0 180 180" aria-hidden="true">
             <path d="M0 108.973 A90 90 0 0 1 76.668 108.182 A20 20 0 0 0 105 90 A45 45 0 0 1 180 56.459 L180 180 L0 180 Z" fill="currentColor" />
           </svg>
-          <div class="wf-acts">
+          <div class="wc-fin-acts">
             <button class="wc-chip" id="wf-idea" type="button" data-i18n="idea.chip" hidden></button>
             <button class="wc-chip" id="wf-lib" type="button" data-i18n="lib.nav"></button>
             <button class="wc-chip" id="wf-ns" type="button" data-i18n="ns.chip"></button>
@@ -435,7 +438,7 @@
               <div class="mp-panel" id="mp-panel" role="dialog" hidden>
                 <p class="mp-cap" data-i18n="mp.model"></p>
                 <div class="mp-models" id="mp-models" role="radiogroup"></div>
-                <p class="mp-note" id="mp-lock-note" hidden></p>
+                <p class="sr-only" id="mp-lock-note"></p>
                 <div class="mp-div" id="mp-div"></div>
                 <!-- 「思考深度」本身是 tooltip 的觸發點(點線底線 = 滑過有解釋的慣例)。
                      說明句是在解釋術語 → tooltip(canon › Tooltip)。 -->
@@ -534,6 +537,10 @@
           <div class="set-rn">
             <div class="sw-row"><label class="sw-l" id="set-rn-l" for="set-rn-sw" data-i18n="set.rn"></label><button type="button" class="sw" id="set-rn-sw" role="switch" aria-checked="true" aria-labelledby="set-rn-l"></button></div>
             <p class="priv-lead set-rn-os" id="set-rn-os" hidden><span data-i18n="set.rn.osOff"></span><button type="button" class="btn-quiet" id="set-rn-os-go" data-i18n="set.rn.osGo"></button></p>
+          </div>
+          <!-- 提示音(ui-prefs replySound,缺 = 開;不綁上面那個開關:通知關著照響)。說明走 .tip 泡泡,同建議下一步那列 -->
+          <div class="set-rs">
+            <div class="sw-row"><label class="sw-l" for="set-rs-sw"><span class="set-rs-l" id="set-rs-l" data-i18n="set.rs"></span><span class="tip" id="set-rs-tip" role="tooltip" data-i18n="set.rs.tip"></span></label><button type="button" class="sw" id="set-rs-sw" role="switch" aria-checked="true" aria-labelledby="set-rs-l" aria-describedby="set-rs-tip"></button></div>
           </div>
           <!-- 建議下一步(renderer/suggest.js;localStorage ws_sug_on,"0" = 關、其他或沒有 = 開;只管這台電腦)。說明走 .tip 泡泡,滑鼠停在字上或鍵盤 focus 開關時出 -->
           <div class="set-sug">
@@ -843,6 +850,7 @@
 <script src="report-trades.js"></script>
 <script src="report-robust.js"></script>
 <script src="report-wf.js"></script>
+<script src="report-xt.js"></script>
 <script src="md.js"></script>
 <script src="report-blocks.js"></script>
 <script src="reports.js"></script>

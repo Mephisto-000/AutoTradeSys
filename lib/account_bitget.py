@@ -110,6 +110,11 @@ ELIGIBILITY = "40092"  # "unavailable due to applicable regulatory requirements 
 # [okx_account_mode]); kept near the front so manager/order_errors.json's 200-char cut keeps them
 ELIGIBILITY_TAG = "[bitget_account_eligibility]"
 MODE_TAG = "bitget_account_mode"  # "[bitget_account_mode:uta|classic]"
+# official (mix error table, next to the trader codes): 40731 "This product does not support copy
+# trading" — a copy-trading key, or an elite-trader (帶單) account. A user's copy-trading key
+# (2026-10-27, their agent's reads): signature passes, every account read answers it
+COPY_TRADING = "40731"
+COPY_KEY_TAG = "[bitget_copy_trading_key]"
 MODE_SWITCH = "mode_switch"  # ours: the account type changed or is changing — skip this round
 MODE_UNSUPPORTED = "mode_unsupported"  # ours: an account type this lib does not trade
 TIMESTAMP_CODES = {"40008", "40004", "40005"}
@@ -239,6 +244,10 @@ def error_of(env, r, path):
         # not the key's fault: the account is (now) a UTA — _get / order_bitget switch over
         return BitgetError(f"bitget {path} code={code}: 這個 Bitget 帳戶是統一帳戶（UTA）（{msg}）",
                            code=code, http_status=r.status_code)
+    if code == COPY_TRADING:
+        return BitgetError(f"這組 Bitget 金鑰屬於跟單或帶單帳戶 {COPY_KEY_TAG}（code={code}），Bitget 不讓它讀一般帳戶或下單："
+                           f"請用一般帳戶在 Bitget「API 管理」建交易金鑰（讀取＋交易，不開提領）再綁（{msg[:80]}）",
+                           code=code, http_status=r.status_code)
     if code == ELIGIBILITY:
         return BitgetError(f"Bitget 依所在地區或帳戶資格不開放這項交易給這個帳戶 {ELIGIBILITY_TAG}（code={code}），跟策略本身無關："
                            f"換一個能交易的標的，或洽 Bitget 客服確認帳戶資格（{msg[:120]}）",
@@ -303,14 +312,14 @@ def _transient(e):
 
 def _probe(env):
     """('uta' | 'classic' | 'transition', settings or None) from the venue itself.
-    UTA first (/api/v3/account/settings answers only there); anything else that is
+    UTA first (/api/v3/account/settings; a trading key of a classic account gets 40084); anything else that is
     not a network-class failure is asked of the classic API. Unreadable → raises:
     an unknown mode is never guessed (a wrong guess reads the wrong API as flat)."""
     try:
         st = _get(env, "/api/v3/account/settings")
     except BitgetError as e:
-        if _transient(e) or e.code in TIMESTAMP_CODES or (e.http_status or 0) >= 500:
-            raise
+        if _transient(e) or e.code in TIMESTAMP_CODES or (e.http_status or 0) >= 500 or e.code == COPY_TRADING:
+            raise  # 40731 is never a classic account's answer: not read as one if v2 happens to pass
         try:
             _get(env, "/api/v2/mix/account/accounts", {"productType": PRODUCT}, switch=False)
         except BitgetError as e2:
@@ -327,6 +336,15 @@ def _probe(env):
         return "uta", st
     if am in ("upgrading", "switching"):
         return "transition", st
+    if am != "hybrid":
+        # outside the documented enum (that user's copy-trading key read "classic" here; a trading key
+        # gets 40084): ask the classic API only so its 40731 says what it is. A read that passes
+        # proves no mode — refused below like any unmeasured one
+        try:
+            _get(env, "/api/v2/mix/account/accounts", {"productType": PRODUCT}, switch=False)
+        except BitgetError as e:
+            if e.code != UTA_MODE:
+                raise
     # hybrid and anything newer: not measured — refuse in words rather than trade a guess
     raise BitgetError(f"Bitget 帳戶模式是 {am or '（空白）'}，Blave 還沒支援這種模式：請改綁經典帳戶或統一帳戶的金鑰，或改綁其他交易所",
                       code=MODE_UNSUPPORTED, kind=reject_token.KEY_PERMISSION)
@@ -726,9 +744,8 @@ CONTRACTS_TTL_S = 6 * 3600
 
 
 def contract_rows():
-    """Every USDT-FUTURES contract (one public call, ~850 rows) — the stock names for
-    lib/stock_perps, shared with lib/order_bitget. An error or an empty list raises and
-    is never cached: an empty list would read every renamed stock position as flat."""
+    """Every USDT-FUTURES contract on v2 (one public call, ~850 rows) — step sizes. An
+    error or an empty list raises and is never cached."""
     c = _contracts
     if c["rows"] and time.time() - c["at"] < CONTRACTS_TTL_S:
         return c["rows"]
@@ -739,13 +756,31 @@ def contract_rows():
     return rows
 
 
+_instruments = {"rows": None, "at": 0.0}
+
+
+def instrument_rows():
+    """Every USDT-FUTURES instrument on v3 (public, no key) — symbolType / instrumentType,
+    the class lib/stock_perps.bitget_is_stock reads; the stock names for lib/stock_perps.
+    An error or an empty list raises and is never cached: an empty list would read every
+    renamed stock position as flat."""
+    c = _instruments
+    if c["rows"] and time.time() - c["at"] < CONTRACTS_TTL_S:
+        return c["rows"]
+    rows = public("/api/v3/market/instruments", {"category": PRODUCT}) or []
+    if not rows:
+        raise requests.exceptions.ConnectionError("bitget instruments: empty list")
+    c.update(rows=rows, at=time.time())
+    return rows
+
+
 def canonical(venue_sym):
     """Bitget's name → the strategy's (ACNSTOCKUSDT → ACNUSDT, lib/stock_perps). A name
-    Binance lists as a coin is taken as is without reading the contract list."""
+    Binance lists as a coin is taken as is without reading the instrument list."""
     sym = str(venue_sym or "").upper()
     if stock_perps is None or not sym or stock_perps.binance_class(sym) == "COIN":
         return sym
-    return stock_perps.canonical("bitget", sym, contract_rows())
+    return stock_perps.canonical("bitget", sym, instrument_rows())
 
 
 # ── equity / positions ───────────────────────────────────────────────────────
@@ -1088,7 +1123,9 @@ def get_account_id(env: dict) -> str:
 # and a settings read that blinks mid-upgrade must not stop the machine — a lasting one
 # still HALTs after the reconciler's consecutive-failure count, with this message.
 _TRANSIENT = {"429", "40725", "45001", "40015", UTA_MODE, MODE_SWITCH}
-_CREDENTIAL = {"40006", "40009", "40012", "40014", "40018", "40037"}
+# COPY_TRADING is CREDENTIAL: on that user's key every account read answered it — it does not pass
+# by itself, so the reconciler HALTs at once (it HALTed after 3 unclassified rounds before).
+_CREDENTIAL = {"40006", "40009", "40012", "40014", "40018", "40037", COPY_TRADING}
 _UNKNOWN = TIMESTAMP_CODES | {MODE_UNSUPPORTED, MODE_STUCK, UNVERIFIED}
 
 

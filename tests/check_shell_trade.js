@@ -183,6 +183,15 @@ ok("spec-0.1.13 #4 單複數:顯示的數 |n| = 1 用單數;0、0.5、1.2、2、
       trErrToken(u) === want && trErrToken("close_symbol: " + u) === (shut ? want : null) && TR_REJECT_TEXT.bitget_uta_unsupported === "tr.err.bitgetUta"
       && trErrToken("[order_reject:key_permission] x [bitget_account_mode:classic]") === "key_permission"
       && src.includes('else if (trErrToken(ae.msg) === "bitget_uta_unsupported") box.appendChild(errLine(t("cx.err.bitgetUtaBound")));')); }
+  // Bitget 40731(lib/account_bitget error_of 的句子形狀,kind=key_permission):跟單金鑰先認,不落成 tr.err.key;連接框、讀帳那列、雲端視角都換句
+  { const c = "[order_reject:key_permission] 這組 Bitget 金鑰屬於跟單或帶單帳戶 [bitget_copy_trading_key]（code=40731），Bitget 不讓它讀一般帳戶或下單";
+    ok("Bitget 40731:[bitget_copy_trading_key] → tr.err.bitgetCopyKey(下單)、cx.err.bitgetCopyKeyBound(讀帳那列)、cx.err.bitgetCopyKey(連接框本機與雲端)",
+      trErrToken(c) === "bitget_copy_trading_key" && trErrToken("close_symbol: " + c) === "bitget_copy_trading_key" && TR_REJECT_TEXT.bitget_copy_trading_key === "tr.err.bitgetCopyKey"
+      && src.includes('else if (trErrToken(ae.msg) === "bitget_copy_trading_key") box.appendChild(errLine(t("cx.err.bitgetCopyKeyBound")));')
+      && src.includes('if (c === "REJECTED" && trErrToken(d.reason) === "bitget_copy_trading_key") return t("cx.err.bitgetCopyKey");')
+      && src.includes(': trErrToken(d.error) === "bitget_copy_trading_key" ? t("cx.err.bitgetCopyKey")')
+      // 對帳器的 CREDENTIAL HALT(manager/reconciler reason 尾端帶標記)→ 橫幅 tr.haltBitgetCopyKey
+      && src.includes('if (H && rk !== "machine" && /\\[bitget_copy_trading_key\\]/.test(String((r.halt && r.halt.reason) || ""))) return t("tr.haltBitgetCopyKey");')); }
   const vm = require("vm"), ta = { value: "", focused: false, focus() { this.focused = true; } }, ctx = { $: () => ta, t: (k, v) => k + "|" + v.sym + "|" + v.err, TR: { env: "local" }, autosize() {}, tracked: [], String,
     paneSt: { chat: { off: true } }, opened: [], paneToggle(k, off) { ctx.opened.push([k, off]); }, trackFeature: (x) => ctx.tracked.push(x) };
   vm.createContext(ctx); vm.runInContext(src.slice(src.indexOf("function trErrAsk("), src.indexOf("function trLivePositions(")), ctx);
@@ -1068,7 +1077,9 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
         ns[0] === "tr.ov.evBitgetNoStopUta" && ns[1] === "tr.ov.evBitgetNoStopNote" && ns[2] === 1 && ns[4] === "ACNUSDT tr.rel.short"
         && nu[0] === "tr.ov.evBitgetStopsUnreadUta" && nu[4] === "NVDAUSDT tr.rel.long"
         && trEventText("venue_stops_missing", { venue: "okx", legs: [] }) === null
-        && /const P1_TYPES = \[[^\]]*"venue_stops_missing"\]/.test(mainSrc2) && /ev_venue_stops_missing: t\("tm\.evBitgetNoStop"\)/.test(src));
+        && /const P1_TYPES = \[[^\]]*"venue_stops_missing"[^\]]*\]/.test(mainSrc2) && /ev_venue_stops_missing: t\("tm\.evBitgetNoStop"\)/.test(src));
+      ok("order_unconfirmed 跟 order_error 一樣只從 order_errors[] 那列畫(雲端事件流不再畫一次,免得同一件事兩列)",
+        trEventText("order_unconfirmed", { symbol: "BTCUSDT", strategies: ["a"] }) === null && trEventText("order_error", {}) === null);
       const S4 = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "strings.js"), "utf8");
       ok("讀不到止損單那兩句拆成兩句(每句 ≤25 字,同 api notify.py):統一／經典",
         S4.includes('"tr.ov.evBitgetStopsUnreadUta": "Bitget 換成統一帳戶後讀不到止損單。以下倉位當成沒有止損："')
@@ -1150,7 +1161,7 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
     const head = fnS("trPaintHead");
     ok("A′ / B / B0 的原因行升正文墨色,用原因句本身定位(前面有「串接失敗 · 」也照升)", /const inkReason = state === "halted" && \(trRestartKind\(hr\) \|\| \(trHaltStopsAll\(hr\.halt\) && !\(trHaltFreeze\(hr\) && trHaltByUser\(hr\.halt\)\)\) \|\| trAcctAsk\(hr\)\) \? trHaltReasonText\(hr, TR\.acctDone\) : state === "noaccount" && trNoAccountStopped\(hr\) \? t\("tr\.cloud\.restartNoAccountZ"\) : "";/.test(head)
       && /const inkAt = inkReason \? full\.indexOf\(inkReason\) : -1;/.test(head) && !/full === text && !trFailedIds/.test(head.slice(head.indexOf("const inkReason"))));
-    ok("A′ 事件列:halt 列與 UI 補的 HALT 列都依 source 取重開那句說明", /note = trHaltStopsAll\(d\) \|\| trHaltFreeze\(r\) \? t\("tr\.ov\.evRestartStoppedNote"\) : closes \? null : t\("tr\.ov\.evHaltNote"\);/.test(src)
+    ok("A′ 事件列:halt 列與 UI 補的 HALT 列都依 source 取重開那句說明", /note = trHaltUnconfirmedSym\(d\) != null \? trHaltUnconfirmedNote\(d\) : trHaltStopsAll\(d\) \|\| trHaltFreeze\(r\) \? t\("tr\.ov\.evRestartStoppedNote"\) : closes \? null : t\("tr\.ov\.evHaltNote"\);/.test(src)
       && /trHaltStopsAll\(halt\) \? t\("tr\.ov\.evRestartStoppedNote"\) : t\("tr\.ov\.evHaltNote"\)/.test(src)); }
   { // audit 2-1(B0):沒有交易所 + 重開停止
     const B0 = (o) => ({ alive: true, report: { venues: {}, halt: {}, reconciler: { alive: false, stopped: { reason: "machine_restart", at: 1, ...o } } } });
@@ -2339,14 +2350,15 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
     const cutF = (n) => { const i = src.indexOf("function " + n + "("); if (i < 0) throw new Error("no " + n); let d = 0; for (let k = src.indexOf("{", i); k < src.length; k++) { if (src[k] === "{") d++; else if (src[k] === "}" && --d === 0) return src.slice(i, k + 1); } throw new Error("no " + n); };
     const pure = src.slice(src.indexOf("/* ── 純邏輯("), src.indexOf("/* ── 純邏輯到此"));
     const consts = ["tr2", "trMD"].map((c) => src.match(new RegExp("^const " + c + " = [^\\n]*", "m"))[0].replace(/^const /, "var ")).join("\n");
-    const node = (tag) => ({ tag, id: "", className: "", kids: [], text: "", attrs: {}, title: "", dataset: {}, appendChild(c) { this.kids.push(c); return c; }, append(...c) { c.forEach((x) => this.kids.push(x)); },
+    const node = (tag) => ({ tag, id: "", className: "", kids: [], text: "", attrs: {}, title: "", dataset: {}, style: {}, classList: { add() {}, remove() {}, contains: () => false }, appendChild(c) { this.kids.push(c); return c; }, append(...c) { c.forEach((x) => this.kids.push(x)); },
       setAttribute(k, v) { this.attrs[k] = v; }, on: {}, addEventListener(e, f) { this.on = Object.assign({}, this.on, { [e]: f }); }, get textContent() { return this.text + this.kids.map((k) => (typeof k === "string" ? k : k.textContent)).join(""); }, set textContent(v) { this.text = v; this.kids = []; } });
     const flat = (n, out = []) => { if (n && n.tag) { out.push(n); n.kids.forEach((k) => flat(k, out)); } return out; };
     const hist = node("div");
-    const ctx = vm.createContext({ document: { createElement: node, createDocumentFragment: () => node("#frag") }, Date, Math, JSON, Array, Object, Number, String, isFinite, console,
+    const ctx = vm.createContext({ document: { createElement: node, createDocumentFragment: () => node("#frag"), body: node("body"), addEventListener() {} }, window: {}, Date, Math, JSON, Array, Object, Number, String, isFinite, console,
       $: (id) => (id === "tr-hist" ? hist : null), t: (k, v) => (v ? k + "|" + JSON.stringify(v) : k), LANG: "zh", CX_VENUES: {}, PAPER: "paper", trShould: () => true, trUnit: () => "TWD", trSetTab: (tab, focus) => { ctx.tabbed = [tab, focus]; } });
     vm.runInContext(pure.replace(/^const /gm, "var ") + "\n" + consts + "\n" + src.slice(src.indexOf("const TR_EV_P1 = ["), src.indexOf("function trOvEvents(")).replace(/^const /gm, "var ")
-      + ["trEl", "trSec", "trFmt", "trFmtPrice", "trStamp", "trHM", "trReport", "trDisplay", "trVenueLabel", "trTxfSymInto", "trOrderContract", "trWithUnit", "trPaintHist", "trTwNamesWant", "trTwName", "trTwNameEl", "trOvFills", "trOvEvents"].map(cutF).join("\n"), ctx);
+      + src.match(/^let trHistTipEl = [^\n]*/m)[0].replace(/^let /, "var ") + "\n"
+      + ["trEl", "trSec", "trFmt", "trFmtPrice", "trStamp", "trHM", "trReport", "trDisplay", "trVenueLabel", "trTxfSymInto", "trOrderContract", "trWithUnit", "trPosKey", "trPosFocusOf", "trHistTipBox", "trHistTipShow", "trHistTipHide", "trHistTipBtn", "trPaintHist", "trTwNamesWant", "trTwName", "trTwNameEl", "trOvFills", "trOvEvents"].map(cutF).join("\n"), ctx);
     const now = Math.floor(Date.now() / 1000);
     const CAP = { ts: now - 60, action: "BUY", symbol: "TX2610", exchange: "capital", signed_diff: 2, legs: [{ executed_qty: 2, fill_price: 23000 }] };
     const CAP_SPEC = { ts: now - 50, action: "SELL", symbol: "TMF", exchange: "paper", asset_spec: { type: "futures_contracts", contract_value: 10 }, signed_diff: -3, legs: [] };
@@ -2380,6 +2392,8 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
       { const hist7 = paintHist([CAP, { ...CAP, ts: now - 31 * 86400 }]).filter((n) => n.className === "pf-log-row").length;
         const f = paintEv({ orders: [CAP, { ...CAP, ts: now - 31 * 86400 }] }, 30).find((n) => n.className === "pf-acts ev-fills");
         ok("§1.4 N = 交易歷史的列數:區間外(31 天前)的單也算,兩邊對得上", hist7 === 2 && !!f && f.kids[0].kids.some((k) => k && k.className === "mono" && k.textContent === "2"), J([hist7, f && f.textContent])); }
+      { const f = paintEv({ orders: [CAP, { ...CAP, ts: now - 50, fill_state: "unconfirmed" }, { ...CAP, ts: now - 40, fill_state: "unfilled" }, { ...CAP, ts: now - 30, fill_state: "late" }] }).find((n) => n.className === "pf-acts ev-fills");
+        ok("§1.4 N 不算送出未確認／未成交的列(fill_state),補記成交照算", !!f && f.kids[0].kids.some((k) => k && k.className === "mono" && k.textContent === "2"), J(f && f.textContent)); }
       { const evRows = (ui, halt) => { ctx.TR = { st: { report: { orders: [], halt } }, list: [], ov: { days: 30, ui, uiErr: false } };
           return flat(vm.runInContext("TR = this.TR; trOvEvents(TR.st.report)", ctx)).filter((n) => n.className === "ev-row").map((x) => x.textContent); };
         const rc = evRows([{ ts: now - 60, type: "halt_close", closing: true }]), rh = evRows([{ ts: now - 60, type: "halt_close", closing: false }]), rp = evRows([{ ts: now - 60, type: "halt" }]);
@@ -2444,6 +2458,65 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
       const syms = paintHist([REAL, OLD]).filter((n) => n.tag === "span" && n.kids.some((k) => k && k.className === "mkt-tag")).map((n) => n.textContent);
       ok("#14 真資料:symbol TXF + legs[].resolved_symbol TX2610 → 下單紀錄寫「大台（TX2610）」;舊列沒有 resolved_symbol 只寫商品名(總覽事件自 0.1.20 不列成交)",
         syms.includes("tr.txfProd.txf（TX2610）tr.mkt.fut") && syms.includes("tr.txfProd.txftr.mkt.fut"), J(syms)); }
+    { // 送出後沒回報成交(runtime pair_unconfirmed_orders 配好的 fill_state);設計稽核 order-history-fill-state-2026-10-28 §4
+      const base = { action: "BUY", symbol: "TMF", exchange: "capital", asset_spec: { type: "futures_contracts", contract_value: 10 }, signed_diff: 1 };
+      const UNC = { ...base, ts: now - 40, fill_state: "unconfirmed", legs: [{ executed_qty: 0, fill_price: 0 }] };
+      const NONE = { ...base, ts: now - 30, action: "SELL", signed_diff: -1, fill_state: "unfilled", legs: [{ executed_qty: 0, fill_price: 0 }] };
+      const LATE = { ...base, ts: now - 20, late_fill: true, fill_state: "late", legs: [{ executed_qty: 1, fill_price: 46934, resolved_symbol: "TM2611" }] };
+      const LATE0 = { ...base, ts: now - 10, action: "SELL", signed_diff: -1, late_fill: true, fill_state: "late", legs: [{ executed_qty: 1, resolved_symbol: "TM2611" }] };
+      const rows = paintHist([UNC, NONE, LATE, LATE0]).filter((n) => /^pf-log-row/.test(n.className));
+      const [late0, late, none, unc] = rows, kid = (r, c) => r.kids.find((k) => k && k.className === c);
+      const ub = kid(unc, "tr-tipb px");
+      ok("下單紀錄 fill_state:未確認 → 動作照「買進」、class act pend;狀態是可 focus 的 button.tr-tipb(aria-describedby=hist-tip、data-fk),沒有原生 title",
+        rows.length === 4 && kid(unc, "act pend") && kid(unc, "act pend").textContent === "tr.buy" && !kid(unc, "act buy")
+        && ub && ub.tag === "button" && ub.type === "button" && ub.textContent === "tr.fillUnconfirmed" && ub.attrs["aria-describedby"] === "hist-tip" && !!ub.dataset.fk
+        && ["mouseenter", "focus", "mouseleave", "blur", "click"].every((e) => typeof ub.on[e] === "function") && !ub.title && !unc.title, J(rows.map((r) => r.textContent)));
+      ok("下單紀錄 fill_state:未成交 → 列加 unfilled、「賣出」act pend、狀態 span.px「未成交」無 title",
+        none.className === "pf-log-row unfilled" && kid(none, "act pend").textContent === "tr.sell" && kid(none, "px").textContent === "tr.fillNone" && !kid(none, "px").title, J(none.textContent));
+      ok("下單紀錄 fill_state:補記 → 照常買賣色、合約月份;有價寫 @ 價,沒價常駐「成交價未回報」(sans);整列沒有 title",
+        kid(late, "act buy").textContent === "tr.buy" && /TM2611/.test(late.textContent) && kid(late, "px mono").textContent === "@ 46,934.0"
+        && kid(late0, "act sell") && kid(late0, "px").textContent === "tr.pxUnreported" && !kid(late0, "px mono") && !late.title && !late0.title, J([late.textContent, late0.textContent]));
+      const S = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "strings.js"), "utf8");
+      ok("文案(設計稽核版):未確認說明講 Blave 怎麼記、不叫用戶做事;未成交;成交價未回報;已送出／補記說明那幾條拿掉",
+        S.includes('"tr.fillUnconfirmedTip": "沒回報成交的口數沒算進策略部位。實際部位以券商軟體為準。"') && S.includes('"tr.fillNone": "未成交"') && S.includes('"tr.pxUnreported": "成交價未回報"')
+        && S.includes('"tr.pxUnreported": "Price not reported"') && S.includes("\"tr.fillUnconfirmedTip\": \"Lots with no fill report aren't counted in the strategy position. The broker's app shows the actual position.\"")
+        && !/tr\.(sentBuy|sentSell|fillNoneTip|fillLateTip)/.test(S + cutF("trPaintHist")));
+      const css = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "trade.css"), "utf8");
+      ok("CSS:act pend 用 --ink-3、未成交口數 --ink-3;說明氣泡是 fixed 單例 .hist-tip(同 .rob-tip)",
+        /\.pf-log-row \.act\.pend \{ color: var\(--ink-3\); \}/.test(css) && /\.pf-log-row\.unfilled \.amt \{ color: var\(--ink-3\); \}/.test(css)
+        && /\.tip\.hist-tip \{ position: fixed;[^}]*z-index: 60; \}/.test(css) && /\.tip\.hist-tip\.is-on \{ display: block; \}/.test(css)
+        && /document\.body\.appendChild\(trHistTipEl\)/.test(cutF("trHistTipBox")) && /e\.key === "Escape"/.test(cutF("trHistTipBox"))); }
+    { // 說明氣泡的開關:hover / focus 開、Esc / blur 收、觸控 focus 後緊接的 click 不收、之後再點一次收
+      const mk = (tag) => { const cls = new Set(); const n = { tag, className: "", kids: [], attrs: {}, dataset: {}, style: {}, on: {}, text: "",
+        classList: { add: (c) => cls.add(c), remove: (c) => cls.delete(c), contains: (c) => cls.has(c) },
+        setAttribute(k, v) { this.attrs[k] = v; }, appendChild(c) { this.kids.push(c); return c; }, addEventListener(e, f) { this.on[e] = f; },
+        getBoundingClientRect: () => rect, offsetHeight: 47, getClientRects: () => [1], set textContent(v) { this.text = v; }, get textContent() { return this.text; } }; return n; };
+      let rect = { left: 900, top: 32, bottom: 50 }, winOn = null;
+      const docOn = {}, body = mk("body"), clock = { t: 1000 };
+      const c2 = vm.createContext({ document: { createElement: mk, body, addEventListener: (e, f, cap) => { docOn[e] = [f, cap]; } },
+        window: { innerWidth: 1024, innerHeight: 680, blave: { onWindowActive: (f) => { winOn = f; } } }, Date: { now: () => clock.t }, Math });
+      vm.runInContext(src.match(/^let trHistTipEl = [^\n]*/m)[0].replace(/^let /, "var ") + "\n" + ["trEl", "trHistTipBox", "trHistTipShow", "trHistTipHide", "trHistTipBtn"].map(cutF).join("\n"), c2);
+      const b = vm.runInContext("trHistTipBtn('未確認成交', '說明', 'hist:x')", c2), tip = () => body.kids[0], on = () => !!tip() && tip().classList.contains("is-on");
+      const early = body.kids.length === 1 && tip().id === "hist-tip" && !on();
+      b.on.focus(); const shown = on() && tip().text === "說明" && tip().attrs.role === "tooltip" && tip().style.left === "752px" && tip().style.top === "56px";
+      b.on.click(); const keptOnTap = on();
+      clock.t += 1000; b.on.click(); const toggledOff = !on();
+      b.on.mouseenter(); docOn.keydown[0]({ key: "Escape" }); const escOff = !on();
+      b.on.focus(); b.on.blur(); const blurOff = !on();
+      rect = { left: 10, top: 642, bottom: 660 }; b.on.focus(); const above = on() && tip().style.top === "589px";
+      docOn.scroll[0](); const scrollOff = !on() && docOn.scroll[1] === true;
+      b.on.focus(); winOn(false); const winOff = !on();
+      ok("說明氣泡:按鈕一建就先建好氣泡(讀屏);focus 開(限制在視窗內、掛 body、role=tooltip);觸控那一下 click 不收、再點一次收;Esc、blur、捲動(capture)、視窗失焦收;下方放不下改放上方;只建一顆",
+        early && shown && keptOnTap && toggledOff && escOff && blurOff && above && scrollOff && winOff && body.kids.length === 1 && tip().attrs["aria-hidden"] === "true",
+        J([early, shown, keptOnTap, toggledOff, escOff, blurOff, above, tip().style.top, scrollOff, winOff, body.kids.length])); }
+    { const css = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "trade.css"), "utf8");
+      const narrow = css.slice(css.indexOf("@container (max-width: 520px)"));
+      ok("交易歷史欄位對齊(設計複驗):.pf-log 是 grid 六欄、.pf-log-row 是 subgrid 跨滿、口數不靠 margin-left:auto;窄欄(@container 520)同一區塊改五欄",
+        /\.pf-log \{ display: grid; grid-template-columns: max-content max-content 1fr max-content max-content max-content; \}/.test(css)
+        && /\.pf-log-row \{ display: grid; grid-template-columns: subgrid; grid-column: 1 \/ -1; align-items: baseline; \}/.test(css)
+        && /\.pf-log-row \.amt \{ margin-left: 0; text-align: right; \}/.test(css)
+        && css.indexOf(".pf-log-row .amt { margin-left: 0;") > css.indexOf(".pf-log-row .amt { margin-left: auto; }")
+        && /^  \.pf-log \{ grid-template-columns: max-content max-content 1fr max-content max-content; \}/m.test(narrow.slice(0, narrow.indexOf("\n}")))); }
     { ctx.trUnit = () => null; const all = paintHist([CAP, BTC]); ctx.trUnit = () => "TWD";
       const b = all.filter((n) => n.className === "amt mono")[0];
       ok("spec-0.1.13 #3 下單紀錄:帳戶幣未知 → 加密單不帶幣別、表下改講 tr.ccyUnknown(不出「金額單位：null」)", b.textContent === "500" && all.some((n) => n.className === "pf-foot" && n.textContent === "tr.ccyUnknown")
@@ -2571,7 +2644,7 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
     const bound = (...ids) => ({ orders: rows, venues: Object.fromEntries(ids.map((i) => [i, { credentials: true, pair: true, order: true, account: true }])) });
     ok("下單紀錄／事件只列目前連著的交易所:綁統一時模擬交易那幾筆不列、沒寫交易所的舊列照列;沒綁任何交易所全列;壞列丟掉", J(trOrdersShown(bound("president")).map((o) => o.symbol)) === J(["TMF", "TXF"])
       && J(trOrdersShown(bound("paper")).map((o) => o.symbol)) === J(["BTCUSDT", "TXF"]) && trOrdersShown(bound()).length === 3 && trOrdersShown(null).length === 0
-      && /const orders = trOrdersShown\(r\)\.slice\(\)\.reverse\(\);/.test(src) && /const n = trOrdersShown\(r\)\.length;/.test(src)); }
+      && /const orders = trOrdersShown\(r\)\.slice\(\)\.reverse\(\);/.test(src) && /const n = trOrdersShown\(r\)\.filter\(\(o\) => !\(o && \(o\.fill_state === "unconfirmed" \|\| o\.fill_state === "unfilled"\)\)\)\.length;/.test(src)); }
   // 0.1.18 設計師裁定 A:統一在倉橫幅整塊拿掉,改在狀態句「自動下單執行中」尾接「統一有 {n} 口在倉,電腦保持清醒」(只在這台電腦 + Windows;不講「不會平倉」)
   { const vm = require("vm"), R = path.join(__dirname, "..", "shell", "renderer");
     const cutB = (x, y) => src.slice(src.indexOf(x), src.indexOf(y));
@@ -2623,6 +2696,50 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
       /id="tr-desc"><\/div>\s*(<!--[\s\S]*?-->\s*)?<p class="tr-ro-note" id="tr-quote" hidden>/.test(html) && /\$\("tr-quote"\)\.after\(p\)/.test(src)
       && /\.tr-ro-note\.is-fallback \{ color: var\(--ink-2\); \}/.test(css) && /trPaintQuote\(TR\.pending \? null : state\);/.test(src)
       && !/feature_used[^\n]*quote/.test(src)); }
+  { // 下單結果不明:追蹤不了而整台暫停的狀態句、已解除的停車單不再掛在部位表
+    t = (k, v) => k + (v ? JSON.stringify(v) : "");
+    const UH = { halted: true, at: "2026-10-27T01:00:00+00:00", source: "reconciler",
+      reason: "[order_unconfirmed_unparked] BTCUSDT: an order's outcome is unknown and Blave cannot track it (x) — check" };
+    ok("HALT reason 帶 [order_unconfirmed_unparked]:認出標的,狀態句換 tr.haltUnconfirmed(不顯示英文)",
+      trHaltUnconfirmedSym(UH) === "BTCUSDT" && trHaltUnconfirmedSym({ reason: "close all positions" }) === null
+      && trHaltReasonText({ halt: UH, reconciler: { alive: true }, venues: V }) === 'tr.haltUnconfirmed{"sym":"BTCUSDT"}');
+    const LE = (rel) => trLiveOrderErrs([{ ts: "2026-10-27T01:00:00", symbol: "BTCUSDT", exchange: "binance", kind: "order_unconfirmed", released: rel, error: "x" }],
+      new Set(["BTCUSDT"]), { open: new Set(), running: true, orders: [] });
+    ok("已解除(released)的停車單不掛在部位表;還沒解除的照掛", LE(true).size === 0 && LE(undefined).size === 1);
+    globalThis.t = (k, v) => k + (v ? JSON.stringify(v) : "");   // the eval'd pure block reads the global t
+    { // designer v034 UX 定稿(Wei:不掛例外):這批每一條都 ≤2 句、整條 ≤40(計法同 web tools/check_copy_length)
+      const raw = fs.readFileSync(path.join(__dirname, "..", "shell", "i18n", "zh.po"), "utf8");
+      const val = (k) => { const m = new RegExp('msgid "' + k.replace(/\./g, "\\.") + '"\\nmsgstr "([^"]*)"').exec(raw); return m ? m[1] : null; };
+      const count = (v) => (v.match(/[\u4e00-\u9fff]/g) || []).length + (v.match(/\{[a-z_]+\}|[A-Za-z0-9]+/g) || []).length;
+      const KEYS = ["tr.haltUnconfirmed", "tr.haltUnconfirmedNosym", "tr.ov.evHaltUnconfirmedNote", "tr.ov.evHaltUnconfirmedNoteNosym", "tm.evHaltUnconfirmedNote",
+        "tr.ov.evUnconfirmedStuckNote", "tr.ov.evUnconfirmedCloseAllNote", "tr.ov.evUnconfirmedReleasedCloseAllFilled",
+        "tr.ov.evUnconfirmedReleasedCloseAllNone", "tr.err.unconfirmedManual", "tr.ov.evUnconfirmedNote", "tr.err.unconfirmed"];
+      const bad = KEYS.filter((k) => { const v = val(k); return v == null || v.split("。").filter(Boolean).length > 2 || count(v) > 40; });
+      ok("下單結果不明這批的字:每條 ≤2 句、≤40 字", !bad.length);
+      ok("stuck 那句與 manual 部位表那句都有「不要手動補單」;全部平倉那句講「不要自己下單」",
+        /不要手動補單/.test(val("tr.ov.evUnconfirmedStuckNote")) && /不要手動補單/.test(val("tr.err.unconfirmedManual"))
+        && /不要自己下單/.test(val("tr.ov.evUnconfirmedCloseAllNote")));
+      ok("整台暫停的事件說明帶標的,讀不到標的走沒有標的那句",
+        trHaltUnconfirmedNote({ reason: "[order_unconfirmed_unparked] BTCUSDT@spot: x" }) === 'tr.ov.evHaltUnconfirmedNote{"sym":"BTCUSDT"}'
+        && trHaltUnconfirmedNote({ reason: "[order_unconfirmed_unparked]" }) === "tr.ov.evHaltUnconfirmedNoteNosym"
+        && trHaltReasonText({ halt: { halted: true, source: "reconciler", reason: "[order_unconfirmed_unparked]" }, reconciler: { alive: true }, venues: V }) === "tr.haltUnconfirmedNosym"); }
+    { // 一張單一列(designer v034 UX P2-1):解除了只剩那一列 P3、時間用 released_at;manual 沒解除不畫;沒有 id 的照舊
+      const R = trUnconfirmedRows([
+        { kind: "order_unconfirmed", park_id: "P1", ts: "2026-10-27T01:00:00" },
+        { kind: "order_unconfirmed", park_id: "P1", ts: "2026-10-27T02:00:00", stuck: true },
+        { kind: "order_unconfirmed", park_id: "P2", ts: "2026-10-27T01:10:00" },
+        { kind: "order_unconfirmed", park_id: "P2", ts: "2026-10-27T02:10:00", stuck: true, released: true, released_at: "2026-10-27T03:00:00", filled: true },
+        { kind: "order_unconfirmed", park_id: "manual:X:1", ts: "2026-10-27T01:20:00", manual: true },
+        { kind: "order_unconfirmed", inflight_id: "ETH_market", ts: "2026-10-27T01:30:00", close_all: true, stuck: true },
+        { kind: "order_unconfirmed", ts: "2026-10-27T01:40:00" }, { kind: "order_unconfirmed", ts: "2026-10-27T01:41:00" },
+        { symbol: "S", error: "x", ts: "2026-10-27T01:50:00" }]);
+      const by = (f) => R.filter(({ e }) => f(e));
+      ok("一張單一列:還沒解除畫最新那列,解除了只畫那列(時間 released_at),manual 沒解除不畫,沒有 id 的一列一列",
+        by((e) => e.park_id === "P1").length === 1 && by((e) => e.park_id === "P1")[0].e.stuck === true
+        && by((e) => e.park_id === "P2").length === 1 && R.find(({ e }) => e.park_id === "P2").ms === trMs("2026-10-27T03:00:00")
+        && by((e) => e.manual === true).length === 0 && by((e) => e.inflight_id === "ETH_market").length === 1
+        && by((e) => e.kind === "order_unconfirmed" && !e.park_id && !e.inflight_id).length === 2 && by((e) => e.symbol === "S").length === 1); }
+  }
   console.log(red ? `\n${red} 紅` : "\nALL PASS"); process.exit(red ? 1 : 0);
 })();
 
