@@ -1,5 +1,6 @@
 // Modified by Mephisto-000 on 2026-10-26: cloud-connect refuses local-only venues (SinoPac 永豐金 binds on this computer only);
-//   shioaji (SinoPac's SDK) installs as an optional package group; tray label venueSinopac.
+//   shioaji (SinoPac's SDK) installs as an optional package group; tray label venueSinopac;
+//   (2026-10-31) the update box's 模擬／真錢 mark counts SinoPac's simulation environment as 模擬.
 // Original work: Copyright 2025-2026 WuChi Technology Company Limited
 // Licensed under the Apache License, Version 2.0
 // Blave 電腦版 — Electron 主行程(v1 骨架)
@@ -4002,9 +4003,10 @@ function tradeLive(st = _tradeHost ? _tradeHost.status() : null) {
   return id ? { venue: id } : null;
 }
 // 已連上的交易所全都是模擬帳戶才算模擬(同畫面 trCfPaperOnly):模擬加真錢同時下單時,記號要標真錢
+// 券商自己的模擬環境(永豐金沒開實盤,報告 venues.<id>.simulation;AutoTradeSys fork)也不動真錢:同模擬
 function tradePaperOnly(st = _tradeHost ? _tradeHost.status() : null) {
   const v = (st && st.report && st.report.venues) || {}, ids = Object.keys(v).filter((k) => venueReady(v[k]));
-  return ids.length > 0 && ids.every((id) => id === "paper");
+  return ids.length > 0 && ids.every((id) => id === "paper" || v[id].simulation === true);
 }
 function tradeMaybeLive(st = _tradeHost ? _tradeHost.status() : null) {
   const live = tradeLive(st);

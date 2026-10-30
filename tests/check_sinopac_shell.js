@@ -1,7 +1,7 @@
 // AutoTradeSys fork addition (2026-10-26)
 // 永豐金(sinopac)在電腦版畫面上的四件事,加上選單列那一行:
 //   ① 選單列(traytext):模擬環境寫「模擬」;實盤寫「永豐金證券」(字由 renderer 交,沒交就整行不出,不拿 Sinopac 頂)
-//   ② renderer 交給主行程的字(tradeLabels)多 venueSinopac,主行程的預設表也有這一格
+//   ② renderer 交給主行程的字(tradeLabels)多 venueSinopac,主行程的預設表也有這一格;更新確認框的模擬記號
 //   ③ 純邏輯(trade.js 原文切出來跑):envMoney 把券商模擬環境(報告 venues.sinopac.simulation)當模擬;
 //      頂列記號 / 視窗標題寫「永豐金證券（模擬）」;存金額框的記號照模擬(trCfPaperOnly)
 //   ④ 真的開畫面(隨包 Electron + 真的 index.html,window.blave 換成假的):資產分頁價值寫 TWD、整數、現股／交割戶;
@@ -33,6 +33,13 @@ if (!process.versions.electron) (() => {
   const mainSrc = fs.readFileSync(path.join(SHELL, "main.js"), "utf8"), src = fs.readFileSync(path.join(SHELL, "renderer", "trade.js"), "utf8");
   ok("② 主行程的預設字表有 venueSinopac(空的 = 還沒交);renderer 交 t(\"sino.venue\")", /venuePresident: "", venueSinopac: "",/.test(mainSrc)
     && /venuePresident: t\("pres\.venue"\), venueSinopac: t\("sino\.venue"\),/.test(src));
+  const tpoAt = mainSrc.indexOf("function tradePaperOnly(");
+  const tpo = new Function("venueReady", "_tradeHost", mainSrc.slice(tpoAt, mainSrc.indexOf("\n}\n", tpoAt) + 2) + "\nreturn tradePaperOnly;")(
+    (v) => !!(v && v.credentials && v.pair && v.order && v.account), null);
+  const venRep = (ven) => ({ report: { venues: ven } });
+  ok("② 更新確認框的記號(主行程 tradePaperOnly):永豐模擬 = 模擬;實盤 = 真錢;模擬環境加另一家真錢 = 真錢;Blave 模擬交易照舊",
+    tpo(venRep({ sinopac: { ...V, simulation: true } })) === true && tpo(venRep({ sinopac: { ...V, simulation: false } })) === false
+    && tpo(venRep({ sinopac: { ...V, simulation: true }, binance: V })) === false && tpo(venRep({ paper: V })) === true);
 
   // ── ③ 純邏輯 ──
   const ctx = {}; vm.createContext(ctx);
