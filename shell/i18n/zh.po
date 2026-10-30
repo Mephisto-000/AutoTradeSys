@@ -1025,6 +1025,27 @@ msgstr "前往綁卡"
 msgid "acct.cryptoTopup"
 msgstr "用加密貨幣轉帳儲值"
 
+# 登入送的 AI 額度用完、還沒綁卡的預檢卡與 402 卡第二顆(文字鈕,0.1.36;spec free-credit-usedup-local-ai):開連結本機 AI 的 modal。
+# 產品名一律純文字,不放 logo
+msgid "acct.useLocal"
+msgstr "改用 Claude Code 或 Codex"
+
+# 從那個 modal 換成本機 AI 之後:402 卡換這句 +〔再送一次〕;{name} = Claude Code | Codex
+msgid "acct.localResend"
+msgstr "已改用 {name}，可以再送了。"
+
+# 換成本機 AI 之後的預檢卡(沒有鈕);{name} = Claude Code | Codex
+msgid "acct.localReady"
+msgstr "已改用 {name}，可以開始了。"
+
+# 連結本機 AI 的 modal 標題下那一行:講誰收錢,不講要不要錢(不寫免費:Claude Code 要付費方案,那是他自己的帳號)
+msgid "lai.lede"
+msgstr "走你自己的帳號，Blave 不收 AI 費用。"
+
+# 那個 modal 裡沒裝的那一列(文字鈕):外開官方安裝頁
+msgid "lai.install"
+msgstr "怎麼安裝"
+
 msgid "acct.sub"
 msgstr "首次綁卡，{t} 天內有 {q} TWD 的 AI 額度，電腦版也拿得到 Blave 的資料。"
 
@@ -2733,9 +2754,13 @@ msgstr "重新啟動以完成更新"
 msgid "tm.restarting"
 msgstr "重新啟動中…"
 
-# 下單中按「重新啟動以完成更新」的確認框內文(標題 tm.quitTitle、鈕 tm.quitStay / tm.updateReady 重用;spec-desktop-update-prompt-0.1.10 §1)
+# 更新 modal 下單中(spec desktop-update-pill §4.2):重新啟動的後果,兩句(標題 tm.quitTitle、主鈕 up.md.go)
 msgid "tm.updateBody"
-msgstr "重新啟動之後，這台電腦就不會再下單，也不會平倉；部位留在{venue}。重開後要重新按「啟動下單」。"
+msgstr "重新啟動後，這台電腦不會再下單，也不會平倉。部位留在{venue}，重開後要按「啟動下單」。"
+
+# 同上,主行程讀不到交易所名時用(不寫成「部位留在，」)
+msgid "tm.updateBodyBare"
+msgstr "重新啟動後，這台電腦不會再下單，也不會平倉。部位留在交易所，重開後要按「啟動下單」。"
 
 # 啟動時不在「應用程式」資料夾問一次(§4;main.js askMoveToApps)
 msgid "tm.move.title"
@@ -4104,6 +4129,30 @@ msgstr "更新中…"
 # 按了「重新啟動以完成更新」並確認、主行程正在收工 / 安裝(main.js restarting):聊天那一格、關於列、選單列那一行都換這句,停用(設計複驗 0.1.10)
 msgid "up.restarting"
 msgstr "重新啟動中…"
+
+# 側欄左下的更新膠囊(新版已暫存好;spec desktop-update-pill §3)。不寫版號;下單中字尾接「…」。細軌圓鈕的 aria-label 也是這句
+msgid "up.pill"
+msgstr "有新版 · 重新啟動"
+
+# 更新 modal 一般(沒在下單)的標題;{v} = 已暫存的新版號(canon 具名例外:只這個標題可以寫版號)
+msgid "up.md.title"
+msgstr "更新到 {v}"
+
+# 更新 modal 的主鈕(一般與下單中都是這句)
+msgid "up.md.go"
+msgstr "重新啟動"
+
+# 更新 modal 下單中:按取消的後果(結束 app 時 autoInstallOnAppQuit 才裝)
+msgid "up.md.stay"
+msgstr "取消就照常下單，結束 Blave 時才會更新。"
+
+# 設定 › 一般 › 關於:每天 06:00 自動更新的開關(預設開)
+msgid "up.sch.sw"
+msgstr "每天 06:00 自動更新"
+
+# 上面那個開關底下的說明句
+msgid "up.sch.lead"
+msgstr "沒在下單、沒人在用時才會重新啟動。"
 
 msgid "up.backup.open"
 msgstr "開啟資料夾"

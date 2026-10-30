@@ -693,7 +693,7 @@ def _tw_market_index(start, date, headers, used):
 
 
 def _tw_market_foot(foot, used):
-    """src line + the exchanges' attribution (a licence condition) when a free path served."""
+    """src line + the exchanges' attribution (the source named) when a free path served."""
     via = "本機直接取自交易所" if used else "經 Blave API"
     foot.append(("src", f"指數、成交值、三大法人、融資餘額:TWSE 日資料,{via}。三大法人為淨買賣超金額,融資餘額為張數。"
                  "前 20 日高 = 不含當日的前 20 個交易日最高價;20/60 日均為含當日的簡單平均。"))
@@ -1107,8 +1107,8 @@ def _pending(label, frame, day, notes):
 
 
 def _closure(day, headers):
-    """(label, attribution or None) for a non-trading `day`. The attribution is the holiday
-    table's licence condition: whatever repeats the label must carry it verbatim."""
+    """(label, attribution or None) for a non-trading `day`. The attribution names the holiday
+    table's source: whatever repeats the label must carry it verbatim."""
     d = pd.Timestamp(day)
     if d.weekday() >= 5:
         return "週末", None
@@ -1187,7 +1187,7 @@ def research_pack(symbol, topics=None, date=None, headers=None, lookback_days=90
                    question spans weeks; "24h" only for a question about today) and long/short ratio (coin)
     `days` is the relative-performance window (default 30): set it to the span the user asked
     about. It does not change how many candles a chart draws.
-      indicators   Blave 爆倉 / 巨鯨 / 多空力道 z-scores (coin)
+      indicators   Blave 自製指標 爆倉 / 巨鯨 / 多空力道 (coin)
       levels       recent highs / lows and moving averages as a table
       flows        外資買賣超, last 10 sessions (Taiwan stock)
     A section this machine has no data for is left out and named, as in any pack."""

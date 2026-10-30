@@ -3132,6 +3132,39 @@ def _report_jobs_wanted():
 # not made up (cron semantics), and after a restart every job is re-armed from now.
 _report_next = {}
 _report_fire_lock = threading.Lock()  # scheduler thread + dispatch thread both call
+# Runs this process started and has not seen end: the desktop app's 06:00 update must not restart
+# the machine under one (spawned runners die with the app). A start thread still in its
+# performance sweep counts too — its runner is seconds or minutes away. Runs started by anyone
+# else (a turn's own Bash) are not tracked; the desktop update also waits for no turn.
+_report_children = []
+_report_starting = 0
+_report_children_lock = threading.Lock()
+
+
+def _report_spawn(job_id):
+    proc = subprocess.Popen(_report_runner_cmd(job_id), cwd=WORKSPACE,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **_child_kw())
+    with _report_children_lock:
+        _report_children.append(proc)
+    return proc
+
+
+def report_activity():
+    """{running, next_due_at} for the desktop status file's daemon block. next_due_at = the
+    earliest coming slot across enabled jobs as UTC ISO, None when nothing is scheduled. An armed
+    slot already past (the 60 s tick has not fired it yet) counts: it is about to start."""
+    with _report_children_lock:
+        _report_children[:] = [p for p in _report_children if p.poll() is None]
+        running = bool(_report_children) or _report_starting > 0
+    now = int(time.time())
+    report_runner = _report_runner_mod()
+    wanted = _report_jobs_wanted()
+    slots = [report_runner.cron_next(cron, now, tz) for cron, tz in wanted.values()]
+    with _report_fire_lock:
+        slots += [v[2] for k, v in _report_next.items() if k in wanted]
+    slots = [x for x in slots if x is not None]
+    iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(min(slots))) if slots else None
+    return {"running": running, "next_due_at": iso}
 
 
 def _fire_due_reports():
@@ -3174,28 +3207,44 @@ def _fire_due_reports():
             _report_next[job_id] = (cron, tz, nxt)
             if not due:
                 continue
-            # off this thread: the performance sweep in front of the job can take minutes
-            threading.Thread(target=_start_report_job, args=(job_id,), daemon=True,
-                             name=f"report-start-{job_id}").start()
+            # off this thread: the performance sweep in front of the job can take minutes. Counted
+            # before start(): _report_next already points at the next slot, so a status write in
+            # between would otherwise read "nothing running, nothing due" for one round.
+            _report_count_start(1)
+            try:
+                threading.Thread(target=_start_report_job, args=(job_id, True), daemon=True,
+                                 name=f"report-start-{job_id}").start()
+            except Exception:
+                _report_count_start(-1)
+                raise
 
 
-def _start_report_job(job_id):
+def _report_count_start(n):
+    global _report_starting
+    with _report_children_lock:
+        _report_starting += n
+
+
+def _start_report_job(job_id, counted=False):
     """A scheduled report's fire: refresh every live strategy's performance first (a live
     tick no longer writes stats.json — the figures the report and the manager read would
     otherwise stop at deploy time), then start the job. Best-effort: a failed sweep never
     costs the report its run. Not for report_run_now — the user pressed that; a fresh
     performance is the 更新績效 button."""
+    if not counted:
+        _report_count_start(1)
     try:
-        _refresh_live_stats(f"report {job_id}")
-    except Exception as e:
-        _log(f"report trigger: {job_id}: performance sweep skipped: {type(e).__name__}: {e}")
-    try:
-        subprocess.Popen(_report_runner_cmd(job_id), cwd=WORKSPACE,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         **_child_kw())
-        _log(f"report trigger: started {job_id}")
-    except Exception as e:
-        _log(f"report trigger: {job_id} failed to start: {type(e).__name__}: {e}")
+        try:
+            _refresh_live_stats(f"report {job_id}")
+        except Exception as e:
+            _log(f"report trigger: {job_id}: performance sweep skipped: {type(e).__name__}: {e}")
+        try:
+            _report_spawn(job_id)
+            _log(f"report trigger: started {job_id}")
+        except Exception as e:
+            _log(f"report trigger: {job_id} failed to start: {type(e).__name__}: {e}")
+    finally:
+        _report_count_start(-1)
 
 
 def _sweep_legacy_report_schedules():
@@ -3296,8 +3345,7 @@ def _cmd_report_run_now(args):
     """Kick one run in the background; the ack says "started", the next report
     carries the outcome from runs.jsonl. A paused job may be run this way."""
     job_id, _d = _report_job(args)
-    subprocess.Popen(_report_runner_cmd(job_id), cwd=WORKSPACE,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **_child_kw())
+    _report_spawn(job_id)
     return {"started": True}
 
 
@@ -5287,6 +5335,88 @@ def _flatten_already_running():
         fh.close()
 
 
+# Every local-mode flatten launched, for flatten_running: this process's Popens, and their pids
+# appended to state/flatten_pids (one per line) so a restarted daemon still sees them. A list, not
+# one slot: a double press can start two before either takes flatten.lock (the loser exits at once).
+_FLATTEN_PROCS = []
+_FLATTEN_LOCK = threading.Lock()
+_FLATTEN_PIDS_MAX = 8   # flatten_running reads only the newest this many
+_FLATTEN_CHECK_BUDGET_S = 10   # all lookups of one flatten_running, inside _status_lock
+_FLATTEN_PIDS_STALE_S = 6 * 3600   # list untouched this long → dropped whole
+
+
+def _flatten_pids_path():
+    return os.path.join(WORKSPACE_STATE, "flatten_pids")
+
+
+def _record_flatten(proc):
+    with _FLATTEN_LOCK:
+        _FLATTEN_PROCS.append(proc)
+        try:
+            atomic_file.append_line(_flatten_pids_path(), f"{proc.pid}\n")
+        except OSError as e:   # only a restarted daemon loses sight of it; the flatten itself runs
+            _log(f"close_all: flatten pid not recorded: {type(e).__name__}")
+
+
+def flatten_running():
+    """Is a close-all flatten running right now? For the desktop status file (daemon.flattening:
+    the 06:00 scheduled update waits it out). Never touches state/flatten.lock — taking it, even
+    for a moment every few seconds, would make a flatten starting in that instant exit as
+    already-running and close nothing; on Windows flatten.py's msvcrt lock also fails a plain read.
+    This process's Popens first (poll, no subprocess); then the recorded pids, identity-checked on
+    the command line like _mgmt_pid_alive (a reused pid is not a flatten). Dead pids are pruned,
+    so the list empties once every flatten is gone. A flatten not launched by a daemon (an agent
+    running manager/flatten.py by hand) is not seen."""
+    with _FLATTEN_LOCK:
+        _FLATTEN_PROCS[:] = [p for p in _FLATTEN_PROCS if p.poll() is None]
+        if _FLATTEN_PROCS:
+            return True
+    path = _flatten_pids_path()
+    try:
+        if time.time() - os.path.getmtime(path) > _FLATTEN_PIDS_STALE_S:
+            # no flatten runs this long: whatever is listed is long gone, and checking it costs a
+            # ps / powershell per pid every status write
+            with _FLATTEN_LOCK:
+                if time.time() - os.path.getmtime(path) > _FLATTEN_PIDS_STALE_S:
+                    os.remove(path)
+            return False
+        raw = atomic_file.read_bytes(path).decode("ascii", errors="replace")
+    except OSError:
+        return False
+    # only the newest few: state/ is agent-writable, and each check below is a ps / powershell
+    # inside _status_lock — a padded list must not stall the heartbeat
+    tail = raw.split()[-_FLATTEN_PIDS_MAX:]
+    pids = {int(x) for x in tail if x.isdigit() and int(x) > 1}
+    # outside the lock: on Windows each check is a powershell, and _record_flatten (the close_all
+    # ack path) must not wait behind it. A lookup that failed (None) is neither: kept for next time,
+    # not counted — pruning it would lose a live flatten for good
+    deadline = time.monotonic() + _FLATTEN_CHECK_BUDGET_S
+    cmds = {}
+    for pid in sorted(pids):   # past the budget the rest count as not looked up: kept, not counted
+        cmds[pid] = _pid_cmdline_or_none(pid) if time.monotonic() < deadline else None
+    alive = {pid for pid, c in cmds.items() if c is not None and "manager/flatten.py" in c.replace("\\", "/")}
+    dead = {pid for pid, c in cmds.items() if c is not None and pid not in alive}
+    if dead or len(tail) < len(raw.split()) or not raw.endswith("\n"):
+        with _FLATTEN_LOCK:   # re-read: a pid appended meanwhile is kept
+            try:
+                cur = atomic_file.read_bytes(path).decode("ascii", errors="replace").split()
+                keep = [x for x in cur[-_FLATTEN_PIDS_MAX:] if x.isdigit() and int(x) > 1 and int(x) not in dead]
+                if keep:
+                    with atomic_file.replacing(path) as f:
+                        f.write("".join(f"{x}\n" for x in keep))
+                else:
+                    os.remove(path)
+            except OSError:
+                pass   # pruned next time
+    return bool(alive)
+
+
+def optimize_running():
+    """manage_optimize holds _OPT_LOCK from validation until its Deferred cleanup — the status
+    file's daemon.optimizing. Dies with this process; the shell only trusts a fresh heartbeat."""
+    return _OPT_LOCK.locked()
+
+
 def _capital_only_unflattenable():
     """Same verdict the report sends as can_flatten=false (flatten.py already
     known present here). Unreadable → False: never let this be why a panic
@@ -5521,6 +5651,7 @@ def _launch_flatten(prefix):
                                     env=_local_child_env(**flags),
                                     stdout=logf, stderr=logf, start_new_session=True,
                                     **_child_kw(**({"stdin": subprocess.PIPE} if line else {})))
+        _record_flatten(proc)
         if line:
             try:
                 proc.stdin.write(line.encode("utf-8"))
@@ -5896,6 +6027,12 @@ def _log_tail(path, n=_MANAGE_ERR_TAIL):
 
 def _pid_cmdline(pid):
     """Command line of `pid`, "" when it doesn't exist / can't be read."""
+    return _pid_cmdline_or_none(pid) or ""
+
+
+def _pid_cmdline_or_none(pid):
+    """Command line of `pid`; "" = no such process; None = could not tell (the lookup itself
+    failed or timed out — a loaded Windows box can take powershell past 5 s)."""
     if platform.system() == "Windows":
         try:
             r = subprocess.run(
@@ -5903,19 +6040,23 @@ def _pid_cmdline(pid):
                  f"(Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}').CommandLine"],
                 capture_output=True, text=True, timeout=5, **_child_kw())  # runs on the poll loop
         except (OSError, subprocess.SubprocessError, ValueError):
-            return ""
-        return r.stdout or ""
+            return None
+        return r.stdout or ("" if r.returncode == 0 else None)
     try:
         with open(f"/proc/{pid}/cmdline", "rb") as f:
             return f.read().replace(b"\0", b" ").decode("utf-8", errors="replace")
+    except FileNotFoundError:
+        if os.path.isdir("/proc/self"):
+            return ""   # /proc is there, the pid is not
     except OSError:
         pass
     try:  # no /proc (dev macOS)
         r = subprocess.run(["ps", "-o", "args=", "-p", str(int(pid))],
                            capture_output=True, text=True, timeout=10, **_child_kw())
     except (OSError, subprocess.SubprocessError, ValueError):
-        return ""
-    return r.stdout or ""
+        return None
+    # ps exits 1 with nothing printed for a pid that is not there
+    return r.stdout or ("" if r.returncode in (0, 1) else None)
 
 
 def _mgmt_pid_alive(pid):
@@ -6710,13 +6851,15 @@ def _perf_path(name):
     return os.path.join(WORKSPACE, "strategies", name, PERF_REFRESH_FILE)
 
 
-def _mark_perf(name, status, err=None, why=None):
+def _mark_perf(name, status, err=None, why=None, exec_test=False):
     # the strategy was deleted while its refresh ran: a record now would recreate the folder as a ghost
     if not os.path.isdir(os.path.join(WORKSPACE, "strategies", name)):
         return
     doc = {"status": status, "at": int(time.time())}
     if status == "running":
         doc["pid"] = os.getpid()   # whose run: a record from a process that is gone is settled at start
+        if exec_test:
+            doc["exec_test"] = True   # 成交測試: the desktop's scheduled update names it apart from 更新績效
     if err:
         doc["err"] = err
     if why:
@@ -6882,7 +7025,7 @@ def _refresh_one(name, deadline, what, backtest_hash=None, shared=False, exec_te
     failed + code otherwise. `deadline` (monotonic) bounds the lock wait and the run; None =
     no budget (the button). `shared`: the caller already holds a shared slot (the button queue);
     otherwise the machine is taken exclusively (the sweep). Returns True on success."""
-    _mark_perf(name, "running")
+    _mark_perf(name, "running", exec_test=exec_test)
     wait = None if deadline is None else max(0.0, deadline - time.monotonic())
     if not shared and not _STATS_REFRESH_LOCK.acquire(timeout=-1 if wait is None else wait):
         # not this strategy's failure: the sweep's budget went to whoever held the machine
@@ -6990,7 +7133,7 @@ def _cmd_stats_refresh(args):
                 skipped[name] = "BUSY"
                 continue
             _PERF_PENDING.add(name)
-        _mark_perf(name, "running")   # every queued one reads 更新中 from the ack-time push on
+        _mark_perf(name, "running", exec_test=exec_test)   # every queued one reads 更新中 from the ack-time push on
         started.append(name)
         queued.append((name, backtest_hash, exec_test))
     if started:

@@ -1018,6 +1018,27 @@ msgstr "Add a Card"
 msgid "acct.cryptoTopup"
 msgstr "Top Up with Crypto Transfer"
 
+# 登入送的 AI 額度用完、還沒綁卡的預檢卡與 402 卡第二顆(文字鈕,0.1.36;spec free-credit-usedup-local-ai):開連結本機 AI 的 modal。
+# 產品名一律純文字,不放 logo。EN 超過鈕字上限是具名例外(產品名就是這顆鈕要講的事,Wei 核准)
+msgid "acct.useLocal"
+msgstr "Use Claude Code or Codex"
+
+# 從那個 modal 換成本機 AI 之後:402 卡換這句 +〔再送一次〕;{name} = Claude Code | Codex
+msgid "acct.localResend"
+msgstr "Switched to {name}. You can send again."
+
+# 換成本機 AI 之後的預檢卡(沒有鈕);{name} = Claude Code | Codex
+msgid "acct.localReady"
+msgstr "Switched to {name}. Ready to go."
+
+# 連結本機 AI 的 modal 標題下那一行:講誰收錢,不講要不要錢
+msgid "lai.lede"
+msgstr "Runs on your own account. No AI charges from Blave."
+
+# 那個 modal 裡沒裝的那一列(文字鈕):外開官方安裝頁
+msgid "lai.install"
+msgstr "How to install"
+
 msgid "acct.sub"
 msgstr "A first-time card gets {q} TWD of AI credit and Blave data in the desktop app, both for {t} days."
 
@@ -2722,9 +2743,13 @@ msgstr "Restart to finish updating"
 msgid "tm.restarting"
 msgstr "Restarting…"
 
-# 下單中按「重新啟動以完成更新」的確認框內文(標題 tm.quitTitle、鈕 tm.quitStay / tm.updateReady 重用;spec-desktop-update-prompt-0.1.10 §1)
+# 更新 modal 下單中(spec desktop-update-pill §4.2):重新啟動的後果,兩句(標題 tm.quitTitle、主鈕 up.md.go)
 msgid "tm.updateBody"
-msgstr "After the restart, this computer places no more orders and closes nothing; positions stay at {venue}. Press Start trading to resume."
+msgstr "After the restart, this computer places no more orders and closes no positions. Positions stay at {venue}, and it won't trade again until you press Start trading."
+
+# 同上,主行程讀不到交易所名時用(不寫成「部位留在，」)
+msgid "tm.updateBodyBare"
+msgstr "After the restart, this computer places no more orders and closes no positions. Positions stay at the exchange, and it won't trade again until you press Start trading."
 
 # 啟動時不在「應用程式」資料夾問一次(§4;main.js askMoveToApps)
 msgid "tm.move.title"
@@ -4092,6 +4117,30 @@ msgstr "Updating…"
 # 按了「重新啟動以完成更新」並確認、主行程正在收工 / 安裝(main.js restarting):聊天那一格、關於列、選單列那一行都換這句,停用(設計複驗 0.1.10)
 msgid "up.restarting"
 msgstr "Restarting…"
+
+# 側欄左下的更新膠囊(新版已暫存好;spec desktop-update-pill §3)。不寫版號;下單中字尾接「…」。細軌圓鈕的 aria-label 也是這句
+msgid "up.pill"
+msgstr "Update · Restart"
+
+# 更新 modal 一般(沒在下單)的標題;{v} = 已暫存的新版號(canon 具名例外:只這個標題可以寫版號)
+msgid "up.md.title"
+msgstr "Update to {v}"
+
+# 更新 modal 的主鈕(一般與下單中都是這句)
+msgid "up.md.go"
+msgstr "Restart"
+
+# 更新 modal 下單中:按取消的後果(結束 app 時 autoInstallOnAppQuit 才裝)
+msgid "up.md.stay"
+msgstr "Cancel to keep trading. Blave updates when you quit it."
+
+# 設定 › 一般 › 關於:每天 06:00 自動更新的開關(預設開)
+msgid "up.sch.sw"
+msgstr "Update automatically at 06:00"
+
+# 上面那個開關底下的說明句
+msgid "up.sch.lead"
+msgstr "Restarts only when nothing is trading and no one is using it."
 
 msgid "up.backup.open"
 msgstr "Open folder"

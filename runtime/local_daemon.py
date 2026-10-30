@@ -1253,6 +1253,15 @@ class Daemon:
                 "heartbeat_at": int(time.time()), "version": self.version,
                 "signed": bool(self.secret), "reconciler": self.sup.info(),
             }
+            try:
+                doc["daemon"]["reports"] = self.cl.report_activity()
+            except Exception as e:   # absent = the app's scheduled update treats it as a report due
+                _log(f"report activity failed: {type(e).__name__}: {e}")
+            try:   # the 06:00 scheduled update waits out a close-all and an optimise; absent = none
+                doc["daemon"]["flattening"] = self.cl.flatten_running()
+                doc["daemon"]["optimizing"] = self.cl.optimize_running()
+            except Exception as e:
+                _log(f"long job state failed: {type(e).__name__}: {e}")
             doc["president_local"] = self.pc.local_info()
             doc["capital_local"] = self.capl.local_info()
             try:

@@ -3,8 +3,9 @@ Static quality analysis for Type A / Type C strategy files — catches a broken 
 unfilled compute_signals() contract, backtest fee-drag gaming (FEE=0), a
 TAIFEX futures strategy missing the mandatory txf_settlement_mask, an
 indicator-driven Type A strategy without a PLOT_SERIES declaration, and a
-pinned END date (which freezes a deployed strategy's signals forever), before a
-strategy is submitted to the marketplace or run after being purchased.
+pinned END date (which freezes a deployed strategy's signals forever), and an
+`apply_exits` argument this machine's lib does not have yet (a strategy written on a
+newer lib), before a strategy is submitted to the marketplace or run after being purchased.
 
 Usage:
     python3 lib/quality_check.py [--context install|fork|edit] strategies/xyz.py
@@ -22,6 +23,7 @@ Exit codes (fallback only — PowerShell on Windows folds 1 and 2 into 1):
 """
 
 import ast
+import difflib
 import re
 import sys
 from pathlib import Path
@@ -527,13 +529,43 @@ def _check_exit_loop(tree: ast.AST) -> list[dict]:
                            "level. Use lib.exits.apply_exits(signal, df, stop_pct=..., tp_pct=..., "
                            "trail_pct=..., max_bars=..., trigger=\"intrabar\" or \"close\") — or the price-distance "
                            "forms stop_dist= / tp_dist= / trail_dist= (e.g. 2 * ATR), breakeven_at=, "
-                           "cooldown_bars=; it handles "
+                           "cooldown_bars=, or the strategy's own price level stop_level= / tp_level=; it handles "
                            "High/Low touches, gaps, invalid bars, rolls and no same-bar re-entry. If the "
-                           "rule is one it cannot model, tell the user that instead of hand-rolling a "
-                           "loop (references/strategy-code.md › Exits on top of an existing signal). A scale-in / "
+                           "rule is one it cannot model, tell the user the closest supported form instead of "
+                           "hand-rolling a loop (references/strategy-code.md › Exits on top of an existing signal). A scale-in / "
                            "DCA ladder with an average-cost take-profit is lib.strategy.ladder_position "
                            "(references/strategy-code.md › Scaling in).")]
     return []
+
+
+# ── Newer-lib argument check ────────────────────────────────────────────────────
+
+# apply_exits' parameters in THIS lib (tests/check_exit_levels.py keeps it equal to the
+# signature). A literal, not an import: the CLI runs on the standard library alone.
+_APPLY_EXITS_KWARGS = frozenset((
+    "signal", "df", "stop_pct", "tp_pct", "trail_pct", "max_bars", "trigger",
+    "stop_dist", "tp_dist", "trail_dist", "breakeven_at", "breakeven_dist", "cooldown_bars",
+    "stop_level", "tp_level"))
+
+
+def _check_lib_caps(tree: ast.AST) -> list[dict]:
+    # A strategy written on a newer lib (copied, handed off, from the library) calls apply_exits
+    # with an argument this one lacks — it would die on a TypeError traceback at its first run.
+    found = []
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call) and _call_name(n) == "apply_exits":
+            for kw in n.keywords:
+                if kw.arg is not None and kw.arg not in _APPLY_EXITS_KWARGS:
+                    close = difflib.get_close_matches(kw.arg, sorted(_APPLY_EXITS_KWARGS), n=1)
+                    found.append(_c(n.lineno, f"apply_exits({kw.arg}=...) is not an argument of this "
+                                              f"machine's lib — a typo, or a strategy written on a newer lib."
+                                              + (f" Did you mean {close[0]}=?" if close else "")
+                                              + f" It takes: {', '.join(sorted(_APPLY_EXITS_KWARGS - {'signal', 'df'}))}."
+                                              f" Your own strategy (--context edit): fix the name. A strategy "
+                                              f"from elsewhere (install, fork, handoff) that uses it as written: "
+                                              f"tell the user to update first (say 「更新」 / press Update), then "
+                                              f"run this check again."))
+    return found
 
 
 # ── Spot short check ────────────────────────────────────────────────────────────
@@ -601,7 +633,7 @@ _SPOT_FIX = ("The backtest clamps it to flat, same as live, but scans and walk-f
 # first day — it raises BatchIncomplete — so a batch strategy whose top-level START
 # is earlier (or can't be read) is "can't tell", see _TW_CDN_BATCH below.
 _DESKTOP_PUBLIC_DATA = frozenset({
-    "fetch_kline", "fetch_kline_batch", "fetch_bingx_kline", "fetch_usstock_price",
+    "fetch_kline", "fetch_kline_batch", "fetch_bingx_kline", "fetch_usstock_price", "price_at",
     "fetch_fear_greed", "fetch_binance_ticker_24h",
     "fetch_tw_announcements_public", "fetch_tw_breadth_public", "fetch_twfutures_institutional_public",
     "fetch_txf_daily_public", "fetch_twmarket_index_public", "fetch_twmarket_institutional_public",
@@ -810,12 +842,13 @@ _CHECKS = (
     ("spot_short", _check_spot_short),
     ("exit_loop", _check_exit_loop),
     ("ladder_roll", _check_ladder_roll),
+    ("lib_caps", _check_lib_caps),
 )
 # Every id a finding can carry, with its level. tests/check_scan_context.py enumerates it.
 CHECK_LEVELS = {
     "read": "CRITICAL", "compute_signals": "CRITICAL", "txf_mask": "CRITICAL", "end": "CRITICAL",
     "template": "WARNING", "fee": "WARNING", "plot_series": "WARNING", "spot_short": "WARNING",
-    "exit_loop": "WARNING", "ladder_roll": "WARNING",
+    "exit_loop": "WARNING", "ladder_roll": "WARNING", "lib_caps": "CRITICAL",
 }
 CONTEXTS = ("install", "fork", "edit")
 # WARNINGs that refuse the file in these contexts: an unfinished template is not installed or forked.
