@@ -138,6 +138,14 @@ own. Execution styles: market and TWAP work; chase falls back to market (no limi
   not found → **HALT** + `OrderNotConfirmed`, and no further leg is sent. A mid-session cancel
   that never confirms → the same. A remainder still open after 13:32 is final (the session's
   last match is over) and reported `Expired`, not unknown.
+- **Unknown outcome, nothing filled — parked as well as HALTed:** on the reconciler's path
+  `lib/venue_wiring._placing` turns that `OrderNotConfirmed` into a parked order
+  (`lib/unconfirmed`): no new entries on that symbol, closes of what the book holds still run,
+  and 啟動下單 does not resend it. SinoPac has no order lookup, so no round settles it: once the
+  user has read the order in SinoPac's app, call `unconfirmed.resolve("0050@spot", shares,
+  avg_price)` with the numbers they give (`0` = nothing filled). The notice's 「查到結果自動接續」
+  does not hold here — say so. A fill on one leg with another leg lost is booked and only HALTs;
+  a close-all's sale is not parked either (`manager/flatten.py`: TW brokers keep their own system).
 - **Simulation** (`SINOPAC_LIVE` not `true`): whole board lots only — Shioaji's simulation has
   no odd lots; a target under one lot does nothing there.
 - **Guards:** `_send_order` is the one chokepoint — restart stop, HALT freeze (a user's close

@@ -36,5 +36,11 @@
   2026-10-25 在 `runtime/agent_turn.py` 加的 `sinopac_setup` 攔截已被涵蓋，該檔還原為上游版本（不再列為修改過的檔案）
   - 注意：此次同步暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 0.1.33（VERSION `2026-10-26-e`），
     再執行 `tools/sinopac_deploy.py --apply`
+- 2026-10-31：同步上游 `main` 至 `c255299f`（電腦版 0.1.36）
+  - 修改（檔頭已註明）：`shell/main.js` 的 `tradePaperOnly`（上游新的更新確認框）把永豐模擬環境算成模擬，以及配合的 `tests/check_sinopac_shell.js`
+  - 上游的 `lib/venue_wiring._placing` 也會停放永豐查不到結果的單（原本只 HALT），恢復下單後不再重送；程式不改，
+    [`docs/sinopac.md`](sinopac.md) 與 `references/sinopac-broker.md` 補上解除方式
+  - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 VERSION `2026-10-31-a`，
+    再執行 `tools/sinopac_deploy.py --apply`
 
 詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
