@@ -42,5 +42,12 @@
     [`docs/sinopac.md`](sinopac.md) 與 `references/sinopac-broker.md` 補上解除方式
   - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 VERSION `2026-10-31-a`，
     再執行 `tools/sinopac_deploy.py --apply`
+- 2026-10-31：再次同步上游 `main` 至 `e9b23e96`（電腦版 0.1.38）
+  - 修改（檔頭已註明）：`lib/order_sinopac.py` 的 `cancel_spot_order` 走下單閘門（上游新增回合級下單鎖：對話分頁同時下單時，
+    撤單也要排隊），以及配合的 `tests/check_sinopac_spot_layer.py`
+  - 上游把 certifi 改成直接釘版：`shell/main.js` 的 `WORKSPACE_DEPS` 兩邊都留，`WORKSPACE_LOCK_FOR` 改用「上游的鎖 + fork 的清單」重算，
+    五個平台 pip dry-run 重驗解出同一組；`tests/check_usstock_daily.py` 的數量跟著改成 19 個
+  - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 VERSION `2026-10-31-b`，
+    再執行 `tools/sinopac_deploy.py --apply`
 
 詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
