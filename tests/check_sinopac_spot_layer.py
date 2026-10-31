@@ -11,6 +11,8 @@ through, against an offline Shioaji stand-in (tests/sinopac_fake.py):
     False, which the auto-wire would book as an unsellable remainder);
   - a leg whose end cannot be seen trips HALT;
   - HALT / the restart stop refuse before the broker session is opened;
+  - a cancel passes the gate too: another turn holding the order lock refuses it
+    before the broker session, HALT does not;
   - simulation trades whole board lots only (Shioaji's simulation has no odd lots);
   - the legacy after-hours odd-lot helper still sends Odd + MKT + ROD.
 
@@ -298,6 +300,30 @@ check(seen == [8 * 60 + 45], f"an odd lot sent at 09:02 waits for the 09:10 matc
 o._settle_leg = real_settle
 o.ODD_WAIT_S = 0.05
 NOW[0] = datetime(2026, 10, 27, 10, 0, tzinfo=ss.TAIPEI)
+
+# ── cancel: the order gate ───────────────────────────────────────────────────
+print("== cancel_spot_order: the turn order lock, and it still goes out under HALT")
+fresh(odd_fill="never")
+fields = {"symbol": "0050", "intent": "entry"}
+rest = o._send_order(LIVE, "0050", "Buy", 10, "IntradayOdd", "LMT", 200.0, "ROD", "brest1", "entry", fields)
+seq = rest.order.seqno
+guard.TURN_MONEY_LOCK = os.path.join(WS, "state", "turn_money.lock")
+holder = os.open(guard.TURN_MONEY_LOCK, os.O_RDWR | os.O_CREAT, 0o600)
+check(guard._try_lock(holder), "(test) another conversation holds the turn order lock")
+with open(guard.TURN_MONEY_LOCK + ".owner", "w") as f:
+    f.write("/t/other-turn")
+os.environ["BLAVE_TURN_INTERRUPT_FILE"] = "/t/this-turn"
+ss.reset()
+logins = B.logins
+e = raises(o.cancel_spot_order, LIVE, "0050", seq)
+check(isinstance(e, guard.TurnMoneyBusy) and "Nothing was sent" in str(e) and not B.cancels and B.logins == logins,
+      f"from a turn, another turn placing orders → TurnMoneyBusy before the broker session, nothing cancelled ({e!r})")
+del os.environ["BLAVE_TURN_INTERRUPT_FILE"]
+os.close(holder)
+guard.trip_halt("test", "check_sinopac_spot_layer")
+check(o.cancel_spot_order(LIVE, "0050", seq) is True and B.cancels == [seq],
+      "outside a turn, under HALT: the cancel goes out as before")
+check(o.cancel_spot_order(LIVE, "0050", "no-such-order") is False, "an id that is not on the book: no-op, False")
 
 # ── reads ────────────────────────────────────────────────────────────────────
 print("== reads")

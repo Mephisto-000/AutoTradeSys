@@ -1,6 +1,7 @@
 # Modified by Mephisto-000 on 2026-10-25: Shioaji 1.7 compatibility through lib/sinopac_session,
 #   one order chokepoint (_send_order) and a spot layer (TW stocks as spot inventory: board lots
-#   + intraday odd lots, price-protected and cash-checked) so lib/venue_wiring auto-wires SinoPac.
+#   + intraday odd lots, price-protected and cash-checked) so lib/venue_wiring auto-wires SinoPac;
+#   (2026-10-31) cancel_spot_order passes the order gate, so it takes upstream's turn order lock.
 # Original work: Copyright 2025-2026 WuChi Technology Company Limited
 # Licensed under the Apache License, Version 2.0
 """
@@ -924,7 +925,12 @@ def get_spot_open_orders(env):
 
 
 def cancel_spot_order(env, symbol, order_id):
-    """Cancel one of today's orders by its id / seqno; already gone → no-op."""
+    """Cancel one of today's orders by its id / seqno; already gone → no-op.
+    Through the same gate as every order, before the broker session: a cancel
+    still goes out under HALT and the restart stop, but from an agent turn it
+    takes the turn order lock (lib/guard TURN_MONEY_LOCK) — another conversation
+    placing orders → TurnMoneyBusy, nothing cancelled."""
+    guard.check_restart_stop("cancel", {"symbol": symbol, "order_id": str(order_id), "intent": "cancel"})
     api, account = _read_api(env)
     ss.throttle("order")
     api.update_status(account)
