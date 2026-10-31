@@ -3,7 +3,7 @@
    在 app.js 之後載入(用它的 $、sessionId、running、composing、attachedFiles、autosize、scrollChat、srSay、trackFeature、motionBaseMs、escTop、lsGet、lsSet)。
    runtime 回合收尾把 <suggest> 剝成 {type:"suggestions", items, kind};這裡先收著,回合結束(沒出錯、沒被停)停一拍才畫。
    句子只在記憶體:重開 app、換對話都不留——同雲端(逐字稿裡沒有這段)。開關與沒用計數在 localStorage,各台電腦各自計。 */
-const SUG = { pending: null, timer: null, text: null, kind: null, shownOnce: false, used: false, gone: false, files: 0, filledText: null, inflight: null };
+let SUG = { pending: null, timer: null, text: null, kind: null, shownOnce: false, used: false, gone: false, files: 0, filledText: null, inflight: null };
 // 下面五個跟網頁工作頁同名同值(web tests/check_suggest_v2.js 與 tests/check_web_desktop_parity.js 逐字比對原文)
 const SUG_MAX_CHARS = 60;   // 托盤單行截尾;超過整句丟、不截(runtime 規則一般句 ≤20／48、導航句 ≤28／60)
 const SUG_MISS_LIMIT = 5;
@@ -41,12 +41,13 @@ function sugTurnEnd(ok) {
   SUG.pending = null;
   if (!ok || !p) return;
   clearTimeout(SUG.timer);
-  SUG.timer = setTimeout(() => {
+  SUG.timer = setTimeout(tabBound(() => {
     SUG.timer = null;
     if (running) return;   // 停一拍之間又送出了一句:這句已經過期
-    Object.assign(SUG, { text: p.text, kind: p.kind, shownOnce: false, used: false, gone: false, files: attachedFiles.length, filledText: null });
+    const files = typeof tabBg === "function" && tabBg() ? CS.loaded.composer.files : attachedFiles;   // 背景分頁:輸入框的附件是眼前那條的,它自己的在 composer
+    Object.assign(SUG, { text: p.text, kind: p.kind, shownOnce: false, used: false, gone: false, files: files.length, filledText: null });
     sugPaint();
-  }, motionBaseMs());
+  }), motionBaseMs());
 }
 // 在場 = 有一句沒作廢、沒用過、沒被打字收掉,輸入框是空的、沒有附件、不在組字中、沒有回合在跑。不在場就先等,等到在場那一刻才畫
 function sugPresent() {
@@ -55,15 +56,18 @@ function sugPresent() {
 // 收掉只設 gone、不清 text:出現過的那句,之後自己打字送出照算一次沒用(v2 §0.3)
 function sugGone() { if (SUG.text && !SUG.used) SUG.gone = true; sugPaint(); }
 function sugPaint() {
+  if (typeof tabBg === "function" && tabBg()) return;   // 托盤是眼前分頁的;背景那條的建議收在它自己的 SUG,切過去時 tabShow 畫
   if (attachedFiles.length > SUG.files && SUG.text && !SUG.used) SUG.gone = true;   // setAttachments 之後呼叫:多了附件才算「加了」
   SUG.files = attachedFiles.length;
   const show = sugPresent(), tray = $("sug-tray");
   if (show) { $("sug-tray-t").textContent = SUG.text; $("sug-tray-btn").title = SUG.text; }
-  if (tray.hidden !== show) return;
-  // 托盤長高 36:訊息區原本在底部就捲回底部,不然回答尾段會被壓住(§1.4)
-  const box = $("chat-scroll"), atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 4;
-  tray.hidden = !show;
-  if (atEnd) scrollChat(true);   // 走 app.js 的捲到底:chatStick／chatTop 跟著同步
+  if (tray.hidden === show) {
+    // 托盤長高 36:訊息區原本在底部就捲回底部,不然回答尾段會被壓住(§1.4)
+    const box = $("chat-scroll"), atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 4;
+    tray.hidden = !show;
+    if (atEnd) scrollChat(true);   // 走 app.js 的捲到底:chatStick／chatTop 跟著同步
+  }
+  // 托盤本來就開著也要記:切到另一條有建議的分頁,那一句是第一次出現(不記的話 suggest_shown 漏、之後也不算沒用)
   if (!show || SUG.shownOnce) return;
   SUG.shownOnce = true;
   trackFeature("suggest_shown");

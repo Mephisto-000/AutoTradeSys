@@ -500,11 +500,11 @@ def t_workspace_deps():
     names = [p.split("==")[0] for p in pins]
     need = ["curl_cffi", "lxml", "peewee", "protobuf", "websockets", "beautifulsoup4", "multitasking",
             "platformdirs", "pytz", "yfinance"]
-    # AutoTradeSys fork (2026-10-26): + shioaji (永豐金 SDK, its own optional group) — 18 in all
-    check(all(re.fullmatch(r"[A-Za-z0-9_.-]+==[0-9][0-9A-Za-z.]*", p) for p in pins) and len(pins) == 18
+    # AutoTradeSys fork (2026-10-26): + shioaji (永豐金 SDK, its own optional group) — 19 in all
+    check(all(re.fullmatch(r"[A-Za-z0-9_.-]+==[0-9][0-9A-Za-z.]*", p) for p in pins) and len(pins) == 19
           and all(n in names for n in need) and names[-1] == "yfinance" and "shioaji" in names,
           "WORKSPACE_DEPS installs yfinance and the nine it pulls in, every one pinned, yfinance last "
-          "(18 in all with the fork's shioaji)")
+          "(19 in all with the fork's shioaji, certifi pinned directly since 0.1.37)")
 
 
 def main():

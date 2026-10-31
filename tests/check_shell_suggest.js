@@ -52,8 +52,8 @@ const LS = new Map();
 const ctx = { $: (id) => W[id], sessionId: "desktop-aaaa", running: false, composing: false, attachedFiles: [], tracked: [], said: [],
   trackFeature: (n) => ctx.tracked.push(n), scrollChat: (force) => { if (force === true) W["chat-scroll"].scrollTop = W["chat-scroll"].scrollHeight; }, srSay: (s) => ctx.said.push(s), autosize: () => {}, motionBaseMs: () => 0,
   escTop: () => ctx.topLayer || null, t: (k, v) => k + (v ? ":" + v.s : ""),
-  lsGet: (k) => (LS.has(k) ? LS.get(k) : null), lsSet: (k, v) => LS.set(k, String(v)), setTimeout, clearTimeout };
-new Function("ctx", "with (ctx) { " + sugSrc.replace(/^const SUG = /m, "var SUG = ") +
+  lsGet: (k) => (LS.has(k) ? LS.get(k) : null), lsSet: (k, v) => LS.set(k, String(v)), setTimeout, clearTimeout, tabBound: (f) => f, tabBg: () => false };
+new Function("ctx", "with (ctx) { " + sugSrc.replace(/^(?:const|let) SUG = /m, "var SUG = ") +
   "\n Object.assign(ctx, { sugPick, sugKindOf, sugChunk, sugTurnEnd, sugCollapse, sugPaint, sugSnap, sugSettle, sugUnsend, sugMode, SUG }); }")(ctx);
 const wait = () => new Promise((r) => setTimeout(r, 20));
 const shown = () => !W["sug-tray"].hidden;
@@ -214,18 +214,34 @@ const send = (msg, started = true) => { ctx.sugSnap(msg); W.ta.value = ""; ctx.s
   ok("重新打開:記 suggest_on、計數歸零、開關畫成開", ctx.tracked[ctx.tracked.length - 1] === "suggest_on" && LS.get("ws_sug_miss") === "0"
     && W["set-sug-sw"].attrs["aria-checked"] === "true" && ctx.sugMode() === "normal");
 
+  // ── 分頁(0.1.38):托盤開著時換進另一條的 SUG(tabShow 的 tabLoad 換整份,這裡就地換內容代替) ──
+  reset(); await arm("A 的那一句");
+  const shownA = ctx.tracked.filter((n) => n === "suggest_shown").length;
+  Object.assign(ctx.SUG, { text: "B 的那一句", kind: "step", shownOnce: false, used: false, gone: false, files: 0, filledText: null });
+  ctx.said = []; ctx.sugPaint();
+  ok("托盤本來就開著、換成另一條的建議:字換掉,那一句照記 suggest_shown、照念,之後沒用照算", shown() && W["sug-tray-t"].textContent === "B 的那一句" && shownA === 1
+    && ctx.tracked.filter((n) => n === "suggest_shown").length === 2 && ctx.said.length === 1 && ctx.SUG.shownOnce === true, { tracked: ctx.tracked, said: ctx.said });
+  typeIn("自己打的一句"); send("自己打的一句");
+  ok("…切過去那條沒用建議、自己打字送出:算一次沒用", ctx.tracked.includes("suggest_missed") && LS.get("ws_sug_miss") === "1", { tracked: ctx.tracked, miss: LS.get("ws_sug_miss") });
+  // 背景分頁的回合收尾:附件數要記它自己那份(composer.files),不是眼前那條的 attachedFiles
+  reset(); ctx.attachedFiles = []; ctx.CS = { loaded: { composer: { files: [{ name: "a.png" }, { name: "b.csv" }] } } }; ctx.tabBg = () => true;
+  ctx.sugChunk({ items: ["背景那條的建議"] }); ctx.sugTurnEnd(true); await wait();
+  ok("背景分頁收尾:SUG.files 記它自己的附件數(2),不是眼前那條的(0);托盤不畫", ctx.SUG.text === "背景那條的建議" && ctx.SUG.files === 2 && !shown(), { files: ctx.SUG.files });
+  ctx.tabBg = () => false; delete ctx.CS; reset();
+
   // ── 接線(原文) ──
   const sub = cut(app, "async function submitMessage(msg, opts)", "\n/* ── A′ 的標示");
   const sd = cut(app, "async function sendDraft()", "/* 真的送出一句話。");
   ok("sendDraft:清空輸入框之前先存快照", /running\) return;\n\s*if \(typeof sugSnap === "function"\) sugSnap\(msg\);[^\n]*\n\s*\$\("ta"\)\.value = "";/.test(sd));
   ok("submitMessage 開頭作廢(任何入口)", /if \(\(!msg && !attachments\.length\) \|\| running\) return false;\n\s*if \(typeof sugCollapse === "function"\) sugCollapse\(\);/.test(sub));
-  ok("跑起來(r.started)那一支之前結算", /if \(r\.started && typeof sugSettle === "function"\) sugSettle\(msg\);[^\n]*\n(?:\s*\/\/[^\n]*\n)?\s*if \(r\.started && attachments\.length[^\n]*\n\s*if \(r\.started\) \{ busyStart\(\); trackFeature\("chat_sent"\);/.test(sub));
+  ok("送出去了(started／queued)那一支之前結算", /if \(\(r\.started \|\| r\.queued\) && typeof sugSettle === "function"\) sugSettle\(msg\);[^\n]*\n(?:\s*\/\/[^\n]*\n)?\s*if \(\(r\.started \|\| r\.queued\) && attachments\.length[^\n]*\n\s*if \(r\.started \|\| r\.queued\) \{ trackFeature\("chat_sent"\);/.test(sub));
   ok("沒送出去的路都走 unlock:還原填入狀態", /const unlock = \(\) => \{ if \(typeof sugUnsend === "function"\) sugUnsend\(\);/.test(sub) && (sub.match(/unsend\(\); unlock\(\);|unlock\(\); unsend\(\);/g) || []).length >= 4);
-  ok("送出帶 suggestMode", /sendMessage\(\{\n\s*sessionId, suggestMode: typeof sugMode === "function" \? sugMode\(\) : "normal", message: msg,/.test(sub));
+  ok("送出帶 suggestMode", /const payload = inT\(\(\) => \(\{ sessionId, suggestMode: typeof sugMode === "function" \? sugMode\(\) : "normal", message: msg,/.test(sub) && /await window\.blave\.sendMessage\(payload\);/.test(sub));
   ok("setAttachments 之後重畫托盤", /box\.hidden = !attachedFiles\.length;\n\s*if \(typeof sugPaint === "function"\) sugPaint\(\);/.test(app));
-  ok("換對話 / 新對話(csClearChat)作廢", /function csClearChat\(\) \{[\s\S]*?sugCollapse\(\)[\s\S]*?\n\}/.test(app));
+  { const ct = fs.readFileSync(path.join(R, "chattabs.js"), "utf8");
+    ok("托盤跟著分頁走(0.1.37):換分頁不作廢(SUG 在每個分頁各一份),關分頁才作廢;csClearChat 不碰它", /\["SUG", \(\) => SUG, \(v\) => \{ SUG = v; \}/.test(ct) && /function tabsClose\([\s\S]*?sugCollapse\(\)[\s\S]*?\n\}/.test(ct) && !/sugCollapse/.test(app.slice(app.indexOf("function csClearChat("), app.indexOf("function csStartNew(")))); }
   ok("turn-event:suggestions → sugChunk", /c\.type === "suggestions"\) \{\n\s*if \(typeof sugChunk === "function"\) sugChunk\(c\);/.test(app));
-  const end = cut(app, "window.blave.onTurnEnd(async (r) => {", "\n});\n");
+  const end = cut(app, "function turnEndPre(r) {", "\n});\n");
   ok("turn-end 收尾才畫,出錯與停止都不畫", /sugTurnEnd\(!stopped && !faulted\);/.test(end) && end.indexOf("sugTurnEnd(") > end.indexOf("xpTurnEnd()"));
   ok("collectDraft 不認 suggestions(不會被升成回覆)", !/suggestions/.test(cut(app, "function collectDraft(", "function draftShow(")));
   ok("index.html:舊建議列與灰字拿掉;托盤是 .chat-input 第一個子元素(句子鈕 + ×),在 textarea 之前、.ci-bar 之前",
