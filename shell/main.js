@@ -45,13 +45,16 @@ const mergePath = (got, known, sep = path.delimiter) => got.concat(known.filter(
 /* Windows(純函式;tests/check_shell_login_path.js):GUI app 直接繼承登錄檔的使用者 PATH,不必開登入 shell。
    補的是已知安裝位置:Claude Code 原生安裝器(~\.local\bin)、npm 全域(%APPDATA%\npm,codex.cmd 在這)、WinGet 的捷徑資料夾
    (winget install Anthropic.ClaudeCode 把 claude.exe 連到這、再寫進使用者 PATH——Blave 開著時裝的,行程的 PATH 快照裡沒有)、
-   Git for Windows 的兩種裝法(Claude Code 的 Bash 工具靠它)。環境變數缺的那項會是相對路徑,不補。 */
+   Codex 官方 PowerShell 安裝器(chatgpt.com/codex/install.ps1)的可見 bin 資料夾(%LOCALAPPDATA%\Programs\OpenAI\Codex\bin,
+   同樣只寫進使用者 PATH、Blave 開著時裝的拿不到)、Git for Windows 的兩種裝法(Claude Code 的 Bash 工具靠它)。
+   環境變數缺的那項會是相對路徑,不補。 */
 function winPath(env) {
   const got = String(env.PATH || env.Path || "").split(";").map((s) => s.trim());
   const known = [
     path.win32.join(env.USERPROFILE || "", ".local", "bin"),
     path.win32.join(env.APPDATA || "", "npm"),
     path.win32.join(env.LOCALAPPDATA || "", "Microsoft", "WinGet", "Links"),
+    path.win32.join(env.LOCALAPPDATA || "", "Programs", "OpenAI", "Codex", "bin"),
     path.win32.join(env.LOCALAPPDATA || "", "Programs", "Git", "cmd"),
     path.win32.join(env.ProgramFiles || "", "Git", "cmd"),
   ].filter((d) => path.win32.isAbsolute(d));
@@ -164,7 +167,8 @@ function detectLogWrite(f, entry) {
 
 // 偵測結果契約(renderer 據此畫各列):
 // { claude: {installed, loggedIn, authMethod, email, path, why, how}, codex: {installed, loggedIn, path, why, via} }
-// why = detectWhy,能用時 null;how = cliAuthHow(authMethod)(telemetry.js),JSON 讀不出來是 null;via = codex 是哪種裝法("app" = ChatGPT.app / Store 版內附那顆,"cli" = 其他),失敗時給哪一種退路看它
+// why = detectWhy,能用時 null;how = cliAuthHow(authMethod)(telemetry.js),JSON 讀不出來是 null;via = codex 是哪種裝法("pkg" = 隨包那顆,
+// "app" = ChatGPT.app / Store 版內附那顆,"cli" = 其他;整次偵測超時是 null),失敗時給哪一種退路看它
 const CODEX_IN_CHATGPT = "/Applications/ChatGPT.app/Contents/Resources/codex";
 /* Windows 的 codex.cmd 要解到真的 codex.exe:runtime/codex_engine.py 用 create_subprocess_exec 起它,吃不了 .cmd。
    npm 的 bin/codex.js(0.156.1)找的是 <平台套件>/vendor/<triple>/bin/codex.exe,退路是 @openai/codex 自己的 vendor/;
@@ -241,10 +245,16 @@ async function claudePath(envPath, seen) {
   if (seen) seen.found = binKind(found);
   return (found && (seen || found !== BAD_BIN.claude) ? found : null) || bundledClaude(BASE, WIN);
 }
+/* 隨包那顆 codex(shell/codexpkg.js):釘版 → 已裝好的最高版(升版抓新版期間不斷線)。對話、偵測、〔登入〕都先問它,沒有才走上面的偵測鏈。
+   skipBad = 上一次偵測判它跑不起來(BAD_BIN):每一則訊息跳過它、走偵測鏈;偵測本身(不帶 skipBad)一律重試它 */
+function codexBundled(skipBad) {
+  const b = codexpkg.installed(BASE, CODEX_PIN, TRIPLE, WIN, fs);
+  return b && !(skipBad && BAD_BIN.codex === b.path) ? b.path : null;
+}
 /* 這一輪要跑的 codex 執行檔。**只解路徑**,不跑 `login status`——每一則訊息都要用,detectAgents() 一次要開到四個子行程;
    連 Claude 的人一次都不必開(SDK 自己找 claude)。來源仍然是當下的偵測,不是連結紀錄裡那個 agent 寫得到的字(稽核 R4)。 */
-async function codexBinNow() { return codexPath(await loginShellPath()); }
-async function detectAgents() {
+async function codexBinNow() { return codexBundled(true) || codexPath(await loginShellPath()); }
+async function detectAgentsRaw() {
   const envPath = await loginShellPath();
   const out = {
     claude: { installed: false, loggedIn: false, authMethod: null, email: null, path: null, why: null, authOutside: false, how: null },
@@ -300,12 +310,13 @@ async function detectAgents() {
     // 0.155.0-alpha:`login status`、`exec --json` 都在)。只查 PATH 的話,一大群
     // 「有 Codex」的人會看到「未偵測到」。Windows 的對應是 Store 版 Codex 桌面版(storeCodexPath)。
     // 官方契約:`codex login status` 登入=0、未登入=1(原始碼 cli/src/login.rs:443)
-    const { bin: codexBin, r, raw } = await probe("codex", (seen) => codexPath(envPath, seen, true), ["login", "status"], ["login", "status"]);
-    rec.codex.bin = binKind(codexBin);
+    const { bin: codexBin, r, raw } = await probe("codex", (seen) => codexBundled(!seen) || codexPath(envPath, seen, true), ["login", "status"], ["login", "status"]);
+    // 隨包那顆用身分認,不看路徑樣式:Homebrew cask 的 Caskroom/codex/<版>/bin/codex 跟我們的佈局一模一樣
+    rec.codex.bin = codexBin && codexBin === codexBundled(false) ? "pkg" : binKind(codexBin);
     if (!codexBin) return;
     out.codex.installed = true;
     out.codex.path = codexBin;
-    out.codex.via = rec.codex.bin === "chatgpt" || rec.codex.bin === "store" ? "app" : "cli";
+    out.codex.via = rec.codex.bin === "pkg" ? "pkg" : rec.codex.bin === "chatgpt" || rec.codex.bin === "store" ? "app" : "cli";
     Object.assign(rec.codex, runRec(r));
     out.codex.loggedIn = r.code === 0;
     if (!out.codex.loggedIn && !cantRun(r) && !r.timedOut) out.codex.authOutside = await outside(raw, (x) => x.code === 0);
@@ -315,6 +326,23 @@ async function detectAgents() {
   out.claude.why = detectWhy("claude", rec.claude); out.codex.why = detectWhy("codex", rec.codex);
   detectLogWrite(path.join(BASE, "state", "detect.log"), { ts: new Date().toISOString(), os: process.platform, ...rec });
   return out;
+}
+/* 整次偵測的上限(spec codex-detect-gaps §3.4):裡面每一步都有上限,但任何一處 reject 畫面就永遠停在「偵測中…」、
+   登入鈕全部鎖死(uid 33959)。最壞路徑是 Windows codex 那條:which + Store PowerShell + 登入檢查,cantRun 後退路再走一輪,兩倍再留 10 秒。
+   超時或 reject 回完整形狀、兩條都是 installed:true + *_timeout:畫面畫「沒有回應」(不是「未偵測到」),跟 detectWhy 的 _timeout 同一個意思。
+   內層超時後還會跑完、再寫一行 detect.log、更新 BAD_BIN／storeCodex,接受 */
+const DETECT_TOTAL_MS = 2 * (5000 + 15000 + LOGIN_CHECK_MS) + 10000;
+async function detectAgents(ms = DETECT_TOTAL_MS) {
+  let timer = null, err = null, out = null;
+  try { out = await Promise.race([detectAgentsRaw(), new Promise((r) => { timer = setTimeout(r, ms, null); })]); }
+  catch (e) { err = e; }
+  clearTimeout(timer);
+  if (out) return out;
+  detectLogWrite(path.join(BASE, "state", "detect.log"), { ts: new Date().toISOString(), os: process.platform, hung: true, err: err ? String((err && (err.code || err.name)) || "Error") : "deadline" });
+  return {
+    claude: { installed: true, loggedIn: false, authMethod: null, email: null, path: null, why: "claude_timeout", authOutside: false, how: null },
+    codex: { installed: true, loggedIn: false, path: null, why: "codex_timeout", via: null, authOutside: false },
+  };
 }
 
 /* 本機 agent 的登入不是我們的 OAuth:帳號是用戶跟 Anthropic / OpenAI 之間的事,憑證在 CLI
@@ -580,6 +608,44 @@ function mobileView() {
   return _mv;
 }
 const mobileViewState = () => ({ ...mobileView().state(), name: deviceLabel() });
+/* 手機 App 跟這台電腦的 agent 對話(relay.js;spec mobile-agent-chat-mvp §1.3)。憑證與第 1 條遮蔽要比對的值只在這個行程 */
+let _relay = null, relayPhoneEndAt = 0, relayPhoneOn = false;
+const RELAY_AWAKE_TAIL_MS = 2 * 60 * 1000;   // 手機那一輪結束後再撐 2 分鐘(等用戶回下一句)
+function relay() {
+  if (!_relay) _relay = require("./relay").createRelay({
+    dir: app.getPath("userData"), stateDir: path.join(BASE, "state"), apiBase: API_BASE,
+    post: (u, b, extra) => postJSON(u, b, extra), getCreds: blaveCreds, installId: () => tm().installId(), ver: app.getVersion(),
+    log: (m) => console.error("[relay]", m),
+    startTurn: (payload, origin) => startTurn(payload, origin), stopTurn: (sid) => stopTurn(sid, "phone"), turnBusy: (sid) => turns.has(sid),
+    isRestarting: () => !!restarting,
+    sessions: { list: listSessions, rowsAfter: sessionRowsAfter, maxId: sessionMaxId, exists: sessionExists, remove: deleteSessionLocal },
+    turnArgs: relayTurnArgs, known: relayKnown, origins: { add: chatOriginAdd, get: chatOriginMids },
+    track: (name) => tm().track("feature_used", { name }),
+    onChange: (st) => { for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed() && isOurPageUrl(w.webContents.getURL())) w.webContents.send("relay-state", relayStateOut(st)); },
+    onMobileActive: (on) => { if (relayPhoneOn && !on) relayPhoneEndAt = Date.now(); relayPhoneOn = on; startStep("awake", awakeSync); },
+  });
+  return _relay;
+}
+// 給畫面的只有開關、同步進度與數字,沒有憑證、沒有對話內容
+const relayStateOut = (st) => ({ visible: st.visible, on: st.on, pending: st.pending, signedIn: st.signedIn, sync: st.sync, mobileTurns: st.mobileTurns, queued: st.queued, phoneSids: st.phoneSids, pairSeq: st.pairSeq });
+/* 手機那一輪用電腦當下存的引擎與型號(手機 MVP 不給選):照設定頁選擇器存的那一組;沒有就交給 turnModelArgs 的預設 */
+function relayTurnArgs() {
+  const kind = (loadConnection() || {}).kind, slot = (loadModelPrefs() || {})[kind] || {};
+  const model = typeof slot.model === "string" ? slot.model : null;
+  const effort = model && slot.efforts && typeof slot.efforts[model] === "string" ? slot.efforts[model] : null;
+  return { ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
+}
+/* 第 1 條遮蔽(spec §4.3):workspace/.env 像秘密的值、自帶的 AI 金鑰。值只在這個行程比對,不寫檔、不 log;.env 5 秒內不重讀 */
+let _relayEnv = { at: 0, vals: [] };
+function relayKnown() {
+  if (Date.now() - _relayEnv.at > 5000) {
+    let txt = null; try { txt = fs.readFileSync(path.join(WS, ".env"), "utf8"); } catch (_) { txt = null; }
+    _relayEnv = { at: Date.now(), vals: require("./redact").envSecretValues(txt) };
+    let llm = null; try { const k = loadLlmKey(); llm = k && typeof k.key === "string" ? k.key : null; } catch (_) { llm = null; }
+    if (llm) _relayEnv.vals.push(llm);
+  }
+  return _relayEnv.vals;
+}
 /* Blave 餘額(balance.js):電腦版自己的端點,帶帳號 token + app_secret;只回數字給自家畫面,憑證不出主行程。 */
 let _balance = null;
 function balanceHost() {
@@ -786,6 +852,7 @@ async function signOutBlave() {
   rotator().pause();          // 撤銷要等網路(最長 20 秒),這段期間定期檢查不許再換:換了就撤不到、伺服器留一列沒人持有的
   // 平台上這台的部位快照要在撤銷之前刪:撤銷之後這組憑證就刪不了(刪不成也照樣登出,api 讀取時會濾掉已撤銷的那台)
   try { await mobileView().signOut(); } catch (_) { /* 不擋登出 */ }
+  try { await relay().signOut(); } catch (_) { /* 同上:伺服器那份跟著撤銷的 token 藏起來,30 天無活動自己清 */ }
   const tok = loadToken();
   let revoked = false;
   if (tok) {
@@ -1136,6 +1203,30 @@ function syncOfficialOnUpdate() {
 }
 
 const AGENT_SDK = "claude-agent-sdk==0.2.159";
+// Codex 引擎隨包的釘版:runtime/CODEX_VERSION 是唯一來源(tests/check_shell_build_config.js、check_sdk_pin.py 釘住兩邊一樣)。
+// 升版 = 改那個檔 + 這裡 + 電腦版發版;用戶端下次用到 Codex 時抓新版,抓好前走已有的舊版,舊版下次開 app 才刪
+const CODEX_PIN = "0.166.0";
+const codexpkg = require("./codexpkg");
+const TRIPLE = codexpkg.tripleOf(process.platform, process.arch);
+let _codexPkg = null;
+function codexPkg() {
+  if (!_codexPkg) _codexPkg = codexpkg.createCodexPkg({
+    fs, spawn, fetchBuffer: require("./fetchbuf").fetchBuffer, fetchToFile: require("./fetchbuf").fetchToFile,
+    base: BASE, pin: CODEX_PIN, triple: TRIPLE, win: WIN, platform: process.platform, env: process.env,
+    unsupported: codexpkg.unsupported(process.platform, process.arch, process.env, fs),
+    log: (m) => console.error(m), track: (ev, props) => tm().track(ev, props),
+    onChange: (s) => { for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed() && isOurPageUrl(w.webContents.getURL())) w.webContents.send("codex-pkg-state", s); },
+  });
+  return _codexPkg;
+}
+/* 開 app:刪舊版(現在在用的那一版留著),連的是 Codex 就在背景補抓。不等它、失敗只留 log(列上有重試;送訊息時走偵測鏈或講正在下載)。
+   只在開 app 這一刻刪:之後可能有回合正握著舊版 */
+function codexKick() {
+  if (liveTurnCount() > 0) return;
+  const cur = codexpkg.installed(BASE, CODEX_PIN, TRIPLE, WIN, fs);
+  codexpkg.sweep(BASE, cur ? [CODEX_PIN, cur.version] : [CODEX_PIN], { fs, win: WIN, log: (m) => console.error(m) });
+  if ((loadConnection() || {}).kind === "codex") codexPkg().ensure().then((r) => { if (!r.ok && !r.aborted) console.error("[codexpkg] background download failed: " + r.kind); });
+}
 // cryptography 跟 SDK 一起釘:SDK → mcp → pyjwt[crypto] 拉進它,50.x 起 macOS 只出 arm64 wheel,Intel(含被 Rosetta
 // 跑成 x64)會退到從原始碼編(要 Rust,用戶機沒有)——0.0.6 通用版在 Intel 就死在這裡。48.0.1 是最後一版 universal2 wheel,
 // 兩種架構釘同一版。記號檔比的是整串,所以既有 venv 在下一則訊息(ensure-engine 每次送訊息前都跑)會重跑一次
@@ -1773,14 +1864,56 @@ function loadSession(id) {
   if (!okSessionId(id)) return [];
   const db = sessionDb(true); if (!db) return [];
   try {
-    return db.prepare("SELECT role, content, created_at FROM turns WHERE session_id = ? ORDER BY id").all(id)
-      .map((r) => ({ role: r.role, content: r.content, ts: r.created_at }));
+    const mob = chatOriginMids(id);
+    return db.prepare("SELECT id, role, content, created_at FROM turns WHERE session_id = ? ORDER BY id").all(id)
+      .map((r) => ({ role: r.role, content: r.content, ts: r.created_at, ...(mob.has(r.id) ? { origin: "mobile" } : {}) }));
   } catch (_) { return []; } finally { db.close(); }
+}
+/* relay.js 用:取 id 的那幾支。latest = 從最新往回取 limit 則再照時間排(第一次上傳只要最新 500 則) */
+function sessionRowsAfter(id, afterId, limit, latest) {
+  if (!okSessionId(id)) return [];
+  const db = sessionDb(true); if (!db) return [];
+  const n = Math.max(1, Math.min(Number(limit) || 100, 1000)), after = Number(afterId) || 0;
+  try {
+    if (latest && !after) return db.prepare("SELECT id, role, content, created_at FROM turns WHERE session_id = ? ORDER BY id DESC LIMIT ?").all(id, n).reverse();
+    return db.prepare("SELECT id, role, content, created_at FROM turns WHERE session_id = ? AND id > ? ORDER BY id LIMIT ?").all(id, after, n);
+  } catch (_) { return []; } finally { db.close(); }
+}
+function sessionMaxId(id) {
+  if (!okSessionId(id)) return 0;
+  const db = sessionDb(true); if (!db) return 0;
+  try { const r = db.prepare("SELECT MAX(id) AS m FROM turns WHERE session_id = ?").get(id); return (r && r.m) || 0; } catch (_) { return 0; } finally { db.close(); }
+}
+const sessionExists = (id) => sessionMaxId(id) > 0;
+/* 哪幾句是手機送的(對話裡「來自手機」標籤;上傳時 origin = app):state/chat-origin/<sid>.json,刪對話一起刪。
+   檔案 { mobile: { <turn id>: <relay 的 message_id> } }:上傳時那句帶 message_id(api 用它取代自己 fold 的暫存歷史) */
+const ORIGIN_DIR = path.join(BASE, "state", "chat-origin");
+function chatOriginMids(id) {
+  const m = new Map();
+  if (!okSessionId(id)) return m;
+  try {
+    const o = JSON.parse(fs.readFileSync(path.join(ORIGIN_DIR, id + ".json"), "utf8"));
+    if (o && o.mobile && typeof o.mobile === "object" && !Array.isArray(o.mobile)) for (const [k, v] of Object.entries(o.mobile)) if (/^\d+$/.test(k) && typeof v === "string") m.set(Number(k), v);
+  } catch (_) { /* 沒檔 = 沒有手機送的 */ }
+  return m;
+}
+function chatOriginAdd(id, rows) {
+  if (!okSessionId(id) || !Array.isArray(rows)) return false;
+  const m = chatOriginMids(id);
+  for (const r of rows) if (r && Number.isInteger(r.id) && typeof r.mid === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(r.mid)) m.set(r.id, r.mid);
+  const keep = [...m.entries()].slice(-2000);
+  try { fs.mkdirSync(ORIGIN_DIR, { recursive: true }); fs.writeFileSync(path.join(ORIGIN_DIR, id + ".json"), JSON.stringify({ mobile: Object.fromEntries(keep) }), { mode: 0o600 }); return true; } catch (_) { return false; }
+}
+/* 畫面刪的:刪成功就讓 relay 記一筆待送(手機那邊也刪);手機要刪的走 deleteSessionLocal,不再回送一次 */
+function deleteSession(id) {
+  const ok = deleteSessionLocal(id);
+  if (ok && typeof _relay !== "undefined" && _relay) { try { _relay.sessionDeleted(id); } catch (_) { /* 待送記不成:api 30 天無活動自己清 */ } }
+  return ok;
 }
 // 只拒刪表上那條(回覆中、正要開始、排隊中:回覆沒地方落);別條照刪。runtime 那邊同時在寫 session.db(WAL、30 秒 busy timeout),
 // 這裡也等一下寫鎖,不然撞到它 commit 的那一瞬就回 false
-function deleteSession(id) {
-  if (!okSessionId(id) || turns.has(id)) return false;
+function deleteSessionLocal(id) {
+  if (!okSessionId(id) || turns.has(id) || (typeof _relay !== "undefined" && _relay && _relay.isMobile(id))) return false;
   const db = sessionDb(false); if (!db) return false;
   try {
     db.exec("PRAGMA busy_timeout = 3000");
@@ -1794,6 +1927,7 @@ function deleteSession(id) {
     try { fs.rmSync(path.join(IMG_DIR, id), { recursive: true, force: true }); } catch (_) { /* 圖刪不掉不擋 */ }
     try { fs.rmSync(path.join(RES_DIR, id), { recursive: true, force: true }); } catch (_) { /* 結果卡同上 */ }
     try { fs.rmSync(path.join(META_DIR, id + ".json"), { force: true }); } catch (_) { /* 對話 meta 同上 */ }
+    try { fs.rmSync(path.join(ORIGIN_DIR, id + ".json"), { force: true }); } catch (_) { /* 手機標記同上 */ }
     try { fs.rmSync(path.join(BASE, "state", "browser-snapshots", id), { recursive: true, force: true }); } catch (_) { /* 瀏覽器快照同上 */ }
     try { fs.rmSync(path.join(XP_DIR, id), { recursive: true, force: true }); } catch (_) { /* 轉出卡的快照同上 */ }
     return true;
@@ -1910,6 +2044,8 @@ function startImageServer() {
         if (imgWin && !imgWin.isDestroyed())
           imgWin.webContents.send("turn-event", { type: "image", session_id: j.session_id, sid: j.session_id,   // sid:分頁路由用(chattabs tabsOnEvent);不帶會落到眼前那條、被 session_id 檢查丟掉,背景分頁當下不出圖
             src: `data:${j.mime};base64,${j.b64}`, caption });
+        // 手機那一輪的圖也送一份給手機(relay.js 只在那條正在跑手機的回合時送)
+        if (typeof _relay !== "undefined" && _relay) _relay.image(j.session_id, j.mime, j.b64, caption).catch(() => {});
         end(200);
       } catch (_) { end(400); }
     });
@@ -2687,8 +2823,52 @@ function libraryInstalled(patch) {
    讀取清洗同 libInstalledClean 的精神:形狀不對當沒設、絕不 throw;stratOrder 去重保序、旗標值收 1–6(api 同一條寬容規則,畫面只畫 1–3)。
    listStrategies 不排、不帶偏好——套用在 renderer(同 web「api 不排序」的分工) */
 const STRAT_PREFS_MAX = 200;
+/* 側欄策略資料夾(spec strategy-sidebar-folders §3、§10)。72 個 emoji 與上限以 api openclaw/agent_strategies.py 為準,
+   renderer/stratgroups.js 與 api 各一份副本,tests/check_web_desktop_parity.js 逐字比對 */
+const SG_EMOJI = (
+  "⭐🔥💡🎯🧪🚀💎🏆📌🔖📦🧩"
+  + "📈📉📊💹💰💵💴💶💷🏦🌐🌏"
+  + "⏰⏳🔁🔄🔀🔍🧭🔭🌊🎲🧠🔬"
+  + "🐂🐻🐳🦈🦅🦊🦉🐢🐇🐝🐙🦄"
+  + "🌱🌲🌵🍀🌸🌙⛅🌈🌋🌞☔🍁"
+  + "⚓🔑🔧🔨🧰🧲📚📝📎🎁🎨🎈"
+);
+const SG_EMOJI_SET = new Set([...SG_EMOJI]);
+const SG_FOLDERS_MAX = 20, SG_NAME_MAX = 20, SG_ID_RE = /^f[0-9a-z]{6,12}$/, SG_COLL_RE = /^(f[0-9a-z]{6,12}|_u)$/;
+/* 讀取端只驗形狀:emoji 不比對清單(新版加的值舊版原樣保留),寫入端 stratPrefsSet 才比。
+   超限不整包失效:folders 截 20;map 超過 200 先丟不在 stratNames() 的鍵——讀不到目錄(回 [])時跳過這步直接截,否則清光歸屬 */
+function stratGroupsClean(g) {
+  const out = { v: 1, folders: [], map: {} };
+  if (!g || typeof g !== "object" || Array.isArray(g) || (g.v !== undefined && g.v !== 1)) return out;
+  const ids = new Set();
+  for (const f of Array.isArray(g.folders) ? g.folders : []) {
+    if (out.folders.length >= SG_FOLDERS_MAX) break;
+    if (!f || typeof f !== "object") continue;
+    const { id, name, emoji } = f;
+    if (typeof id !== "string" || !SG_ID_RE.test(id) || ids.has(id)) continue;
+    if (typeof name !== "string" || !name.trim() || [...name].length > SG_NAME_MAX) continue;
+    ids.add(id);
+    out.folders.push({ id, name, emoji: typeof emoji === "string" && emoji && emoji.length <= 8 ? emoji : null });
+  }
+  const m = g.map && typeof g.map === "object" && !Array.isArray(g.map) ? g.map : {};
+  let keys = Object.keys(m).filter((k) => LIB_NAME_RE.test(k) && typeof m[k] === "string" && ids.has(m[k]));
+  if (keys.length > STRAT_PREFS_MAX) {
+    const have = new Set(stratNames());
+    if (have.size) keys = keys.filter((k) => have.has(k));
+    keys = keys.slice(0, STRAT_PREFS_MAX);
+  }
+  for (const k of keys) out.map[k] = m[k];
+  return out;
+}
+// 收合狀態是版面偏好(canon › 可收合側欄),兩個視角各一份;_u = 未分類
+function stratGroupsCollapsedClean(c) {
+  const out = { local: [], cloud: [] };
+  if (!c || typeof c !== "object" || Array.isArray(c)) return out;
+  for (const k of ["local", "cloud"]) if (Array.isArray(c[k])) out[k] = [...new Set(c[k].filter((x) => typeof x === "string" && SG_COLL_RE.test(x)))].slice(0, SG_FOLDERS_MAX + 1);
+  return out;
+}
 function stratPrefsClean(o) {
-  const out = { stratOrder: [], stratFlags: {} };
+  const out = { stratOrder: [], stratFlags: {}, stratGroups: stratGroupsClean(null), stratGroupsCollapsed: stratGroupsCollapsedClean(null) };
   if (!o || typeof o !== "object" || Array.isArray(o)) return out;
   if (Array.isArray(o.stratOrder) && o.stratOrder.length <= STRAT_PREFS_MAX) {
     const seen = new Set();
@@ -2697,6 +2877,8 @@ function stratPrefsClean(o) {
   const f = o.stratFlags;
   if (f && typeof f === "object" && !Array.isArray(f) && Object.keys(f).length <= STRAT_PREFS_MAX)
     for (const k of Object.keys(f)) if (LIB_NAME_RE.test(k) && Number.isInteger(f[k]) && f[k] >= 1 && f[k] <= 6) out.stratFlags[k] = f[k];
+  out.stratGroups = stratGroupsClean(o.stratGroups);
+  out.stratGroupsCollapsed = stratGroupsCollapsedClean(o.stratGroupsCollapsed);
   return out;
 }
 /* 對話分頁(renderer/chattabs.js):開著哪些、順序、選中哪個——這台裝置的版面偏好,存 ui-prefs、不上傳(spec chat-tabs §2 順序與記憶)。
@@ -2711,12 +2893,20 @@ function tabsPrefsSet(p) { const c = tabsPrefsClean(p); try { uiPrefsPatch({ cha
 function stratPrefsGet() {
   try { return stratPrefsClean(JSON.parse(fs.readFileSync(uiPrefsPath(), "utf8"))); } catch (_) { return stratPrefsClean(null); }
 }
-// patch = { stratOrder?, stratFlags? }:只動有帶(且形狀對)的鍵;寫不進去不回報——順序 / 旗標是偏好不是資料,畫面靠記憶體值維持
+const plainObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+/* patch = { stratOrder?, stratFlags?, stratGroups?, stratGroupsCollapsed? }:只動有帶(且形狀對)的鍵;寫不進去不回報——偏好不是資料,畫面靠記憶體值維持。
+   stratGroups 收到的是整包,分不出這次改了哪個:emoji 跟檔內同 id 比,沒變放行(舊版看不懂的值不被改壞),變了且不在清單 → null */
 function stratPrefsSet(patch) {
-  const p = patch && typeof patch === "object" && !Array.isArray(patch) ? patch : {};
+  const p = plainObj(patch) ? patch : {};
   const c = stratPrefsClean(p), w = {};
   if (Array.isArray(p.stratOrder)) w.stratOrder = c.stratOrder;
-  if (p.stratFlags && typeof p.stratFlags === "object" && !Array.isArray(p.stratFlags)) w.stratFlags = c.stratFlags;
+  if (plainObj(p.stratFlags)) w.stratFlags = c.stratFlags;
+  if (plainObj(p.stratGroups)) {
+    const was = new Map(stratPrefsGet().stratGroups.folders.map((x) => [x.id, x.emoji]));
+    c.stratGroups.folders.forEach((x) => { if (x.emoji !== null && x.emoji !== was.get(x.id) && !SG_EMOJI_SET.has(x.emoji)) x.emoji = null; });
+    w.stratGroups = c.stratGroups;
+  }
+  if (plainObj(p.stratGroupsCollapsed)) w.stratGroupsCollapsed = c.stratGroupsCollapsed;
   if (Object.keys(w).length) try { uiPrefsPatch(w); } catch (_) { /* 寫不進去:這一次的記憶只在畫面上 */ }
   return stratPrefsGet();
 }
@@ -2828,9 +3018,10 @@ function turnSidOr(sid) {
   if (typeof sid === "string" && sid) return sid;
   return turns.size === 1 ? turns.keys().next().value : null;
 }
-function stopTurn(sidArg) {
+function stopTurn(sidArg, by) {
   const sid = turnSidOr(sidArg), rec = sid ? turns.get(sid) : null;
   if (!rec) return false;
+  if (rec.origin === "mobile" && by !== "phone") tm().track("feature_used", { name: "phone_turn_stop" });   // 電腦前的人停掉手機那一輪(手機自己按的停止 by = phone)
   if (rec.phase === "queued") { turnDequeue(rec); return true; }   // 排隊中的停止 = 取消排隊
   try { fs.mkdirSync(path.dirname(rec.stopFile), { recursive: true }); fs.writeFileSync(rec.stopFile, ""); } catch (_) { return false; }
   let seen = rec.child;
@@ -2907,6 +3098,7 @@ const AWAKE_START_MS = 60000;   // 剛按啟動、報告還沒收斂的那一段
 function awakeWanted(o) {
   if (o.win && o.twHeld) return true;
   if (!o.keepAwake) return false;
+  if (o.phone) return true;   // 手機那一輪在跑或排隊、或結束不到 2 分鐘(spec mobile-agent-chat-mvp §1.3)
   if (o.startAt && o.now - o.startAt < AWAKE_START_MS) return true;
   const st = o.st, r = st && st.report;
   if (!r) return false;
@@ -3005,7 +3197,8 @@ function replySoundSet(on) {
 }
 function awakeSync() {
   const st = _tradeHost ? _tradeHost.status() : null;
-  const want = awakeWanted({ st, startAt: awakeStartAt, now: Date.now(), keepAwake: keepAwakeGet(), win: WIN, twHeld: WIN ? twLots().held : false, prev: awakeBlocker !== null });
+  const phone = relayPhoneOn || (relayPhoneEndAt > 0 && Date.now() - relayPhoneEndAt < RELAY_AWAKE_TAIL_MS);
+  const want = awakeWanted({ st, startAt: awakeStartAt, now: Date.now(), keepAwake: keepAwakeGet(), win: WIN, twHeld: WIN ? twLots().held : false, prev: awakeBlocker !== null, phone });
   awakeBlocker = awakeApply(want, awakeBlocker, powerSaveBlocker);
 }
 const awakeRelease = () => { awakeBlocker = awakeApply(false, awakeBlocker, powerSaveBlocker); };
@@ -3289,6 +3482,8 @@ async function runTurn(rec, { sessionId, message, model: rawModel, effort: rawEf
   // 偵測不到就**整輪失敗**,絕不退回去跑 Claude(稽核 ①):用戶連的是 Codex,靜默換一家供應商 = 換一條帳、換一個模型,
   // 而畫面上的連線狀態還寫著 Codex。畫面會請他重新偵測 / 重連。
   const codexBin = conn.kind === "codex" ? await codexBinNow() : null;
+  // 隨包那顆還在抓、偵測鏈上也沒有:講「正在下載」,不叫他去重新偵測
+  if (conn.kind === "codex" && !codexBin && _codexPkg && _codexPkg.busy()) throw new Error("AGENT_BIN_DOWNLOADING");
   if (conn.kind === "codex" && !codexBin) throw new Error("AGENT_BIN_MISSING");
   const useCodex = !!codexBin;
   const llmKey = conn.kind === "apikey" ? loadLlmKey() : null;
@@ -3364,6 +3559,8 @@ async function runTurn(rec, { sessionId, message, model: rawModel, effort: rawEf
     BLAVE_AGENT_STATE: path.join(BASE, "state"),
     BLAVE_AGENT_DB: path.join(BASE, "state", "session.db"),
     BLAVE_TURN_INTERRUPT_FILE: rec.stopFile,
+    // 回合來源(spec §2.8):外殼內部叫 mobile,對 runtime 與 api 一律 app;runtime 只寫進回合 log
+    ...(rec.origin === "mobile" ? { BLAVE_TURN_ORIGIN: "app" } : {}),
     // K 線走 Binance 公開 API(桌面版沒有 Blave 資料訂閱)。獨立、明確 opt-in 的
     // 變數,不用「有沒有 BLAVE_PROXY_TOKEN」推論——機隊上的 cron/manager 不一定
     // 帶著那顆 token,推論錯就是整支機隊無聲換資料源。
@@ -3433,6 +3630,8 @@ async function runTurn(rec, { sessionId, message, model: rawModel, effort: rawEf
 /* 回合的事件送主視窗(只有一個);每一則補 sid,畫面照它找分頁。視窗關掉(結束時回合才收尾)、還沒開:不送,送到已銷毀的 webContents 會丟例外 */
 function turnWin() { return BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && isOurPageUrl(w.webContents.getURL())) || null; }
 function sendTurn(sid, ch, payload) {
+  // 手機那一輪的輸出要在「有沒有視窗」之前接走:視窗收起來正是手機回合最常見的情形
+  if (typeof _relay !== "undefined" && _relay) { try { _relay.onTurn(sid, ch, payload); } catch (e) { console.error("[relay] tap " + ((e && e.message) || e)); } }
   const w = turnWin();
   if (!w) return false;
   try { w.webContents.send(ch, { ...(payload || {}), sid }); return true; } catch (_) { return false; }
@@ -3465,7 +3664,8 @@ async function startTurn(payload, origin) {
   const rec = newTurnRec(sid, origin === "mobile" ? "mobile" : "desktop", turnCountsCloud(payload));
   turns.set(sid, rec);
   // 手機來的對話:畫面開成背景分頁(加在最後、不切過去,spec 技術方案 §1.5);事件照 sid 畫進去
-  if (rec.origin === "mobile") sendTurn(sid, "tab-open", { origin: "mobile", focus: false });
+  // started:這一輪不是畫面送出的,畫面要從這裡才知道那個分頁在回覆中;echo = 手機送的那句,歷史畫完後接在後面(帶「來自手機」)
+  if (rec.origin === "mobile") sendTurn(sid, "tab-open", { origin: "mobile", focus: false, echo: typeof payload.message === "string" ? payload.message : "" });
   if (rec.cloud) { try { cloudHost().start(); } catch (_) { /* 起不來:名額照讀不到算 */ } }
   // 最低版本閘:只擋 Blave AI;連自己 CLI 的人照常聊
   try {
@@ -3484,6 +3684,8 @@ async function startTurn(payload, origin) {
     sendTurn(sid, "turn-event", { type: "queued" });
     return { queued: true };
   }
+  // 手機那一輪不是畫面送出的:畫面要從這裡才知道那個分頁在回覆中(過了版本閘才送,擋下的那條畫面不會卡在回覆中)
+  if (rec.origin === "mobile") sendTurn(sid, "turn-event", { type: "started" });
   turnLaunch(rec, payload);
   return { started: true };
 }
@@ -3639,6 +3841,10 @@ app.whenReady().then(() => {
   // 引擎裝好(或本來就在)之後才起本機常駐程式
   handle("ensure-engine", () => ensureEngineShared().then((r) => { tradeStartIfReady(); return r; }));
   handle("engine-state", () => engineSetup().snapshot());
+  // Codex 引擎隨包:連結畫面／設定 › 模型接入／額度用完 modal 的〔連結〕〔再試一次〕;進度另由 codex-pkg-state 推
+  // reinstall 會先刪掉釘版那一包:有回合在跑就當一般 ensure(畫面那一列可能是舊的偵測結果,回合其實正握著它)
+  handle("codex-pkg-ensure", (_e, opts) => codexPkg().ensure({ reinstall: !!(opts && opts.reinstall === true) && liveTurnCount() === 0 }));
+  handle("codex-pkg-state", () => codexPkg().snapshot());
   // app.getLocale() 是**系統**語系(macOS 偏好設定),不吃 LANG 環境變數。
   // BLAVE_LANG 是覆蓋用的:開發要看英文版、或用戶的系統是中文但想用英文介面。
   handle("get-locale", () => process.env.BLAVE_LANG || app.getLocale());
@@ -3941,8 +4147,8 @@ app.whenReady().then(() => {
   handle("welcome-prefs-set", (_e, p) => onbPrefsSet(p), { done: false, cloudDone: false });
   handle("intro-check", () => introCheck(), { show: false });
   handle("intro-seen", () => introSeenSet(), false);
-  handle("strat-prefs", () => stratPrefsGet(), { stratOrder: [], stratFlags: {} });
-  handle("strat-prefs-set", (_e, patch) => stratPrefsSet(patch), { stratOrder: [], stratFlags: {} });
+  handle("strat-prefs", () => stratPrefsGet(), stratPrefsClean(null));
+  handle("strat-prefs-set", (_e, patch) => stratPrefsSet(patch), stratPrefsClean(null));
   handle("mg-sizing-cloud", () => mgSizingCloudGet(), null);
   handle("mg-sizing-cloud-set", (_e, v) => mgSizingCloudSet(v), false);
   handle("library-download", (_e, id) => libraryDownload(id), { ok: false, kind: "fail" });
@@ -3954,6 +4160,16 @@ app.whenReady().then(() => {
     () => { if (!e.sender.isDestroyed()) e.sender.send("agent-login-spawned"); }));
   handle("cancel-agent-login", () => cancelAgentLogin());
   handle("stop-turn", (_e, sid) => stopTurn(typeof sid === "string" ? sid : null), false);
+  handle("relay-state", () => relayStateOut(relay().state()), null);
+  // 打開前畫面已經跳過確認框(§4.2);這裡只收布林
+  handle("relay-set", async (_e, on) => (typeof on === "boolean" ? { ...(await relay().setOn(on)), state: relayStateOut(relay().state()) } : { ok: false }), { ok: false });
+  handle("relay-retry", async () => { await relay().retry(); return relayStateOut(relay().state()); }, null);
+  // 設定區:配對碼、授權手機清單、勾選、撤銷、最近操作。回的是 relay.js 篩過的欄位,沒有憑證
+  handle("relay-pair-code", () => relay().pairCode(), { ok: false });
+  handle("relay-phones", () => relay().phones(), { ok: false });
+  handle("relay-grant", (_e, id, on) => relay().grant(typeof id === "string" ? id : "", on === true), { ok: false });
+  handle("relay-revoke", (_e, id) => relay().revoke(typeof id === "string" ? id : "", uiLang === "en" ? "en" : "zh"), { ok: false });
+  handle("relay-actions", (_e, id) => relay().actions(typeof id === "string" ? id : null), { ok: false });
   // 自帶 API 金鑰:只有 set(驗過才存)/ test(重驗已存的那把)/ remove,加一支不帶值的取消。**沒有任何一支把金鑰交回畫面**
   const llmDenied = { ok: false, code: "NOT_ALLOWED", status: 0 };
   handle("apikey-set", (_e, a) => llmKeySet(a && typeof a === "object" ? { preset: a.preset, key: a.key, connect: a.connect === true } : null), llmDenied);
@@ -3962,6 +4178,8 @@ app.whenReady().then(() => {
   handle("apikey-cancel", () => { if (!llmVerify) return false; llmVerify.abort(); return true; }, false);
   ipcMain.handle("send-message", async (e, payload) => {
     if (!fromOurPage(e)) return { busy: true };   // 會 spawn agent、花 AI 額度:只收自家頁面
+    // 手機那一句正在認領(api 回 ok 就開跑):這條這時算回覆中,畫面照 turn.busy 講「這條回覆完才能送出」
+    if (typeof _relay !== "undefined" && _relay && payload && _relay.claiming(payload.sessionId)) return { busy: true };
     return startTurn(payload, "desktop");
   });
   handle("turns-state", () => turnsState(), []);
@@ -3988,6 +4206,7 @@ app.whenReady().then(() => {
   if (app.hasSingleInstanceLock()) startStep("workspace sync", syncOfficialOnUpdate);
   startStep("trade host", tradeStartIfReady);   // 引擎早就裝好的人:一開 app 就有狀態可看(對帳器仍要他自己按啟動)
   if (app.hasSingleInstanceLock()) startStep("engine", engineKick);   // 要裝的在背景裝;已經裝好的幾毫秒就結束。第二份 app 不碰 venv
+  if (app.hasSingleInstanceLock()) startStep("codex engine", codexKick);   // 同上:第二份 app(開發版與打包版共用 ~/Blave)不起下載、不刪版本
   // 視窗回前景 = 用戶可能剛在瀏覽器綁完卡、開完主機:「含不含資料」的答案作廢,下一輪重查
   // (不在這裡打 api——跟 LLM 共用每分鐘 30 次的桶,而且畫面那邊有卡片時本來就會重查)
   // 畫面自己的 blur 分不出「焦點進了內建瀏覽器那一頁」跟「整個視窗退到背景」,所以由這裡講
@@ -4007,7 +4226,8 @@ app.whenReady().then(() => {
     detectAgents().then((d) => { tm().track("cli_auth", { how: d.claude.how }); }).catch(() => {});
   });
   startStep("device type", () => require("./devicetype").detectDeviceType().then((kind) => { _deviceKind = kind; tm().track("device_type", { kind }); }));
-  if (app.hasSingleInstanceLock()) startStep("mobile view", () => mobileView().start());   // 第二份 app 不送:兩份會搶同一個裝置代號
+  if (app.hasSingleInstanceLock()) startStep("mobile view", () => mobileView().start());
+  if (app.hasSingleInstanceLock()) startStep("relay", () => relay().start());   // 同上:兩份會搶同一個裝置代號的長輪詢   // 第二份 app 不送:兩份會搶同一個裝置代號
   // 帳號 token 輪替:開 app 就檢查一次(0.1.15 以前沒有期限的那顆在這裡第一次換掉),之後每 10 分鐘看一次。
   // 回合進行中照換(0.1.37):回合手上只有帳號轉送口的 token,轉出去時才讀當下那顆。第二份 app 不碰(兩份同時換,先回來的那顆會作廢)
   if (app.hasSingleInstanceLock()) startStep("token rotate", () => {
@@ -4079,6 +4299,7 @@ let tmLabels = { running: "Auto trading is running", paperVenue: "Paper trading"
   unsavedTitle: "Leave without saving?", unsavedBody: "Your Portfolio changes will be lost.", unsavedGo: "Leave",
   unsavedNote: "Unsaved Portfolio changes will be lost.",
   hidden: WIN ? "Blave is still running in the system tray." : "Blave is still running in the menu bar.",
+  phoneHiddenTitle: "Phone chat is on", phoneHidden: WIN ? "Blave is still open, so your phone can reach it. To quit, use the system tray icon." : "Blave is still open, so your phone can reach it. To quit, use the menu bar or the Dock.",
   updateReady: "Restart to finish updating", restarting: "Restarting…",
   ev_halt: "Trading was paused automatically", ev_halt_n: "No orders at all — exits and stops won’t run. Open Blave to check.",
   ev_order_error: "Order failed", ev_order_error_n: "The exchange rejected an order. Open Blave to check.",
@@ -4661,13 +4882,15 @@ function binanceNotify(v) {
 }
 // updater().poll():ready ↔ blocked 只跟著下單狀態變、沒有事件,靠這 5 秒那一輪補推(聊天那一格的「…」跟著暫停 / 開始下單換)
 function trayStart() { if (!trayTimer) { trayTimer = setInterval(() => { startStep("tray", traySync); startStep("app menu", appMenuSync); startStep("p1", p1Sync); startStep("awake", awakeSync); startStep("update poll", () => updater().poll()); }, 5000); if (trayTimer.unref) trayTimer.unref(); traySync(); } }   // 可能在下單的話一開就出,不等第一個 5 秒(常駐的那顆等畫面交字)
+const phoneHiddenSaid = () => { try { return JSON.parse(fs.readFileSync(uiPrefsPath(), "utf8")).phoneHiddenSaid === true; } catch (_) { return false; } };
+const phoneHiddenSaidSet = () => { try { uiPrefsPatch({ phoneHiddenSaid: true }); } catch (_) { /* 記不住:下次再講一次 */ } };
 app.on("browser-window-created", (_e, win) => {
   win.on("close", (e) => {
     // 關視窗不等於結束:自動下單在跑、或本機 agent 回合在跑(可能正在更新雲端)時只把視窗藏起來,回合 / 下單照走
     // 更新重開收工中:紅燈只收視窗(放行會變成走結束 app → 裝了但不重開);交給 quitAndInstall 之後就放行,它要關視窗才能重開
     if (restarting === "stopping") { e.preventDefault(); win.hide(); return; }
-    const trading = tradeMaybeLive(), turn = anyTurn();
-    if (quitting || quitConfirmed || (!trading && !turn)) {
+    const trading = tradeMaybeLive(), turn = anyTurn(), phone = !!(typeof _relay !== "undefined" && _relay && _relay.isOn() && _relay.isVisible());
+    if (quitting || quitConfirmed || (!trading && !turn && !phone)) {
       // 真的要關(不是收起來):主視窗有沒存的策略組合草稿就先問;只收起來的那兩態草稿還在記憶體裡,不問
       if (!quitting && !quitConfirmed && !draftOk && isOurPageUrl(win.webContents.getURL())) {
         e.preventDefault();
@@ -4678,6 +4901,8 @@ app.on("browser-window-created", (_e, win) => {
     e.preventDefault(); win.hide(); draftOk = false; draftNote = false;   // 只收起來、沒結束:這一次「要離開」不算數
     // 「背景照常下單」那則只在真的在下單時講(字寫的是下單)
     if (trading && !hiddenSaid && tmLabels.hidden && Notification.isSupported()) { hiddenSaid = true; notifWatch(new Notification({ title: tmLabels.running, body: tmLabels.hidden }), "hidden").show(); }
+    // 「允許手機對話」開著:關視窗 = 收進背景。第一次收起時講一次(存 ui-prefs,不每次講)
+    else if (phone && !trading && tmLabels.phoneHidden && Notification.isSupported() && !phoneHiddenSaid()) { phoneHiddenSaidSet(); notifWatch(new Notification({ title: tmLabels.phoneHiddenTitle, body: tmLabels.phoneHidden }), "phone hidden").show(); }
   });
 });
 /* 結束訊號(SIGTERM / SIGINT / SIGHUP:kill、登出與關機、終端機 Ctrl+C)每一次都走 app.quit(),也就是每一次都過 before-quit 的攔截。
@@ -4773,14 +4998,16 @@ app.on("before-quit", (e) => {
       .then((r) => { quitAsking = false; if (r.response === sg.goIndex) { quitConfirmed = true; app.quit(); } else { draftOk = false; draftNote = false; } }, () => { quitAsking = false; draftOk = false; draftNote = false; });
     return;
   }
-  // 常駐程式在跑、或背景安裝的 pip / 背景編 .pyc 還在跑:先收掉再結束(pip 不收會變孤兒,下次開 app 跟新的那支一起寫 venv)
-  const daemon = !!(_tradeHost && _tradeHost.isRunning()), installing = !!(_engineSetup && (_engineSetup.busy() || _engineSetup.compiling()));
+  // 常駐程式在跑、或背景安裝的 pip / 背景編 .pyc / Codex 引擎套件下載還在跑:先收掉再結束(pip 不收會變孤兒,下次開 app 跟新的那支一起寫 venv)
+  const daemon = !!(_tradeHost && _tradeHost.isRunning()), installing = !!(_engineSetup && (_engineSetup.busy() || _engineSetup.compiling())) || !!(_codexPkg && _codexPkg.busy());
   /* token 輪替在途:伺服器那邊可能已經換了、回應還沒回來——這時結束,新值就丟了,檔裡那顆只再活 10 分鐘(寬限),
      超過才重開就被登出(Mac e2e 10-14 查登入失效)。等它落地再走,最多 5 秒 */
   const rotating = typeof _rot !== "undefined" && !!(_rot && _rot.state().inflight);
   // 手機 App 那邊要看得到「已正常關閉」:最後一筆 closing(mobileview.js 自己限時 3 秒,送不出去也照樣結束)
   const closingMv = !quitting && typeof _mv !== "undefined" && !!_mv && _mv.wantsClosing();
-  if (quitting || (!daemon && !installing && !rotating && !closingMv)) return;
+  // 手機那邊排隊中的句子:結束前每一則回 not_run(relay.js 自己限時 3 秒)
+  const relayQuit = !quitting && typeof _relay !== "undefined" && !!_relay && _relay.isOn();
+  if (quitting || (!daemon && !installing && !rotating && !closingMv && !relayQuit)) return;
   e.preventDefault(); quitting = true;
-  Promise.all([closingMv ? _mv.closing().catch(() => false) : null, daemon ? _tradeHost.stop() : null, engineAbort(), rotating ? Promise.race([_rot.settle(), new Promise((r) => setTimeout(r, 5000))]) : null]).finally(() => app.quit());
+  Promise.all([closingMv ? _mv.closing().catch(() => false) : null, relayQuit ? _relay.quit().catch(() => false) : null, daemon ? _tradeHost.stop() : null, engineAbort(), _codexPkg ? _codexPkg.abort().catch(() => false) : null, rotating ? Promise.race([_rot.settle(), new Promise((r) => setTimeout(r, 5000))]) : null]).finally(() => app.quit());
 });
