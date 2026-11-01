@@ -6,6 +6,7 @@
 //      頂列記號 / 視窗標題寫「永豐金證券（模擬）」;存金額框的記號照模擬(trCfPaperOnly)
 //   ④ 真的開畫面(隨包 Electron + 真的 index.html,window.blave 換成假的):資產分頁價值寫 TWD、整數、現股／交割戶;
 //      設定分頁模擬不標「真錢」、實盤標「真錢」;頂列記號;下單方式不列限價追價、多一行說明;啟動確認框的記號
+//   ⑤ 手機對話的上傳前遮蔽(redact.js 第 1 條):永豐的金鑰、CA 密碼、身分證字號都遮
 // 跑法:node tests/check_sinopac_shell.js(BLAVE_TEST_WINDOW=1 才跑 ④ 的 Electron)
 const path = require("path"), fs = require("fs"), vm = require("vm");
 const SHELL = path.join(__dirname, "..", "shell");
@@ -62,6 +63,20 @@ if (!process.versions.electron) (() => {
   ctx.LANG = "zh";
   const cfp = (r) => { ctx.TR = { st: { report: r } }; return vm.runInContext("trCfPaperOnly()", ctx); };
   ok("③ 存金額框的記號(trCfPaperOnly):永豐模擬 → 模擬;實盤 → 實盤;Blave 模擬交易照舊", cfp(rep(true)) === true && cfp(rep(false)) === false && cfp(rep()) === false && cfp({ venues: { paper: V } }) === true);
+
+  // ── ⑤ 手機對話的遮蔽(純邏輯,排在 Electron 之前)──
+  const RD = require(path.join(SHELL, "redact.js"));
+  const KEY = "k".repeat(32), SEC = "s".repeat(32);
+  // 鍵名兩種寫法都要認:manager/sinopac_setup.py 寫小寫,trade.js 的解除綁定表是大寫
+  const envOf = (up) => [`sinopac_api_key=${KEY}`, `sinopac_secret_key=${SEC}`, "sinopac_ca_path=/Users/x/ca/Sinopac.pfx", "sinopac_ca_passwd=Pw123456",
+    "sinopac_person_id=A123456789"].map((l) => (up ? l.replace(/^[^=]+/, (k) => k.toUpperCase()) : l)).concat(["SINOPAC_LIVE=true", "SINOPAC_BOUND_TS=1793000000"]).join("\n");
+  const vals = RD.envSecretValues(envOf(false));
+  ok("⑤ 永豐的 API key、secret、CA 密碼、身分證字號都進第 1 條的比對清單", [KEY, SEC, "Pw123456", "A123456789"].every((v) => vals.includes(v)), vals);
+  ok("⑤ 鍵名大寫也認得", ["Pw123456", "A123456789"].every((v) => RD.envSecretValues(envOf(true)).includes(v)));
+  const said = RD.redact("身分證 A123456789,CA 密碼是 Pw123456,憑證 /Users/x/ca/Sinopac.pfx", vals);
+  ok("⑤ 對話裡單獨出現這兩個值也遮得掉,不靠旁邊有沒有寫鍵名", !/A123456789|Pw123456/.test(said) && said.indexOf(RD.MASK) >= 0, said);
+  ok("⑤ 模式與時間不算秘密:SINOPAC_LIVE=true、SINOPAC_BOUND_TS 不會把 true 或時間戳從每則對話抹掉", !vals.includes("true") && !vals.includes("1793000000"), vals);
+  ok("⑤ CA 密碼剛好是設定字也照遮(同 PASSWORD)", RD.envSecretValues("sinopac_ca_passwd=futures").includes("futures"));
 
   // ── ④ 交給 Electron ──
   const bin = GATE.bin(SHELL, "④");

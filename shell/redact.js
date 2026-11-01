@@ -1,3 +1,5 @@
+// Modified by Mephisto-000 on 2026-11-01: rule 1 also matches SinoPac's .env names the upstream keywords miss
+//   (sinopac_ca_passwd, sinopac_person_id). Rule 1 is desktop-only, so the shared fixture is untouched.
 /* 對話文字離開這台電腦之前的遮蔽(spec mobile-agent-chat-mvp §4.3;主行程用)。
  *
  * 規則與順序逐條照 api openclaw/redact.py;兩邊跑同一份 tests/fixtures/redact_cases.json(逐字比對兩份檔,
@@ -218,10 +220,11 @@ function redact(text, known) {
 
 /* 第 1 條要比對的值:workspace/.env 裡鍵名像秘密、值 ≥ 6 字的,加上鍵名不像、但值本身就像金鑰(≥ 32 字、第 6 條那層過濾會遮)的。
    *_DEMO 這類旗標不收:交易所名、1 / true 會從每一則對話裡被抹掉。只回值,不回鍵名;讀不到檔回空清單 */
-const ENV_SECRET_KEY_RE = /KEY|SECRET|PASSPHRASE|PASSWORD|TOKEN|ACCOUNT|PIN|PFX|CERT/i;
+// PASSWD、PERSON_ID:永豐金的 CA 密碼與身分證字號(sinopac_ca_passwd、sinopac_person_id;AutoTradeSys fork)
+const ENV_SECRET_KEY_RE = /KEY|SECRET|PASSPHRASE|PASSWORD|PASSWD|PERSON_ID|TOKEN|ACCOUNT|PIN|PFX|CERT/i;
 /* 設定值,不是秘密(ACCOUNT_TYPE=futures 這種):照 spec「*_DEMO=1 這類設定值不比對」的意思,值是這些字就不收,
    不然這個字會從每一則對話裡被抹掉。只認全小寫英文單字(大小寫混雜或帶數字的值照收) */
-const ENV_STRICT_KEY_RE = /SECRET|PASSPHRASE|PASSWORD|PIN/i;
+const ENV_STRICT_KEY_RE = /SECRET|PASSPHRASE|PASSWORD|PASSWD|PIN/i;
 const ENV_SETTING_WORDS = new Set(["futures", "spot", "swap", "margin", "paper", "true", "false", "demo", "live",
   "testnet", "mainnet", "real", "cross", "isolated", "linear", "inverse", "unified", "classic", "hedge", "oneway", "yes", "no", "on", "off"]);
 function envSecretValues(envText) {
