@@ -49,5 +49,11 @@
     五個平台 pip dry-run 重驗解出同一組；`tests/check_usstock_daily.py` 的數量跟著改成 19 個
   - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 VERSION `2026-10-31-b`，
     再執行 `tools/sinopac_deploy.py --apply`
+- 2026-11-01：同步上游 `main` 至 `189fd758`（電腦版 0.1.40）
+  - 修改（檔頭已註明）：`shell/redact.js` 的 `envSecretValues`（上游新增的手機對話上傳前遮蔽）多認 `sinopac_ca_passwd`、`sinopac_person_id`，
+    以及配合的 `tests/check_sinopac_shell.js`
+  - `shell/renderer/portfolio.js` 的 `#po-live` 記號改用上游的 `trCfPaperOnly()`（fork 先前已讓它把永豐模擬環境算成模擬），行為不變
+  - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 VERSION `2026-11-01-b`，
+    再執行 `tools/sinopac_deploy.py --apply`
 
 詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
