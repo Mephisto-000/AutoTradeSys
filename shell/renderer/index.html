@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="suggest.css">
+<link rel="stylesheet" href="form.css">
 <link rel="stylesheet" href="results.css">
 <link rel="stylesheet" href="report-backtest.css">
 <link rel="stylesheet" href="report-trades.css">
@@ -172,8 +173,9 @@
       </div>
       <!-- 雲端視角、沒有主機可看(沒主機 / 未登入 / 啟動中 / 讀不到):內容由 trade.js 畫 -->
       <div class="trv" id="cv-empty" hidden>
-        <div class="main-head"><div class="txt"><h5 class="main-head-name" id="cv-h" tabindex="-1" data-i18n="env.empty.title"></h5><div class="main-head-desc" id="cv-desc"></div></div></div>
-        <div class="pf" id="cv-body"></div>
+        <!-- 整頁的標題在卡裡,這一顆給讀屏與切視角的焦點落點 -->
+        <h2 class="sr-only" id="cv-h" tabindex="-1" data-i18n="env.empty.title"></h2>
+        <div class="cv-body" id="cv-body"></div>
       </div>
       <!-- 策略報告(選了策略才出現;沒選時是下面的 welcome)。六個分頁:回測 / 進出場 / 參數掃描 /
            樣本外驗證 / 成交測試 / 程式碼。前五個各自一支檔(report-backtest.js / report-trades.js / report-robust.js / report-wf.js / report-xt.js),
@@ -262,7 +264,7 @@
             </div>
           </div>
           <!-- 詳情模式:頁首只剩返回鈕 -->
-          <button class="lib-back" id="lib-back" type="button" hidden><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span id="lib-back-l" data-i18n="lib.nav"></span><span class="t" id="lib-back-s" hidden></span></button>
+          <button class="lib-back" id="lib-back" type="button" hidden><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span id="lib-back-l" data-i18n="lib.nav"></span></button>
         </div>
         <div class="lib-body" id="lib-body" tabindex="0">
           <!-- 沒權限時的兩組(spec-0.1.13 §2.2):section.lib-grp × 2,閘門卡掛在第二組頭上;不分組時空著、列畫在 #lib-rows。內容由 library.js 的 libPaintList 畫 -->
@@ -313,6 +315,7 @@
           <svg class="wc-mark" viewBox="0 0 180 180" aria-hidden="true">
             <path d="M0 108.973 A90 90 0 0 1 76.668 108.182 A20 20 0 0 0 105 90 A45 45 0 0 1 180 56.459 L180 180 L0 180 Z" fill="currentColor" />
           </svg>
+          <p class="wc-alert" id="wc-alert" role="status" hidden></p>
           <ol class="onb-steps" id="onb-steps" data-i18n-aria="set.onb">
             <li class="onb-step" data-step="1">
               <div class="onb-hw" id="onb-h1"></div>
@@ -355,19 +358,23 @@
                   <button class="btn-fill" id="onb-po" type="button" data-i18n="tr.pick"></button>
                 </div>
               </div>
+              <p class="onb-wait" id="onb-wait" data-i18n="onb.wait" hidden></p>
             </li>
           </ol>
-          <p class="onb-fin" id="onb-fin" role="status" hidden><span class="num" aria-hidden="true">✓</span><span data-i18n="onb.fin"></span></p>
         </div>
         <!-- 完成後的首頁(F):實色 --color-watermark 的記號(canon 具名例外,不用 opacity)＋一列不分主次的籤;不帶市場 -->
         <div class="wc-fin" id="wf" hidden>
           <svg class="wc-fin-mark" viewBox="0 0 180 180" aria-hidden="true">
             <path d="M0 108.973 A90 90 0 0 1 76.668 108.182 A20 20 0 0 0 105 90 A45 45 0 0 1 180 56.459 L180 180 L0 180 Z" fill="currentColor" />
           </svg>
-          <div class="wc-fin-acts">
-            <button class="wc-chip" id="wf-idea" type="button" data-i18n="idea.chip" hidden></button>
-            <button class="wc-chip" id="wf-lib" type="button" data-i18n="lib.nav"></button>
-            <button class="wc-chip" id="wf-ns" type="button" data-i18n="ns.chip"></button>
+          <div class="fin-grp">
+            <p class="wc-alert" id="wf-alert" role="status" hidden></p>
+            <!-- 剛做完③:這次開著期間多這一行,籤當場可按 -->
+            <div class="wc-fin-acts">
+              <button class="wc-chip" id="wf-idea" type="button" data-i18n="idea.chip" hidden></button>
+              <button class="wc-chip" id="wf-lib" type="button" data-i18n="lib.nav"></button>
+              <button class="wc-chip" id="wf-ns" type="button" data-i18n="ns.chip"></button>
+            </div>
           </div>
         </div>
       </div>
@@ -406,6 +413,13 @@
         <!-- 更新那一格:照網頁工作頁 #ws_update(輸入列右上方一行安靜小字)。只有兩種:app 新版已暫存好 → 「重新啟動以完成更新」(可點);
              雲端主機正在換檔 → 不可點的「更新中…」。其餘時候不出。字由 upPaint 決定:**不掛 data-i18n**,換語言時的通用迴圈會把它洗成另一個狀態的字 -->
         <button type="button" class="ws-update" id="ws-update" hidden><span></span></button>
+        <!-- 開關開著、帳號下剛配對了手機(設計 account-security-mails §7.3;relay 狀態的 notice):回合失敗卡的樣子加一顆 ✕,不自動消失。
+             字由 phNoticePaint 寫(帶機型、支數),不掛 data-i18n;✕ 的可及名稱沿用 set.close -->
+        <div class="ph-notice" id="ph-notice" role="status" hidden>
+          <span class="fault-mark" aria-hidden="true"></span>
+          <div class="fault-body" id="ph-notice-t"></div>
+          <button type="button" class="ph-notice-x" id="ph-notice-x" data-i18n-aria="set.close"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </div>
         <!-- 輸入框:上 textarea、下工具列(左=model/effort 觸發鈕,右=送出)。
              選 model 放這裡而不是左下角:引擎是設一次的事(誰付錢、要不要重新授權),
              model / effort 是每個任務都可能換的,兩件事不擠同一個入口。 -->
@@ -580,10 +594,10 @@
               <p class="set-up-line set-id-line"><span class="set-tipl" data-i18n="about.id"></span><span class="tip" id="set-id-tip" role="tooltip" data-i18n="about.idNote"></span><code class="set-idv" id="set-idv"></code></p>
               <button type="button" class="btn-quiet" id="set-id-copy" data-i18n="about.idCopy" aria-describedby="set-id-tip"></button>
             </div>
-            <!-- 法遵兩份並排、不成句(不是「使用即表示同意」那種同意文字)。服務條款只有這一個入口;隱私權政策在 設定 › 隱私 另有一個就地的。
-                 外開瀏覽器,網址帶目前語言 -->
-            <p class="set-legal"><button type="button" class="btn-quiet" id="set-terms" data-i18n="legal.terms"></button> <span aria-hidden="true">·</span> <button type="button" class="btn-quiet" id="set-privacy" data-i18n="legal.privacy"></button></p>
           </div>
+          <!-- 法遵兩份並排、不成句(不是「使用即表示同意」那種同意文字)。服務條款只有這一個入口;隱私權政策在 設定 › 隱私 另有一個就地的。
+               外開瀏覽器,網址帶目前語言。整頁的直接子層:釘在框底 -->
+          <p class="set-legal"><button type="button" class="btn-quiet" id="set-terms" data-i18n="legal.terms"></button> <span aria-hidden="true">·</span> <button type="button" class="btn-quiet" id="set-privacy" data-i18n="legal.privacy"></button></p>
         </div>
         <div class="set-pane" data-set-cat="model" id="set-model" hidden></div>
         <div class="set-pane" data-set-cat="rules" id="set-rules" hidden></div>
@@ -873,7 +887,6 @@
 </div>
 
 <script src="../node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-<script src="../node_modules/qrcode-generator/dist/qrcode.js"></script>
 <script src="strings.js"></script>
 <script src="i18n.js"></script>
 <script src="results.js"></script>
@@ -901,6 +914,7 @@
 <script src="library.js"></script>
 <script src="app.js"></script>
 <script src="suggest.js"></script>
+<script src="form.js"></script>
 <script src="rules.js"></script>
 <script src="strategy_versions.js"></script>
 <script src="versions.js"></script>

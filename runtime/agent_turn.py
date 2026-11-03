@@ -107,6 +107,11 @@ def _win32():
     return sys.platform == "win32"
 
 
+def allowed_tools():
+    """ALLOWED_TOOLS for this platform: PowerShell on win32, the same rule as chat_tools (win-e2e-0.1.40)."""
+    return ALLOWED_TOOLS + (["PowerShell"] if _win32() else [])
+
+
 def _ps_unescape(cmd):
     """PowerShell's backtick escape (R`egister-ScheduledTask, a `-newline continuation) removed before matching."""
     return re.sub(r"`(.)", r"\1", re.sub(r"`\r?\n", " ", cmd))
@@ -327,6 +332,75 @@ def extract_await(text):
     return cleaned.rstrip(), cleaned != text
 
 
+# ── 澄清表單(form)───────────────────────────────────────────────────────────
+# 要做台指期回測、缺兩個以上設定時,模型在正文後自成一行寫 <form id="txf_backtest" prod="mxf" …/>(_FORM_RULE,
+# 只在 --clarify-form 時掛)。題目、選項、預設、年份、資料那一句都由這裡的型錄與環境決定,模型只選用與填用戶
+# 講過的值——弱模型會掰預設與年份。格式不合只剝不觸發;四個 sink 都剝(tests/check_await_marker.py 列舉)。
+# chunk 契約:references/turn-events.md。
+_FORM_CATALOG = {
+    "txf_backtest": {
+        "questions": [
+            {"key": "prod", "options": ["txf", "mxf", "tmf"], "default": "txf"},
+            {"key": "tf", "options": ["d", "m1", "m5", "m15"], "default": "d", "note": True},
+            {"key": "per", "options": ["all", "y3", "y1"], "default": "all", "years": True},
+            {"key": "st", "options": ["ma", "ch", "other"], "default": "ma"},
+        ],
+    },
+}
+FORM_MAX_QUESTIONS = 5      # Miller 7 以下再留餘地;超過整個表單丟
+FORM_MAX_OPTIONS = 7        # canon Perceptual principles #4:單選 ≤7
+# 「全部可用資料」的起始年,值來自 references/twfutures.md;改資料來源時兩處同改。
+_FORM_YEARS = {"txf": 1998, "mxf": 2001, "tmf": 2024}   # 電腦版沒 Blave 資料:期交所日線
+_FORM_YEAR_CLOUD = 2011
+_FORM_YEAR_TMF_WITH_DATA = 2011
+_FORM_TAG_RE = re.compile(r'[ \t]*<form\s+id="([a-z_]{1,24})"((?:\s+[a-z]{1,8}="[a-z0-9_]{1,16}")*)\s*/>[ \t]*\n?')
+_FORM_ATTR_RE = re.compile(r'\s+([a-z]{1,8})="([a-z0-9_]{1,16})"')
+_FORM_STRIP_RE = re.compile(r"[ \t]*</?form\b[^<>]*>[ \t]*\n?")
+
+
+def _form_why():
+    """電腦版這一輪沒 Blave 資料的原因(外殼帶的 BLAVE_DATA_ACCESS_WHY),有資料或雲端回 None。WHY 缺當 unknown。"""
+    if os.environ.get("BLAVE_DATA_ACCESS") != "0":
+        return None
+    return os.environ.get("BLAVE_DATA_ACCESS_WHY") or "unknown"
+
+
+def _form_chunk(form_id, attrs, cloud, why):
+    picked = dict(_FORM_ATTR_RE.findall(attrs or ""))
+    questions = []
+    specs = _FORM_CATALOG[form_id]["questions"]
+    if len(specs) > FORM_MAX_QUESTIONS or any(len(q["options"]) > FORM_MAX_OPTIONS for q in specs):
+        return None
+    for spec in specs:
+        options = spec["options"]
+        value = picked.get(spec["key"])
+        q = {"key": spec["key"], "options": list(options),
+             "value": value if value in options else spec["default"]}
+        if spec.get("note") and why is not None:
+            q["note"] = "nodata_signed_out" if why == "signed_out" else "nodata"
+        if spec.get("years"):
+            if cloud:
+                q["years"] = {k: _FORM_YEAR_CLOUD for k in _FORM_YEARS}
+            else:
+                q["years"] = dict(_FORM_YEARS)
+                if why is None:
+                    q["years"]["tmf"] = _FORM_YEAR_TMF_WITH_DATA
+        questions.append(q)
+    return {"type": "form", "id": form_id, "questions": questions}
+
+
+def extract_form(text, cloud, why):
+    """回傳 (清理後文字, form chunk 或 None)。取最後一個合法標記;id 不在型錄 → None;屬性值不在該題
+    options → 型錄預設。why = _form_why()(雲端傳 None);None 只有一個意思:有資料。"""
+    if not text or ("<form" not in text and "</form" not in text):
+        return text, None
+    tags = _FORM_TAG_RE.findall(text)
+    chunk = None
+    if tags and tags[-1][0] in _FORM_CATALOG:
+        chunk = _form_chunk(tags[-1][0], tags[-1][1], cloud, why)
+    return _FORM_STRIP_RE.sub("", text).rstrip(), chunk
+
+
 # ── 轉出策略程式碼(export)──────────────────────────────────────────────────
 # 工作頁的「轉出 XQ / MultiCharts / TradingView」走一般聊天回合:agent 依
 # references/{xq-xs,multicharts-powerlanguage,tradingview-pine}.md 把轉好的檔存到
@@ -502,12 +576,13 @@ def split_nav_head(text):
 
 
 def visible_text(text):
-    """剝掉所有給外殼看的標記(假對話、<suggest>、<await/>、<export/>、<nav>)之後,用戶真的看得到的字。
+    """剝掉所有給外殼看的標記(假對話、<suggest>、<await/>、<form/>、<export/>、<nav>)之後,用戶真的看得到的字。
     只有標記的回覆不算回覆:e2e029 找點子追問那一輪,最後一則訊息只剩標記、正文全在帶工具的旁白裡,
     剝完是空字串,旁白補位又因為 full_text 非空沒觸發,用戶拿到空泡泡、逐字稿存了 ""。"""
     text, _ = strip_hallucinated_turn(text or "")
     text, _ = extract_suggestions(text)
     text, _ = extract_await(text)
+    text = _FORM_STRIP_RE.sub("", text)
     return _NAV_STRIP_RE.sub("", _EXPORT_STRIP_RE.sub("", text)).strip()
 
 
@@ -988,15 +1063,29 @@ def reply_lang_rule(message, lang=None):
     )
 
 
+# 鍵同 _REPLY_LANG_PINS 的 zh／cn;None = 沒有語言設定,看用戶打的字判成中文
+_ZH_REMINDERS = {
+    "zh": "[執行提醒] 接下來寫給用戶看的每一句話，包括下一個工具呼叫前的短句，都用繁體中文，不要用簡體字；"
+          "工具輸出是哪種語言都一樣。中文用全形標點（，。：；？！（）「」），半形只留在數字、英文字、程式碼和網址裡。",
+    "cn": "[运行提醒] 接下来写给用户看的每一句话，包括下一个工具调用前的短句，都用简体中文，不要用繁体字；"
+          "工具输出是哪种语言都一样。中文用全角标点（，。：；？！（）「」），半角只留在数字、英文字、代码和网址里。",
+    None: "[執行提醒] 接下來寫給用戶看的每一句話，包括下一個工具呼叫前的短句，都用中文，繁體或简体跟用戶打的字一樣；"
+          "工具輸出是哪種語言都一樣。中文用全形標點（，。：；？！（）「」），半形只留在數字、英文字、程式碼和網址裡。",
+}
+
+
 def lang_reminder(message, lang=None):
     """每個工具結果後面附給模型的一句提醒(PostToolUse hook 的 additionalContext,見 _lang_hooks)。
     系統層規則與訊息尾端的錨都在對話最前面;深度研究讀進十幾頁英文之後,Sonnet 的旁白照樣變英文
     (「Good context. Let me check…」「Now let's write and publish the report」,2026-09-26 實測)。
-    這句跟著每個工具結果出現,永遠在最近的位置。"""
+    這句跟著每個工具結果出現,永遠在最近的位置。
+    中文回覆時這句本身寫中文(同 _REPLY_LANG_PINS 的 zh／cn):0.1.39 Mac e2e 三道指示都到了,工具後的旁白
+    還是約兩成英文、第一個工具前只有約 2%;工具輸出和 references 是英文,這句不該再多一段英文。"""
     target, zh = _reply_lang_target(message, lang)
+    if zh:
+        return _ZH_REMINDERS.get(lang, _ZH_REMINDERS[None])
     return (f"[Runtime reminder] Everything you write for the user from here on — including the short note "
-            f"before your next tool call — is in {target}, whatever language this tool output is in."
-            + (" " + _FULLWIDTH_RULE if zh else ""))
+            f"before your next tool call — is in {target}, whatever language this tool output is in.")
 
 
 _HOOK_MATCHER = getattr(sdk, "HookMatcher", None)
@@ -1779,6 +1868,19 @@ def version_restore_note(since):
             "對這幾支策略動手前先重讀檔案,不要憑記憶整檔覆寫;不必重跑回測,也不必改 VERSION_NOTE。]")
 
 
+# 澄清表單規則(build_prompt 逐輪掛,只在 --clarify-form)。型錄在 _FORM_CATALOG,這裡只教何時寫、寫哪些屬性。
+_FORM_RULE = (
+    "[澄清表單:用戶要做台指期回測,而交易商品、K 線週期、回測期間、策略類型之中有兩個以上他沒講、預設也定不了 →"
+    "正文只寫兩句(第一句說能做,第二句說先選幾個設定、不確定就照預設),然後自成一行寫表單標記,"
+    "只寫用戶講過的屬性,沒講的整個不寫。例:用戶只講了小台、5 分 K → "
+    '<form id="txf_backtest" prod="mxf" tf="m5"/>'
+    "。屬性值(prod:txf 大台／mxf 小台／tmf 微台;tf:d 日 K／m1／m5／m15 分 K;per:all 全部資料／y3 近 3 年／y1 近 1 年;"
+    "st:ma 均線交叉／ch 通道突破／other 其他)。只缺一個 → 照 AGENTS.md 一句話問,不寫標記。"
+    "寫了標記的回合同時寫 `<await/>`(在標記後一行),不附 <suggest>、不列編號方案、不在正文重複選項;"
+    "正文不提標記、不解釋表單,除了「不確定就照預設」那句不另加說明。"
+    "用戶回的是「幫我做台指期 … 回測，用 …」這種組好的句子 → 直接照做,不再問。]"
+)
+
 # 結尾規則的逐輪錨(build_prompt,web／電腦版)。客戶端這一輪畫不畫建議由 --suggest-mode 告知:
 # reduced = 用戶連續沒用建議,只畫導航句;off = 用戶關掉了。畫不出來的那一句改寫進正文最後,下一步才不會無聲消失。
 _SUGGEST_ANCHOR_TAIL = "提到策略用它的名稱、不用底線代號;建議跟本則結論同方向:正文說不建議用,就不提上線、也不提正文勸退的做法。]"
@@ -1797,9 +1899,10 @@ def build_prompt(summary, recent, message, viewing_strategy=None, viewing_tab=No
                  suggest_directive=False, viewing_view=None,
                  reply_lang=None, resume_note=None, viewing_env=None, cloud_mcp=False, lang_basis=None,
                  version_note=None, desktop=False, report_fail_line=None, user_tz=None,
-                 suggest_mode="normal"):
+                 suggest_mode="normal", clarify_form=False):
     """`report_fail_line`:run_turn 每回合算一次傳進來(排程回合傳 "",續跑沿用同一行);
-    None = 這裡自己算(測試與其他呼叫端)。`user_tz`:用戶的 IANA 時區,電腦版不傳。"""
+    None = 這裡自己算(測試與其他呼叫端)。`user_tz`:用戶的 IANA 時區,電腦版不傳。
+    `clarify_form`:外殼畫得出澄清表單(--clarify-form)才掛 _FORM_RULE。"""
     parts = []
     if summary:
         parts.append(f"[過去對話摘要]\n{summary}\n")
@@ -1895,6 +1998,9 @@ def build_prompt(summary, recent, message, viewing_strategy=None, viewing_tab=No
         # session 歷史累積「市場問答→問句收尾」先例後,deepseek 對探索層連續三輪
         # 不服從(2026-08-24 e2e:ETH/BTC vs ETH/SOL 三輪全數問句收尾、零區塊);
         # _lang_directive 已證明「貼著訊息的逐輪指令」對弱模型有效,同機制照搬。
+        if clarify_form:
+            # 逐輪、貼著訊息(同建議錨):表單的觸發是這一句要做什麼,放系統尾端弱模型守不住
+            parts.append(_FORM_RULE)
         parts.append(_SUGGEST_ANCHORS.get(suggest_mode, _SUGGEST_ANCHORS["normal"]))
     # 兩個 sink 都掛(不像 _deploy_state_line 是 web 專屬):這是機器層級的事實,不是
     # 工作頁的 UI 狀態,而且只從 TG 用的人更沒有別的地方會看到它。
@@ -2431,6 +2537,7 @@ class TelegramSink:
         # TG 面沒有建議列規則,但防禦性剝除(模型偶發混淆時 raw 標記不能露出)。
         cleaned, _ = extract_suggestions(cleaned)
         cleaned, _ = extract_await(cleaned)
+        cleaned, _ = extract_form(cleaned, cloud=True, why=None)  # 只剝;TG 沒有卡,改用編號方案(AGENTS.md)
         cleaned = _EXPORT_STRIP_RE.sub("", cleaned)
         cleaned = _NAV_STRIP_RE.sub("", cleaned)
         self.chunk_text = cleaned
@@ -3569,6 +3676,8 @@ class WebSink:
             print("[agent_turn] 截掉模型續寫的假對話回合", file=sys.stderr)
         cleaned, suggestions = extract_suggestions(cleaned)
         cleaned, awaiting = extract_await(cleaned)
+        desktop = _desktop_surface(self)
+        cleaned, form = extract_form(cleaned, cloud=not desktop, why=_form_why() if desktop else None)
         marked = "<export" in cleaned
         cleaned, exports = extract_exports(cleaned, note=getattr(self, "export_fail_note", None))
         if not marked:
@@ -3586,6 +3695,8 @@ class WebSink:
         if not self.interrupted:
             for chunk in exports:
                 self._send(chunk)
+        if form and not self.interrupted:
+            self._send(form)
         if suggestions and not self.interrupted:
             self._send({"type": "suggestions", "items": suggestions,
                         "kind": suggest_kind(suggestions[0])})
@@ -4241,13 +4352,15 @@ def _write_system_prompt_file(text):
 
 
 # ── 回合炸掉時的兜底訊息 ──────────────────────────────────────────────────────
-# 四個 code 是與前端的契約(web 拿它挑 i18n 字串;未知值或缺欄位就退回既有的
+# code 是與前端的契約(web 拿它挑 i18n 字串;未知值或缺欄位就退回既有的
 # 「顯示 message」路徑,舊機器不會壞)。文案定稿在
 # .claude/output/designer/mockup-chat-turn-error.html #spec §1a/§1b。
 FAULT_NOT_STARTED_UPSTREAM = "not_started_upstream"
 FAULT_NOT_STARTED = "not_started"
 FAULT_PARTIAL = "partial"
 FAULT_MAX_TURNS = "max_turns"
+# 第五個:Codex 回 401。電腦版畫登入卡(renderer turnEventIn),不顯示下面的字;其他面不會碰到
+FAULT_NEEDS_LOGIN = "needs_login"
 
 # 只有 5xx / 429 算「上游擋掉」。零工具的回合還涵蓋 sink 少方法的 AttributeError、
 # 起 CLI 子行程失敗、proxy 回 402/403(試用額度)——那些情況說「模型服務沒有回應」
@@ -4277,6 +4390,10 @@ FAULT_TEXT = {
             "這一輪步驟超過上限，停在半路。上面已經執行的步驟都生效了，把要求拆小一點再問一次。",
             "This turn hit the step limit and stopped partway. The steps above took effect — ask again in a smaller step.",
         ),
+        FAULT_NEEDS_LOGIN: (
+            "Codex 沒有登入，你剛才那句沒有被執行。機器上什麼都沒動。",
+            "Codex isn't signed in, so your last message did not run. Nothing on the machine changed.",
+        ),
     },
     "tg": {
         FAULT_NOT_STARTED_UPSTREAM: (
@@ -4295,6 +4412,10 @@ FAULT_TEXT = {
             "這一輪步驟超過上限，停在半路，前面做的都生效了。\n把要求拆小一點再傳一次。",
             "This turn hit the step limit and stopped partway; everything before that took effect.\nAsk again in a smaller step.",
         ),
+        FAULT_NEEDS_LOGIN: (
+            "Codex 沒有登入，你剛才那句沒有被執行，機器上什麼都沒動。",
+            "Codex isn't signed in, so your last message did not run. Nothing on the machine changed.",
+        ),
     },
 }
 
@@ -4305,12 +4426,14 @@ FAULT_TEXT_CN = {
         FAULT_NOT_STARTED: "这一轮没有跑起来，你刚才那句没有被执行。机器上什么都没动。",
         FAULT_PARTIAL: "这一轮中途断了，你刚才的要求可能只做完一部分。上面是断掉前已经执行的步骤。",
         FAULT_MAX_TURNS: "这一轮步骤超过上限，停在半路。上面已经执行的步骤都生效了，把要求拆小一点再问一次。",
+        FAULT_NEEDS_LOGIN: "Codex 没有登录，你刚才那句没有被执行。机器上什么都没动。",
     },
     "tg": {
         FAULT_NOT_STARTED_UPSTREAM: "模型服务没有响应，你刚才那句没有被执行，机器上什么都没动。\n把同一句再传一次就好。",
         FAULT_NOT_STARTED: "这一轮没有跑起来，你刚才那句没有被执行，机器上什么都没动。\n把同一句再传一次就好。",
         FAULT_PARTIAL: "这一轮中途断了，你刚才的要求可能只做完一部分。\n传「看一下机器现在的实际状态，只讲你能确认完成的」，我核对后回报。",
         FAULT_MAX_TURNS: "这一轮步骤超过上限，停在半路，前面做的都生效了。\n把要求拆小一点再传一次。",
+        FAULT_NEEDS_LOGIN: "Codex 没有登录，你刚才那句没有被执行，机器上什么都没动。",
     },
 }
 
@@ -4336,6 +4459,8 @@ def _fault_code(exc, tool_calls, result_info=None):
         return FAULT_MAX_TURNS
     if tool_calls > 0:
         return FAULT_PARTIAL
+    if getattr(exc, "needs_login", False):
+        return FAULT_NEEDS_LOGIN
     status = getattr(exc, "api_error_status", None)
     if not isinstance(status, int):
         status = info.get("api_error_status")
@@ -4665,7 +4790,7 @@ def chat_tools(web, browser_mounted):
     ToolSearch 不能拿掉:內建瀏覽器的工具是延遲載入的,要靠它叫出來。TaskOutput 留著:前景指令逾時被
     CLI 轉到背景後,要靠它等輸出。上網工具照 web_tools_off——雲端回合的報告搜尋要用。"""
     off = web_tools_off(web, browser_mounted)
-    return (ALLOWED_TOOLS + (["PowerShell"] if _win32() else []) + [t for t in WEB_TOOLS if t not in off]
+    return (allowed_tools() + [t for t in WEB_TOOLS if t not in off]
             + ["TaskOutput", "ToolSearch"])
 
 
@@ -4922,7 +5047,7 @@ HANDOFF_ROOT_STALE_S = 20 * 60   # get_ssh_access 的憑證 15 分鐘,多留 5 �
 async def run_turn(session_id, message, model, sink, viewing_strategy=None, viewing_tab=None,
                    viewing_view=None, ui_lang=None,
                    engine="claude", codex_bin=None, effort=None, mcp_config=None,
-                   viewing_env=None, mcp_servers=None, suggest_mode="normal"):
+                   viewing_env=None, mcp_servers=None, suggest_mode="normal", clarify_form=False):
     # engine="codex" 是電腦版專屬(用戶自己的 Codex 訂閱),只換掉「呼叫模型並消化它的
     # 事件流」那一段;prompt、session store、兜底分類、寫回歷史全部共用。機隊不帶
     # --engine,走的是原本那條路,一行都不經過 codex 分支(閘門:
@@ -4969,6 +5094,7 @@ async def run_turn(session_id, message, model, sink, viewing_strategy=None, view
                           reply_lang=reply_lang, viewing_env=viewing_env, cloud_mcp=cloud_mcp,
                           lang_basis=lang_msg, version_note=version_note,
                           report_fail_line=report_fail_line, user_tz=prompt_tz,
+                          clarify_form=clarify_form,
                           desktop=_desktop_surface(sink), suggest_mode=suggest_mode)
     agents_md = load_agents_md()
 
@@ -5079,7 +5205,7 @@ async def run_turn(session_id, message, model, sink, viewing_strategy=None, view
         # (正式回覆被子代理尾隨的 tool chunk 收回成旁白,子代理的英文報告
         # 反而變成回覆),所以用 disallowed_tools 硬禁。`tools=` 才是內建工具清單本身(SDK 轉成 --tools),
         # 聊天回合的見 chat_tools、排程回合的見 _arm_scheduled。
-        allowed_tools=ALLOWED_TOOLS,
+        allowed_tools=allowed_tools(),
         # 電腦版上網只有內建瀏覽器一條路:引擎自己的 WebSearch / WebFetch 都關(開著時走 browser_search / browser_open,
         # 關著或掛不上就是不上網)。雲端與舊外殼見 web_tools_off
         disallowed_tools=["Task", "Agent"] + NO_LATER_TOOLS + web_tools_off(web, browser_mounted) + PROTECTED_EDIT_RULES,
@@ -5377,6 +5503,7 @@ async def run_turn(session_id, message, model, sink, viewing_strategy=None, view
                                   viewing_env=viewing_env, cloud_mcp=cloud_mcp, lang_basis=lang_msg,
                                   version_note=version_note,
                                   report_fail_line=report_fail_line, user_tz=prompt_tz,
+                                  clarify_form=clarify_form,
                                   desktop=_desktop_surface(sink), suggest_mode=suggest_mode)
             options.max_budget_usd = budget if options.max_budget_usd is not None else None
             options.max_turns = max(TURN_MAX_TURNS - spent_turns, _RESUME_MIN_TURNS)
@@ -5540,6 +5667,8 @@ def main():
     parser.add_argument("--effort", default=None)
     # 客戶端這一輪畫不畫建議(電腦版 main.js、web_bridge 只帶非預設值,兩邊都先篩過值域)
     parser.add_argument("--suggest-mode", default="normal", choices=["normal", "reduced", "off"])
+    # 外殼畫得出澄清表單(電腦版無條件帶、web_bridge 看 context.clarify_form);Telegram 永遠不帶
+    parser.add_argument("--clarify-form", action="store_true")
     args = parser.parse_args()
     if args.message_stdin:
         raw = sys.stdin.buffer.read(MESSAGE_STDIN_MAX + 1)
@@ -5588,6 +5717,7 @@ def main():
         ui_lang=args.ui_lang, engine=args.engine, codex_bin=args.codex_bin,
         effort=args.effort, mcp_config=args.mcp_config, viewing_env=args.viewing_env,
         mcp_servers=args.mcp_servers, suggest_mode=args.suggest_mode,
+        clarify_form=args.clarify_form,
     ))
     if args.scheduled:
         _write_sched_outcome()

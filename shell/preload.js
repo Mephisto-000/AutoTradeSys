@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld("blave", {
   // 雲端那一袋的部位大小(renderer/portfolio.js):存 ui-prefs.json、主行程綁這次登入;換人讀回 null
   mgSizingCloud: () => ipcRenderer.invoke("mg-sizing-cloud"),
   mgSizingCloudSet: (v) => ipcRenderer.invoke("mg-sizing-cloud-set", v),
+  mgOptCloudSet: (v) => ipcRenderer.invoke("mg-opt-cloud-set", v),
   loadStrategy: (name) => ipcRenderer.invoke("load-strategy", name),
   // 轉出檔「下載…」:主行程讀檔 + 開存檔框。ref = { session, id }(對話裡那張卡的快照)或 { strategy, target }(程式碼分頁);不過內容、不過路徑
   saveExport: (ref) => ipcRenderer.invoke("save-export", ref ? { session: ref.session, id: ref.id, strategy: ref.strategy, target: ref.target } : null),
@@ -176,7 +177,6 @@ contextBridge.exposeInMainWorld("blave", {
   // 策略庫(renderer/library.js):清單由主行程打 api(畫面的 CSP 不外連);購買帶登入憑證、只在主行程;已安裝對照表存 userData
   libraryList: (lang, force) => ipcRenderer.invoke("library-list", lang, force),
   libraryReport: (id, lang) => ipcRenderer.invoke("library-report", id, lang),
-  libraryNote: (id) => ipcRenderer.invoke("library-note", id),
   libraryPurchase: (id, confirmTopup) => ipcRenderer.invoke("library-purchase", id, confirmTopup),
   libraryInstalled: (patch) => ipcRenderer.invoke("library-installed", patch),
   libraryDownload: (id) => ipcRenderer.invoke("library-download", id),
@@ -193,11 +193,11 @@ contextBridge.exposeInMainWorld("blave", {
   relayState: () => ipcRenderer.invoke("relay-state"),
   relaySet: (on) => ipcRenderer.invoke("relay-set", on === true),
   relayRetry: () => ipcRenderer.invoke("relay-retry"),
-  relayPairCode: () => ipcRenderer.invoke("relay-pair-code"),
   relayPhones: () => ipcRenderer.invoke("relay-phones"),
-  relayGrant: (id, on) => ipcRenderer.invoke("relay-grant", String(id || ""), on === true),
-  relayRevoke: (id) => ipcRenderer.invoke("relay-revoke", String(id || "")),
-  relayActions: (id) => ipcRenderer.invoke("relay-actions", id == null ? null : String(id)),
+  relayAskShown: (id) => ipcRenderer.invoke("relay-ask-shown", String(id || "")),
+  relayAskNo: (id) => ipcRenderer.invoke("relay-ask-no", String(id || "")),
+  relayNoticeShown: (id) => ipcRenderer.invoke("relay-notice-shown", String(id || "")),
+  relayNoticeClose: (id) => ipcRenderer.invoke("relay-notice-close", String(id || "")),
   onRelayState: (fn) => ipcRenderer.on("relay-state", (_e, st) => fn(st && typeof st === "object" ? st : null)),
   ensureEngine: () => ipcRenderer.invoke("ensure-engine"),
   sendMessage: (payload) => ipcRenderer.invoke("send-message", payload),
@@ -208,7 +208,7 @@ contextBridge.exposeInMainWorld("blave", {
   tabsPrefsSet: (p) => ipcRenderer.invoke("tabs-prefs-set", p && typeof p === "object" ? { tabs: Array.isArray(p.tabs) ? p.tabs.filter((x) => typeof x === "string") : [], sel: typeof p.sel === "string" ? p.sel : null } : null),
   onTabNew: (fn) => ipcRenderer.on("tab-new", () => fn()),
   onTabClose: (fn) => ipcRenderer.on("tab-close", () => fn()),
-  onTabOpen: (fn) => ipcRenderer.on("tab-open", (_e, o) => fn(o && typeof o === "object" ? { sid: typeof o.sid === "string" ? o.sid : "", origin: o.origin === "mobile" ? "mobile" : "desktop", focus: o.focus !== false, echo: typeof o.echo === "string" ? o.echo : "" } : null)),
+  onTabOpen: (fn) => ipcRenderer.on("tab-open", (_e, o) => fn(o && typeof o === "object" ? { sid: typeof o.sid === "string" ? o.sid : "", origin: o.origin === "mobile" ? "mobile" : "desktop", focus: o.focus !== false, echo: typeof o.echo === "string" ? o.echo : "", since: Number.isFinite(o.since) ? o.since : 0 } : null)),
   windowClose: () => ipcRenderer.send("window-close"),
   // 安裝進度(renderer/engine.js):主行程那一份快照,拉一次 + 之後每次變動推過來
   engineState: () => ipcRenderer.invoke("engine-state"),

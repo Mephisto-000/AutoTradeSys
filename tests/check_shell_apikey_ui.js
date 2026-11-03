@@ -135,7 +135,7 @@ const presetsFor = (url) => ({ deepseek: { ...relayMod.PRESETS.deepseek, origin:
   // ── ⑥ 回合失敗分類(renderer/apikey.js akFault / akErrText) ──
   const tt = (k, v) => k + (v ? JSON.stringify(v) : "");
   let resent = 0;
-  const R = new Function("t", "MP", "resendLast", "setOpen", "setCat", "mpOpen", "akOpen_", akSrc.replace(/^const /gm, "var ") + "; return { akFault, akErrText };")(tt, { provider: "DeepSeek" }, () => { resent++; }, () => Promise.resolve(), () => {}, () => {});
+  const R = new Function("t", "MP", "resendLast", "setOpen", "setCat", "mpOpen", "akOpen_", "resendable", akSrc.replace(/^const /gm, "var ") + "; return { akFault, akErrText };")(tt, { provider: "DeepSeek" }, () => { resent++; }, () => Promise.resolve(), () => {}, () => {}, undefined, () => true);
   const cap = R.akFault('API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"turn usage limit reached"}}', true);
   cap.act();
   t("這一輪收過 llm_cap 的 429 → 「這一輪用量到上限」卡(可再送一次:走 app.js 的 resendLast,純附件那句與它帶的檔也重送)", cap && cap.cap === true && cap.text === "ak.f.cap" && cap.label === "fault.resend" && resent === 1);
@@ -145,7 +145,7 @@ const presetsFor = (url) => ({ deepseek: { ...relayMod.PRESETS.deepseek, origin:
   t("402 → 供應商餘額不足的一般卡(不是 Blave 的 creditFlow),第二顆鈕「切換 AI」", !f402.flow && f402.text.startsWith("ak.f.credit") && f402.second && f402.second.label === "fault.limitBtn");
   t("400 → 相容性句、鈕「選別的模型」;連不到 / 502 → 網路句", R.akFault("API Error: 400 x", false).label === "fault.noModelBtn" && R.akFault("API Error: Connection error.", false).text.startsWith("ak.f.net") && R.akFault("API Error: 502 x", false).text.startsWith("ak.f.net"));
   t("回覆裡提到 API Error(沒錨在開頭)不算", R.akFault("你的程式回 API Error: 401", false) === null && R.akFault("一般回覆", true) === null);
-  { const cf = cut(app, "function classifyFault(text)", "\nfunction localAuthFault");
+  { const cf = cut(app, "function classifyFault(text, o)", "\nfunction localAuthFault");
     const iAk = cf.indexOf('cur === "apikey"'), iLocal = cf.indexOf("/^Not logged in"), iCredit = cf.indexOf('return { flow: "credit" }'), iAuth = cf.indexOf("localAuthFault(cur)");
     t("classifyFault 的 apikey 分支排在 CLI 登入、Blave 402、localAuthFault 之前", iAk > 0 && iAk < iLocal && iAk < iCredit && iAk < iAuth); }
   t("驗證錯誤句:401 帶狀態碼、形狀不對另一句、402 / 429 / 網路 / 加密不可用各一句、取消與 BUSY 不出句", R.akErrText({ code: "KEY", status: 401 }, "DeepSeek") === 'ak.e.key{"p":"DeepSeek","s":"401"}' && R.akErrText({ code: "KEY", status: 0 }, "DeepSeek") === "ak.e.shape"
@@ -167,7 +167,7 @@ const presetsFor = (url) => ({ deepseek: { ...relayMod.PRESETS.deepseek, origin:
 
   // ── 設定 › 模型接入的列(mdlOptions 純邏輯) ──
   { const mdl = cut(app, "const MDL = {", "/* ── 設定 › 模型接入 的純邏輯到此");
-    const mdlOptions = new Function(mdl.replace(/^const /gm, "var ") + "; return mdlOptions;")();
+    const mdlOptions = new Function("var authUnknown = () => false;\n" + mdl.replace(/^const /gm, "var ") + "; return mdlOptions;")();
     const D = { claude: { installed: true, loggedIn: true }, codex: { installed: false } }, PR = [{ id: "deepseek", name: "DeepSeek", keysUrl: "https://x" }];
     const none = mdlOptions(D, "claude", true, null, { saved: null, presets: PR })[3];
     t("沒存:第四列「API 金鑰」+ 供應商清單 + 「設定」", none.kind === "apikey" && none.nameKey === "ak.row" && none.names.join() === "DeepSeek" && none.act === "ak.setup" && !none.isCur && !none.edit);

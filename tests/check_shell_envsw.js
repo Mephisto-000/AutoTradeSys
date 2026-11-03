@@ -317,7 +317,7 @@ const okc = (state, extra = {}) => ({ code: "OK", machine: { state }, strategies
   // 寫進雲端的確認框要標明目的地(規格 §5:刻意講三次);本機不給那兩個參數,框逐位元組不變
   { const app2 = fs.readFileSync(path.join(R, "app.js"), "utf8"), html2 = fs.readFileSync(path.join(R, "index.html"), "utf8");
     ok("confirmBox 有 env / footWhere / lead 三個選用參數,DOM 兩個槽在,關框時一起收掉",
-      /function confirmBox\(\{ title, lines, ok, onOk, opener, alt, mark, markKind, extra, okDisabled, okWhy, env, footWhere, lead, single, cancel, choices, choicesLabel, keep, details, detailsOpen, onCancel, focus, link \}\)/.test(app2)
+      /function confirmBox\(\{ title, lines, ok, onOk, opener, alt, mark, markKind, extra, okDisabled, okWhy, env, footWhere, lead, single, cancel, choices, choicesLabel, keep, details, detailsOpen, onCancel, focus, link, stay \}\)/.test(app2)
       && /<span class="envm" id="del-env" hidden><\/span>/.test(html2) && /<span class="del-where" id="del-where" hidden><\/span>/.test(html2)
       && /\$\("del-env"\)\.hidden = true; \$\("del-where"\)\.hidden = true; \$\("del-modal"\)\.querySelector\("\.modal-head"\)\.classList\.remove\("cloud"\); \$\("del-cancel"\)\.hidden = false;/.test(app2.slice(app2.indexOf("function delClose"))));
     ok("雲端的框:灰標題列 + 「雲端」記號 + 錢記號 + 鈕上方的目的地那一行;暫停與啟動都經過同一支",
@@ -469,7 +469,7 @@ const okc = (state, extra = {}) => ({ code: "OK", machine: { state }, strategies
   ok("開通頁:讀不到 / 還沒問到不畫開通內容;帳號狀態還沒到或兩邊對不上 = unknown(給重查,不給啟動)", OV("unreach", true, "plan") === "unreach" && OV("loading", false, "out") === "loading" && ["unknown", "out", "running", "stopped"].every((pv) => OV("none", true, pv) === "unknown"));
   const ep = fn("envPaintEmpty");
   ok("開通頁重用已上線的流程:登入 planLogin、重登 planRelogin、啟動 planAsk(花錢的確認框);這裡不直接碰 planStart / startOAuth / confirmBox", /planLogin/.test(ep) && /planRelogin/.test(ep) && /t\("plan\.start"\), planAsk,/.test(ep) && !/planStart|startOAuth|confirmBox\(|planGo/.test(ep + fn("envPlanChanged")));
-  ok("價格不寫死:數字只來自 planVars;拿不到月價就不畫價格段、啟動鈕 disabled", /if \(v\.p && !planMo\(\)\) page\.appendChild\(planPriceEl\(trEl, v\)\);/.test(ep) && /main\.disabled = !planPriceOk\(v\);/.test(ep) && !/[0-9]{2,}\s*(TWD|USD)/.test(ep));
+  ok("價格不寫死:數字只來自 planVars;拿不到月價就不畫價格段、啟動鈕 disabled", /const c = envOpenCard\(view, pv, v, planMo\(\), err\)/.test(ep) && /if \(c\.tag \|\| c\.price\) right\.appendChild/.test(ep) && /main\.disabled = !planPriceOk\(v\);/.test(ep) && !/[0-9]{2,}\s*(TWD|USD)/.test(ep + fn("envOpenCard")));
   ok("查帳號 / 公開價目有間隔(查不到時不空轉)", /Date\.now\(\) - \(ENV\.askedAt \|\| 0\) > 30000/.test(ep));
   ok("側欄那一格只剩「準備好了」那一態:沒有主機 / 啟動中 / 讀不到都不寫字(Wei 09-23 刪 emptyGate);舊空態兩個 key 照舊不在",
     /<p class="pf-state side-gate" id="side-gate" hidden><\/p>/.test(html) && /const sg = \$\("side-gate"\); sg\.hidden = !ready;/.test(code)
@@ -493,7 +493,7 @@ const okc = (state, extra = {}) => ({ code: "OK", machine: { state }, strategies
   ok("① 輸入框上方「操作對象」那列整列拿掉(DOM / 程式 / 樣式 / 只給它的 key);雲端視角 placeholder 仍換成 chat.ph.cloud",
     !/chat-tgt|envTgtKey/.test(html + code + fs.readFileSync(path.join(R, "trade.css"), "utf8"))
     && !/chat\.tgt\.(label|cloudNone|cloudSignedOut|cloudStarting|cloudStopped|cut1)\b/.test(html + code + app + fs.readFileSync(path.join(R, "strings.js"), "utf8"))
-    && /const phKey = cloud \? "chat\.ph\.cloud" : "ws\.placeholder";/.test(fn("envPaint"))
+    && /const phKey = !cloud \? "ws\.placeholder" : !inGate \|\| kind === "loading" \? "chat\.ph\.cloud" :/.test(fn("envPaint"))
     && /\$\("ta"\)\.dataset\.i18nPh = phKey; \$\("ta"\)\.placeholder = t\(phKey\);/.test(fn("envPaint")));
   { const appFn = (name) => { const i = app.indexOf("function " + name + "("); if (i < 0) throw new Error("找不到 app.js 的 " + name); let d = 0, j = app.indexOf("{", i); for (let k = j; k < app.length; k++) { if (app[k] === "{") d++; else if (app[k] === "}" && --d === 0) return app.slice(i, k + 1); } throw new Error("no " + name); };
     eval(appFn("stepWhere"));
@@ -516,23 +516,24 @@ const okc = (state, extra = {}) => ({ code: "OK", machine: { state }, strategies
       && /if \(C\.alertSrc === "report"\) trAlert\("", null, C\);/.test(appFn("rpCloudSelect")));
     // ③ 系統行:只在對話有內容時插;切到哪一邊都插當前方向那條;連續切(上一條仍是最後一則)只留最新一條。真的把 chatSwitched 跑起來
     { const kids = [], box = { get children() { return kids; }, appendChild(el) { kids.push(el); el.parentNode = box; }, get lastElementChild() { return kids[kids.length - 1]; } };
-      const doc = { createElement: () => ({ dataset: {}, remove() { const i = kids.indexOf(this); if (i >= 0) kids.splice(i, 1); this.parentNode = null; } }) };
-      const ctx = { $: () => box, chatEl: () => box, document: doc, t: (k) => k, busyPin: () => {}, scrollChat: () => {}, swLine: null, swHeld: null, running: false };
+      const msgK = (v) => ({ msg: v, classList: { contains: (c) => c === "msg" }, get nextElementSibling() { return kids[kids.indexOf(this) + 1] || null; } });
+      const doc = { createElement: () => ({ dataset: {}, classList: { contains: () => false }, get nextElementSibling() { return kids[kids.indexOf(this) + 1] || null; }, remove() { const i = kids.indexOf(this); if (i >= 0) kids.splice(i, 1); this.parentNode = null; } }) };
+      const ctx = { $: () => box, chatEl: () => box, document: doc, t: (k) => k, busyPin: () => {}, scrollChat: () => {}, swLine: null, swHeld: null, running: false, envCloudGated: () => false };
       const held = (s) => s.replace(/swLine/g, "ctx.swLine").replace(/swHeld/g, "ctx.swHeld").replace(/\brunning\b/g, "ctx.running");
       const [run, flush] = new Function("ctx", "with (ctx) { " + held(appFn("chatSwitched")) + held(appFn("chatSwitchFlush")) + " return [chatSwitched, chatSwitchFlush]; }")(ctx);
       const sys = () => kids.filter((k) => k.className === "sysline").map((k) => k.dataset.i18n);
       run("local", "cloud"); ok("③ 對話沒有內容:不插", kids.length === 0);
-      kids.push({ msg: 1 }); run("local", "cloud"); ok("③ 有內容:切到雲端插一條 chat.sw.cloud", kids.length === 2 && kids[1].dataset.i18n === "chat.sw.cloud" && kids[1].className === "sysline");
+      kids.push(msgK(1)); run("local", "cloud"); ok("③ 有內容:切到雲端插一條 chat.sw.cloud", kids.length === 2 && kids[1].dataset.i18n === "chat.sw.cloud" && kids[1].className === "sysline");
       run("cloud", "local"); ok("③ 切回這台電腦、中間沒有新訊息:上一條換成 chat.sw.local(一定插,只留一條)", kids.length === 2 && kids[0].msg === 1 && kids[1].dataset.i18n === "chat.sw.local" && kids[1].className === "sysline");
       run("local", "cloud"); run("cloud", "local"); ok("③ 連續切多次只留最新方向那一條", kids.length === 2 && kids[1].dataset.i18n === "chat.sw.local");
-      kids.push({ msg: 2 }); run("local", "cloud"); ok("③ 中間有新訊息:舊的留著、新的一條 chat.sw.cloud", kids.length === 4 && kids[1].dataset.i18n === "chat.sw.local" && kids[2].msg === 2 && kids[3].dataset.i18n === "chat.sw.cloud");
+      kids.push(msgK(2)); run("local", "cloud"); ok("③ 中間有新訊息:舊的留著、新的一條 chat.sw.cloud", kids.length === 4 && kids[1].dataset.i18n === "chat.sw.local" && kids[2].msg === 2 && kids[3].dataset.i18n === "chat.sw.cloud");
       run("cloud", "cloud"); ok("③ 同一邊(沒換)不動", kids.length === 4 && sys().join() === "chat.sw.local,chat.sw.cloud");
       // e2e #23:回合進行中切視角,那一行不能插在同一輪的瀏覽卡與回覆中間——先記著,回合結束(回覆與卡都掛好)才插
-      kids.push({ msg: "you" }, { msg: "瀏覽卡" }); ctx.running = true; run("cloud", "local");
+      kids.push(msgK("you"), msgK("瀏覽卡")); ctx.running = true; run("cloud", "local");
       ok("③ 回合進行中切視角:當場不插(同一輪不被切開)", kids.length === 6 && kids[5].msg === "瀏覽卡" && !!ctx.swHeld);
-      kids.push({ msg: "回覆" }); ctx.running = false; flush();
+      kids.push(msgK("回覆")); ctx.running = false; flush();
       ok("③ 回合結束才插,排在這一輪的回覆之後", kids.length === 8 && kids[6].msg === "回覆" && kids[7].dataset.i18n === "chat.sw.local" && ctx.swHeld === null, JSON.stringify(sys()));
-      kids.push({ msg: "you2" }); ctx.running = true; run("local", "cloud"); run("cloud", "local"); kids.push({ msg: "回覆2" }); ctx.running = false; flush();
+      kids.push(msgK("you2")); ctx.running = true; run("local", "cloud"); run("cloud", "local"); kids.push(msgK("回覆2")); ctx.running = false; flush();
       ok("③ 回合中切出去又切回來 = 沒換:回合結束不插任何一條(e2e 那次插了兩條)", kids.length === 10 && kids[9].msg === "回覆2" && ctx.swHeld === null, JSON.stringify(sys()));
       ctx.running = true; run("local", "cloud"); ctx.running = false; run("cloud", "local");
       ok("③ 記著的那一筆沒等到回合結束(起不來的回合)、人又切回去:併成一次、不留到下一輪才冒出來", kids.length === 10 && ctx.swHeld === null);

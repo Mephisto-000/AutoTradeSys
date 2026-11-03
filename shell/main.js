@@ -43,10 +43,9 @@ if (HEADLESS && app.dock) app.dock.hide();
 let resolvedPath = null;
 const mergePath = (got, known, sep = path.delimiter) => got.concat(known.filter((d) => got.indexOf(d) < 0)).filter(Boolean).join(sep);
 /* Windows(純函式;tests/check_shell_login_path.js):GUI app 直接繼承登錄檔的使用者 PATH,不必開登入 shell。
-   補的是已知安裝位置:Claude Code 原生安裝器(~\.local\bin)、npm 全域(%APPDATA%\npm,codex.cmd 在這)、WinGet 的捷徑資料夾
+   補的是已知安裝位置:Claude Code 原生安裝器(~\.local\bin)、npm 全域(%APPDATA%\npm)、WinGet 的捷徑資料夾
    (winget install Anthropic.ClaudeCode 把 claude.exe 連到這、再寫進使用者 PATH——Blave 開著時裝的,行程的 PATH 快照裡沒有)、
-   Codex 官方 PowerShell 安裝器(chatgpt.com/codex/install.ps1)的可見 bin 資料夾(%LOCALAPPDATA%\Programs\OpenAI\Codex\bin,
-   同樣只寫進使用者 PATH、Blave 開著時裝的拿不到)、Git for Windows 的兩種裝法(Claude Code 的 Bash 工具靠它)。
+   Git for Windows 的兩種裝法(Claude Code 的 Bash 工具靠它)。
    環境變數缺的那項會是相對路徑,不補。 */
 function winPath(env) {
   const got = String(env.PATH || env.Path || "").split(";").map((s) => s.trim());
@@ -54,7 +53,6 @@ function winPath(env) {
     path.win32.join(env.USERPROFILE || "", ".local", "bin"),
     path.win32.join(env.APPDATA || "", "npm"),
     path.win32.join(env.LOCALAPPDATA || "", "Microsoft", "WinGet", "Links"),
-    path.win32.join(env.LOCALAPPDATA || "", "Programs", "OpenAI", "Codex", "bin"),
     path.win32.join(env.LOCALAPPDATA || "", "Programs", "Git", "cmd"),
     path.win32.join(env.ProgramFiles || "", "Git", "cmd"),
   ].filter((d) => path.win32.isAbsolute(d));
@@ -65,7 +63,7 @@ function loginShellPath() {
     if (resolvedPath) return resolve(resolvedPath);
     if (process.platform === "win32") { resolvedPath = winPath(process.env); return resolve(resolvedPath); }
     const sh = process.env.SHELL || "/bin/zsh";
-    execFile(sh, ["-lc", "echo -n $PATH"], { timeout: 8000 }, (err, stdout) => {
+    const done = (err, stdout) => {
       const known = [
         path.join(os.homedir(), ".local/bin"),
         "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin",
@@ -76,23 +74,34 @@ function loginShellPath() {
       const got = !err && stdout.trim() ? stdout.trim().split(":") : [];
       resolvedPath = mergePath(got, known);
       resolve(resolvedPath);
-    });
+    };
+    try { execFile(sh, ["-lc", "echo -n $PATH"], { timeout: 8000 }, done); } catch (e) { done(e, ""); }
   });
 }
 
 /* Windows 的 npm 全域 CLI 是 .cmd 包裝檔,Node 不經 shell 開不了(EINVAL)。只有這種才走 shell;命令列裡只有我們寫死的字
-   與 where.exe 給的路徑(引號包住,路徑含空白也行)。 */
-const cmdWrap = (bin) => (process.platform === "win32" && /\.(cmd|bat)$/i.test(bin) ? { file: `"${bin}"`, shell: true } : { file: bin, shell: false });
+   與 where.exe 給的路徑(引號包住,路徑含空白也行)。走 shell 時自己接好整行、args 給空陣列:cmd.exe 拿到的命令列跟 Node 自己接的
+   一字不差,只是不觸發 DEP0190(shell 配 args 的棄用警告,0.1.41 win-test-6 的 stderr) */
+const cmdWrap = (bin, args) => (process.platform === "win32" && /\.(cmd|bat)$/i.test(bin) ? { file: [`"${bin}"`, ...args].join(" "), args: [], shell: true } : { file: bin, args, shell: false });
 // env 只給 detectAgents 的對照組(authOutside);其餘一律 probeEnv:跟 agent 回合同一組憑證環境
 function run(cmd, args, envPath, timeout = 10000, cwd = undefined, env = undefined) {
-  const w = cmdWrap(cmd), t0 = Date.now();
+  const w = cmdWrap(cmd, args), t0 = Date.now();
   return new Promise((resolve) => {
-    execFile(w.file, args, { timeout, cwd, shell: w.shell, windowsHide: true, env: env || probeEnv(envPath) },
-      (err, stdout, stderr) => resolve({
-        code: err ? (err.code === undefined ? -1 : err.code) : 0,
-        stdout: String(stdout || ""), stderr: String(stderr || ""),
-        timedOut: !!(err && err.killed), ms: Date.now() - t0,
-      }));
+    const done = (err, stdout, stderr) => {
+      const code = err ? (err.code === undefined ? -1 : err.code) : 0, out = String(stdout || ""), errText = String(stderr || ""), timedOut = !!(err && err.killed);
+      resolve({
+        code, stdout: out, stderr: errText, timedOut, ms: Date.now() - t0,
+        // 只留動作名:非同步那支的 syscall 是「spawn <路徑>」,路徑不進 detect.log
+        ...(err && err.syscall ? { syscall: String(err.syscall).split(" ")[0] } : {}),
+        // .cmd 經 cmd.exe:檔案被拒絕執行時是 cmd.exe 自己回非 0、只在 stderr 講(拒絕 RX 實測回 1),CLI 一個字都沒印。
+        // 沒登入的 CLI 會在 stdout 回答,所以 stdout 空、stderr 有字 = 包裝檔沒跑起來(cantRun)
+        ...(w.shell && !timedOut && typeof code === "number" && code !== 0 && !out.trim() && errText.trim() ? { refused: true } : {}),
+      });
+    };
+    // Node 的 spawn 只有 EACCES／EAGAIN／EMFILE／ENFILE／ENOENT 走 error 事件,其他(EPERM…)同步 throw。
+    // 不接住就變 reject,整次偵測倒掉、兩列都「沒有回應」(uid 33959 的 detect.log:hung、EPERM)
+    try { execFile(w.file, w.args, { timeout, cwd, shell: w.shell, windowsHide: true, env: env || probeEnv(envPath) }, done); }
+    catch (e) { done(e); }
   });
 }
 
@@ -115,7 +124,7 @@ async function which(name, envPath, seen) {
   if (process.platform === "win32") {
     const sys32 = path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32");
     const r = await run(path.win32.join(sys32, "where.exe"), [name], envPath, 5000, sys32);
-    if (seen) { seen.where = r.code === 0 ? winOnPath(r.stdout, envPath).split(/\r?\n/).filter(Boolean).map(binKind) : []; if (r.timedOut) seen.whereTimedOut = true; }
+    if (seen) { seen.where = r.code === 0 ? winOnPath(r.stdout, envPath).split(/\r?\n/).filter(Boolean).map(binKind) : []; if (r.timedOut) seen.whereTimedOut = true; if (r.code !== 0 && r.code !== 1) seen.whereCode = r.code; }   // 1 = 沒裝;其他(EPERM…)不記就跟沒裝長一樣
     return r.code === 0 ? pickWinBin(winOnPath(r.stdout, envPath)) : null;
   }
   const r = await run("/usr/bin/env", ["sh", "-c", `command -v ${name}`], envPath, 5000);
@@ -131,26 +140,25 @@ const LOGIN_CHECK_MS = 20000;
 // 檔種(純函式;tests/check_shell_login_path.js)
 function binKind(p) {
   if (!p) return "none";
-  if (/\/ChatGPT\.app\/Contents\/Resources\/codex$/.test(p)) return "chatgpt";
-  if (/\\WindowsApps\\OpenAI\.Codex_[^\\]+\\app\\resources\\codex\.exe$/i.test(p)) return "store";
   if (/[\\/]claude_agent_sdk[\\/]_bundled[\\/]claude(?:\.exe)?$/i.test(p)) return "bundled";
   if (/\.exe$/i.test(p)) return "exe";
   if (/\.(cmd|bat)$/i.test(p)) return "cmd";
   if (/\.ps1$/i.test(p)) return "ps1";
   return /^(?:[a-z]:)?\\/i.test(p) ? "shim" : "posix";
 }
-const runRec = (r) => ({ code: r.code, timedOut: r.timedOut, ms: r.ms });
-// 找得到檔、但跑不起來:126 不能執行、127 包裝腳本裡找不到真的那顆(cmux 開發版 PATH 上的 codex 就是這樣)、ENOENT/EACCES 開不了。
-// 這不是「沒登入」:叫用戶去登入只會再撞一次。純函式
-const cantRun = (r) => !!r && (r.code === 126 || r.code === 127 || r.code === "ENOENT" || r.code === "EACCES");
+const runRec = (r) => ({ code: r.code, timedOut: r.timedOut, ms: r.ms, ...(r.syscall ? { syscall: r.syscall } : {}), ...(r.refused ? { refused: true } : {}) });
+// 找得到檔、但跑不起來:126 不能執行、127 包裝腳本裡找不到真的那顆(cmux 開發版 PATH 上的 codex 就是這樣)、ENOENT/EACCES/EPERM/UNKNOWN 開不了
+// (Windows 拒絕存取是 EPERM、非 PE 檔是 UNKNOWN,win-test-6 實測)。逾時後殺不掉會回 code EPERM + timedOut,那是逾時,排除。
+// refused = .cmd 被 cmd.exe 拒絕執行(run)。這不是「沒登入」:叫用戶去登入只會再撞一次。純函式
+const cantRun = (r) => !!r && !r.timedOut && (r.refused === true || r.code === 126 || r.code === 127 || r.code === "ENOENT" || r.code === "EACCES" || r.code === "EPERM" || r.code === "UNKNOWN");
 /* 這個 CLI 為什麼不能用(detect_fail 埋點的值;能用回 null)。純函式。
-   none = 沒找到檔(claude 是 PATH 與隨包那顆都沒有);shim = Windows 上 PATH 裡只有 npm 的包裝檔、解不到 codex.exe;timeout = 登入檢查逾時;
+   none = 沒找到檔(claude 是 PATH 與隨包那顆都沒有;codex 是隨包還沒抓);timeout = 登入檢查逾時;
    cantrun = 找到了、跑不起來(cantRun,退路那顆也不行);badjson = `claude auth status` 回的不是 JSON(舊版);
    nonzero = CLI 有回答、答案是沒登入(codex 非 0;claude 的 loggedIn=false)。
    cantrun 不在埋點白名單裡(api 先收才能送),畫面送 detect_fail 時記成 nonzero(renderer detect()) */
 function detectWhy(kind, r) {
   if (r.loggedIn) return null;
-  if (r.bin === "none") return kind === "codex" && (r.where || []).some((k) => k === "cmd" || k === "shim") ? "codex_shim" : kind + "_none";
+  if (r.bin === "none") return kind + "_none";
   if (r.timedOut) return kind + "_timeout";
   if (cantRun(r)) return kind + "_cantrun";
   if (kind === "claude" && r.json === false) return "claude_badjson";
@@ -167,66 +175,10 @@ function detectLogWrite(f, entry) {
 
 // 偵測結果契約(renderer 據此畫各列):
 // { claude: {installed, loggedIn, authMethod, email, path, why, how}, codex: {installed, loggedIn, path, why, via} }
-// why = detectWhy,能用時 null;how = cliAuthHow(authMethod)(telemetry.js),JSON 讀不出來是 null;via = codex 是哪種裝法("pkg" = 隨包那顆,
-// "app" = ChatGPT.app / Store 版內附那顆,"cli" = 其他;整次偵測超時是 null),失敗時給哪一種退路看它
-const CODEX_IN_CHATGPT = "/Applications/ChatGPT.app/Contents/Resources/codex";
-/* Windows 的 codex.cmd 要解到真的 codex.exe:runtime/codex_engine.py 用 create_subprocess_exec 起它,吃不了 .cmd。
-   npm 的 bin/codex.js(0.156.1)找的是 <平台套件>/vendor/<triple>/bin/codex.exe,退路是 @openai/codex 自己的 vendor/;
-   npm 11 + 0.160.0 實測平台套件改成巢狀裝在 @openai/codex/node_modules 底下。全都相對於 .cmd 所在的全域 node_modules。
-   解不到就當沒裝(留一行 log),不把 .cmd 交給 runtime 去炸。純函式。 */
-const CODEX_WIN_EXE = (arch) => {
-  const triple = arch === "arm64" ? "aarch64-pc-windows-msvc" : "x86_64-pc-windows-msvc", plat = `codex-win32-${arch === "arm64" ? "arm64" : "x64"}`;
-  const tail = ["vendor", triple, "bin", "codex.exe"];
-  return [["@openai", plat], ["@openai", "codex"], ["@openai", "codex", "node_modules", "@openai", plat]].map((pkg) => path.win32.join("node_modules", ...pkg, ...tail));
-};
-function winRealExe(bin, arch, exists = fs.existsSync) {
-  if (!bin || !/\.(cmd|bat)$/i.test(bin)) return bin;
-  const dir = path.win32.dirname(bin);
-  return CODEX_WIN_EXE(arch).map((rel) => path.win32.join(dir, rel)).find((p) => exists(p)) || null;
-}
-/* Windows 的 Codex 桌面版(Microsoft Store)自己帶一顆 codex.exe,不在 PATH 上:%LOCALAPPDATA%\Microsoft\WindowsApps 的別名資料夾裡
-   沒有 codex.exe(用戶機實測 OpenAI.Codex 26.1007:`--version`、`login status` 從 app 外面直接跑都回 0)。安裝資料夾名帶版號,
-   app 一更新就換,只能問系統;上一層 WindowsApps 一般使用者列不了目錄,不 readdir。
-   釘發行者:PackageFamilyName 尾巴是發行者憑證的雜湊,側載一個同名套件拿不到同一個值。 */
-const CODEX_STORE_FAMILY = "OpenAI.Codex_2p2nqsd0c76g0";
-const CODEX_STORE_PS = "Get-AppxPackage -Name OpenAI.Codex | ForEach-Object { $_.PackageFamilyName + '|' + $_.Version + '|' + $_.InstallLocation }";
-// 上面那行的輸出(一個套件一行「family|版號|安裝資料夾」)→ 版號最高那個的 codex.exe;沒有可信的一行就 null。純函式
-function pickStoreCodex(stdout) {
-  const ver = (v) => v.split(".").map(Number);
-  const newer = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0); return false; };
-  let best = null;
-  for (const line of String(stdout || "").split(/\r?\n/)) {
-    const [family, version, dir, ...rest] = line.trim().split("|");
-    if (family !== CODEX_STORE_FAMILY || rest.length || !/^\d+(\.\d+)*$/.test(version || "")) continue;
-    if (!dir || !path.win32.isAbsolute(dir) || !/\\WindowsApps\\OpenAI\.Codex_[^\\]+$/i.test(dir)) continue;
-    if (!best || newer(ver(version), best.v)) best = { v: ver(version), dir };
-  }
-  return best ? path.win32.join(best.dir, "app", "resources", "codex.exe") : null;
-}
-// codexBinNow() 每一則訊息都會走到這裡:記住上次解到的路徑,檔還在就不再起 PowerShell;app 更新換了資料夾(檔不在了)才重查。
-// fresh = 用戶按重新偵測,一律重查
-let storeCodex = null;
-async function storeCodexPath(envPath, fresh) {
-  if (!fresh && storeCodex && fs.existsSync(storeCodex)) return storeCodex;
-  const sys32 = path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32");
-  const r = await run(path.win32.join(sys32, "WindowsPowerShell", "v1.0", "powershell.exe"), ["-NoProfile", "-NonInteractive", "-Command", CODEX_STORE_PS], envPath, 15000, sys32);
-  const exe = r.code === 0 ? pickStoreCodex(r.stdout) : null;
-  storeCodex = exe && fs.existsSync(exe) ? exe : null;
-  return storeCodex;
-}
-// 上一次偵測時 PATH 上跑不起來的那顆(cantRun):不帶 seen 的呼叫(codexBinNow、偵測裡找退路那一次)跳過它、直接拿退路那顆。
-// 偵測本身(帶 seen)一律重試 PATH 那顆,試完才改這個值——偵測途中每一則訊息仍拿得到上一次的判斷
+// why = detectWhy,能用時 null;how = cliAuthHow(authMethod)(telemetry.js),JSON 讀不出來是 null;via = "pkg"(隨包那顆)| null(還沒抓、整次偵測超時)
+// 上一次偵測時跑不起來的那顆(cantRun;claude 是 PATH 上那顆、codex 是隨包那顆):不帶 seen 的呼叫跳過它——claude 拿退路那顆,
+// codex 沒有第二顆,回合閘講 AGENT_BIN_BROKEN。偵測本身(帶 seen)一律重試,試完才改這個值——偵測途中每一則訊息仍拿得到上一次的判斷
 const BAD_BIN = { codex: null, claude: null };
-async function codexPath(envPath, seen, fresh) {
-  const found = await which("codex", envPath, seen);
-  if (seen) seen.found = binKind(found);
-  if (process.platform === "win32") {
-    const exe = winRealExe(found, process.arch);
-    if (found && !exe) console.error("[detect] codex is a .cmd shim with no codex.exe next to it: " + found);
-    return (exe && (seen || exe !== BAD_BIN.codex) ? exe : null) || storeCodexPath(envPath, fresh);
-  }
-  return (found && (seen || found !== BAD_BIN.codex) ? found : null) || (fs.existsSync(CODEX_IN_CHATGPT) ? CODEX_IN_CHATGPT : null);
-}
 /* Claude 的對話不是用戶機上的 claude 跑的:claude-agent-sdk 的 wheel 隨包一顆 Claude CLI,SDK 的 _find_cli() 第一個就拿它
    (_internal/transport/subprocess_cli.py 的 _find_bundled_cli);用戶自己裝的 claude 只拿來跑 `auth status` / `auth login`。
    PATH 上找不到(nvm / fnm 的 npm 全域寫在 .zshrc、~/.npm-global/bin、舊版 ~/.claude/local、Blave 開著才裝的)就退到隨包那顆:
@@ -239,21 +191,39 @@ function bundledClaude(base, win, fsx = fs) {
   catch (_) { return null; }
   return libs.map((l) => path.join(l, "site-packages", "claude_agent_sdk", "_bundled", win ? "claude.exe" : "claude")).find((p) => fsx.existsSync(p)) || null;
 }
-// PATH 優先、隨包是退路(同 codexPath 的 ChatGPT / Store 退路);seen.found 記的是 PATH 上找到的檔種
+// PATH 優先、隨包是退路;seen.found 記的是 PATH 上找到的檔種
 async function claudePath(envPath, seen) {
   const found = await which("claude", envPath, seen);
   if (seen) seen.found = binKind(found);
   return (found && (seen || found !== BAD_BIN.claude) ? found : null) || bundledClaude(BASE, WIN);
 }
-/* 隨包那顆 codex(shell/codexpkg.js):釘版 → 已裝好的最高版(升版抓新版期間不斷線)。對話、偵測、〔登入〕都先問它,沒有才走上面的偵測鏈。
-   skipBad = 上一次偵測判它跑不起來(BAD_BIN):每一則訊息跳過它、走偵測鏈;偵測本身(不帶 skipBad)一律重試它 */
+/* Codex 的執行檔只有隨包那一顆(shell/codexpkg.js):釘版 → 已裝好的最高版(升版抓新版期間不斷線)。
+   對話、偵測、〔登入〕、存連結全走這裡;用戶自己裝的 codex 不看。
+   skipBad = 上一次偵測判它跑不起來(BAD_BIN):每一則訊息跳過它、回合閘講 AGENT_BIN_BROKEN;偵測本身(不帶 skipBad)一律重試它 */
 function codexBundled(skipBad) {
   const b = codexpkg.installed(BASE, CODEX_PIN, TRIPLE, WIN, fs);
   return b && !(skipBad && BAD_BIN.codex === b.path) ? b.path : null;
 }
+/* Codex 的登入看憑證檔在不在:login status 也只查本機、不驗 token,而它在某些機器會卡住。只 stat,絕不開檔。
+   auth.json 是 file 模式、secrets/codex_auth.age 是 Windows keyring 後端;Mac keyring 模式沒有檔,所以沒檔不算沒登入,要往下跑 login status。
+   只看 ~/.codex:回合與 login status 的環境都拔掉 CODEX_HOME(probeEnv、回合 env),這裡要跟它們看同一個地方。
+   執行檔不能執行也回 false,但 X_OK 在 Windows 只查存在:所以這次開 app 這一顆要先跑起來過一次 login status(codexRan)才信憑證檔,
+   不然被拒絕執行的隨包會畫成已登入、回合閘的 AGENT_BIN_BROKEN 走不到。純函式(fsx 可換) */
+const codexHome = () => path.join(os.homedir(), ".codex");
+let codexRan = null;
+/* 上次偵測的結果。那一條登入檢查逾時(不確定)時,連結與登入都直接用它的路徑:再偵測多半又卡 20 秒,而路徑本來就是這邊自己偵測到的 */
+let lastDetected = null;
+function timedOutPath(kind) {
+  const x = lastDetected && lastDetected[kind];
+  return x && x.path && /_timeout$/.test(x.why || "") && fs.existsSync(x.path) ? x.path : null;
+}
+function codexCredOk(bin, home, fsx = fs) {
+  try { fsx.accessSync(bin, fsx.constants.X_OK); } catch (_) { return false; }
+  return [["auth.json"], ["secrets", "codex_auth.age"]].some((p) => { try { return fsx.statSync(path.join(home, ...p)).isFile(); } catch (_) { return false; } });
+}
 /* 這一輪要跑的 codex 執行檔。**只解路徑**,不跑 `login status`——每一則訊息都要用,detectAgents() 一次要開到四個子行程;
-   連 Claude 的人一次都不必開(SDK 自己找 claude)。來源仍然是當下的偵測,不是連結紀錄裡那個 agent 寫得到的字(稽核 R4)。 */
-async function codexBinNow() { return codexBundled(true) || codexPath(await loginShellPath()); }
+   連 Claude 的人一次都不必開(SDK 自己找 claude)。來源是隨包資料夾,不是連結紀錄裡那個 agent 寫得到的字(稽核 R4)。 */
+async function codexBinNow() { return codexBundled(true); }
 async function detectAgentsRaw() {
   const envPath = await loginShellPath();
   const out = {
@@ -261,8 +231,10 @@ async function detectAgentsRaw() {
     codex: { installed: false, loggedIn: false, path: null, why: null, via: null, authOutside: false },
   };
   const rec = { claude: {}, codex: {} };
-  /* 解路徑 + 跑登入檢查。PATH 上那顆跑不起來(cantRun)就記進 BAD_BIN、再解一次——這次 find 會跳過它、拿退路那顆
-     (ChatGPT.app / Store 版內附的 codex、SDK 隨包的 claude);退路也跑不起來才算 cantrun。rec.alt = 試過的退路檔種 */
+  // 一條出事只影響自己那一列(rec.err = 錯誤碼,不記訊息);detectAgents 的整體 catch 是最後防線
+  const isolate = (kind, job) => job().catch((e) => { rec[kind].err = String((e && (e.code || e.name)) || "Error"); if (e && e.syscall) rec[kind].syscall = String(e.syscall).split(" ")[0]; if (!rec[kind].bin) rec[kind].bin = "none"; });
+  /* 解路徑 + 跑登入檢查。那顆跑不起來(cantRun)就記進 BAD_BIN、再解一次——這次 find 會跳過它:claude 拿 SDK 隨包那顆,
+     codex 只有一顆、回 null 就不試第二次。退路也跑不起來才算 cantrun。rec.alt = 試過的退路檔種 */
   const probe = async (kind, find, args, rawArgs) => {
     let bin = await find(rec[kind]);
     if (!bin) { BAD_BIN[kind] = null; return { bin: null, r: null }; }
@@ -285,7 +257,7 @@ async function detectAgentsRaw() {
      ~/.claude/settings.json 或 apiKeyHelper,agent 回合看不到;那一列多一句講出路。只回布林,不碰 stdout 的其他欄位 */
   const outside = async (raw, ok) => { const x = raw && await raw; return !!x && !cantRun(x) && !x.timedOut && ok(x); };
   // 兩條同時跑:各自最多 LOGIN_CHECK_MS,整次偵測最多也就這麼久(依序跑最壞要兩倍,畫面那邊沒有自己的逾時)
-  await Promise.all([(async () => {
+  await Promise.all([isolate("claude", async () => {
     // --setting-sources= 要在子指令前面(放後面是 unknown option):agent 回合的 SDK 帶的就是它,用戶設定檔一個都不讀
     const { bin: claudeBin, r, raw } = await probe("claude", (seen) => claudePath(envPath, seen), ["--setting-sources=", "auth", "status"], ["auth", "status"]);
     rec.claude.bin = binKind(claudeBin);
@@ -304,41 +276,56 @@ async function detectAgentsRaw() {
     if (!out.claude.loggedIn && !cantRun(r) && !r.timedOut) {
       out.claude.authOutside = await outside(raw, (x) => { try { return JSON.parse(x.stdout).loggedIn === true; } catch (_) { return false; } });
     }
-  })(), (async () => {
-    // Codex 有兩種裝法:獨立 CLI(在 PATH 上),或跟著 ChatGPT 桌面版來的——後者的
-    // CLI 藏在 app bundle 裡、不在 PATH 上,但就是同一顆完整的 codex(實測
-    // 0.155.0-alpha:`login status`、`exec --json` 都在)。只查 PATH 的話,一大群
-    // 「有 Codex」的人會看到「未偵測到」。Windows 的對應是 Store 版 Codex 桌面版(storeCodexPath)。
+  }), isolate("codex", async () => {
+    // 只有隨包那顆(codexpkg.js)。上次判它跑不起來(BAD_BIN)就不走捷徑,讓 probe 重試
+    const known = codexBundled(true);
+    if (known && known === codexRan && codexCredOk(known, codexHome())) {
+      BAD_BIN.codex = null;
+      rec.codex.bin = "pkg"; rec.codex.cred = true;
+      out.codex.installed = true; out.codex.path = known; out.codex.via = "pkg"; out.codex.loggedIn = true;
+      return;
+    }
     // 官方契約:`codex login status` 登入=0、未登入=1(原始碼 cli/src/login.rs:443)
-    const { bin: codexBin, r, raw } = await probe("codex", (seen) => codexBundled(!seen) || codexPath(envPath, seen, true), ["login", "status"], ["login", "status"]);
-    // 隨包那顆用身分認,不看路徑樣式:Homebrew cask 的 Caskroom/codex/<版>/bin/codex 跟我們的佈局一模一樣
-    rec.codex.bin = codexBin && codexBin === codexBundled(false) ? "pkg" : binKind(codexBin);
+    const { bin: codexBin, r, raw } = await probe("codex", (seen) => codexBundled(!seen), ["login", "status"], ["login", "status"]);
+    rec.codex.bin = codexBin ? "pkg" : "none";
     if (!codexBin) return;
     out.codex.installed = true;
     out.codex.path = codexBin;
-    out.codex.via = rec.codex.bin === "pkg" ? "pkg" : rec.codex.bin === "chatgpt" || rec.codex.bin === "store" ? "app" : "cli";
+    out.codex.via = "pkg";
+    if (!cantRun(r)) codexRan = codexBin;
     Object.assign(rec.codex, runRec(r));
     out.codex.loggedIn = r.code === 0;
     if (!out.codex.loggedIn && !cantRun(r) && !r.timedOut) out.codex.authOutside = await outside(raw, (x) => x.code === 0);
-  })()]);
+  })]);
   rec.claude.loggedIn = out.claude.loggedIn; rec.codex.loggedIn = out.codex.loggedIn;
   rec.claude.outside = out.claude.authOutside; rec.codex.outside = out.codex.authOutside;
   out.claude.why = detectWhy("claude", rec.claude); out.codex.why = detectWhy("codex", rec.codex);
   detectLogWrite(path.join(BASE, "state", "detect.log"), { ts: new Date().toISOString(), os: process.platform, ...rec });
+  lastDetected = out;
   return out;
 }
 /* 整次偵測的上限(spec codex-detect-gaps §3.4):裡面每一步都有上限,但任何一處 reject 畫面就永遠停在「偵測中…」、
-   登入鈕全部鎖死(uid 33959)。最壞路徑是 Windows codex 那條:which + Store PowerShell + 登入檢查,cantRun 後退路再走一輪,兩倍再留 10 秒。
+   登入鈕全部鎖死(uid 33959)。最壞路徑是 claude 那條:which + 登入檢查,cantRun 後退路再走一輪,兩倍再留 10 秒(含第一次偵測 loginShellPath 的 8 秒)。
    超時或 reject 回完整形狀、兩條都是 installed:true + *_timeout:畫面畫「沒有回應」(不是「未偵測到」),跟 detectWhy 的 _timeout 同一個意思。
-   內層超時後還會跑完、再寫一行 detect.log、更新 BAD_BIN／storeCodex,接受 */
-const DETECT_TOTAL_MS = 2 * (5000 + 15000 + LOGIN_CHECK_MS) + 10000;
+   內層超時後還會跑完、再寫一行 detect.log、更新 BAD_BIN,接受。
+   同時進來的呼叫(回前景重偵測途中按〔連結〕,agentLogin／saveConnection 又要偵測)共用進行中的那一輪:兩輪 detectAgentsRaw
+   會搶 BAD_BIN／codexRan／lastDetected,子行程也加倍。那一輪跑超過上限就不再共用,免得一輪卡住拖住之後每一次;
+   這時另開的新一輪仍可能被晚到的舊輪覆寫那三個值(改之前每次都各跑一輪,一樣),接受 */
+const DETECT_TOTAL_MS = 2 * (5000 + LOGIN_CHECK_MS) + 10000;
+let detectShared = null;
 async function detectAgents(ms = DETECT_TOTAL_MS) {
+  if (!detectShared || Date.now() - detectShared.t0 >= ms) {
+    const mine = { t0: Date.now() };
+    mine.p = detectAgentsRaw().finally(() => { if (detectShared === mine) detectShared = null; });
+    detectShared = mine;
+  }
+  const raw = detectShared.p;
   let timer = null, err = null, out = null;
-  try { out = await Promise.race([detectAgentsRaw(), new Promise((r) => { timer = setTimeout(r, ms, null); })]); }
+  try { out = await Promise.race([raw, new Promise((r) => { timer = setTimeout(r, ms, null); })]); }
   catch (e) { err = e; }
   clearTimeout(timer);
   if (out) return out;
-  detectLogWrite(path.join(BASE, "state", "detect.log"), { ts: new Date().toISOString(), os: process.platform, hung: true, err: err ? String((err && (err.code || err.name)) || "Error") : "deadline" });
+  detectLogWrite(path.join(BASE, "state", "detect.log"), { ts: new Date().toISOString(), os: process.platform, hung: true, err: err ? String((err && (err.code || err.name)) || "Error") : "deadline", ...(err && err.syscall ? { syscall: String(err.syscall).split(" ")[0] } : {}) });
   return {
     claude: { installed: true, loggedIn: false, authMethod: null, email: null, path: null, why: "claude_timeout", authOutside: false, how: null },
     codex: { installed: true, loggedIn: false, path: null, why: "codex_timeout", via: null, authOutside: false },
@@ -357,16 +344,25 @@ async function agentLogin(kind, onSpawn) {
   const slot = loginChild = { __cancelled: false };
   let bin, envPath;
   try {
-    const d = await detectAgents();
-    bin = kind === "claude" ? d.claude.path : kind === "codex" ? d.codex.path : null;
+    bin = timedOutPath(kind);
+    if (!bin) {
+      const d = await detectAgents();
+      bin = kind === "claude" ? d.claude.path : kind === "codex" ? d.codex.path : null;
+    }
     if (bin) envPath = await loginShellPath();
   } catch (e) { loginChild = null; throw e; }
   if (slot.__cancelled) { loginChild = null; return { ok: false, cancelled: true, code: null, cantRun: false }; }
   if (!bin) { loginChild = null; return { ok: false }; }
   return new Promise((resolve) => {
-    const w = cmdWrap(bin);
-    const child = spawn(w.file, kind === "claude" ? ["auth", "login"] : ["login"],
-      { env: probeEnv(envPath), stdio: "ignore", shell: w.shell, windowsHide: true });
+    const w = cmdWrap(bin, kind === "claude" ? ["auth", "login"] : ["login"]);
+    let child;
+    try {
+      child = spawn(w.file, w.args, { env: probeEnv(envPath), stdio: "ignore", shell: w.shell, windowsHide: true });
+    } catch (e) {   // 同步 throw(見 run):loginChild 要放掉,不然之後每次登入都回 busy
+      const code = (e && e.code) || "ERROR";
+      loginChild = null;
+      return resolve({ ok: false, cancelled: false, code, cantRun: cantRun({ code }) });
+    }
     loginChild = child;
     // 畫面的「已在瀏覽器開啟」1 秒從這裡起算,偵測那一兩秒不算(稽核 P2-2)
     if (onSpawn) onSpawn();
@@ -404,7 +400,10 @@ async function saveConnection(choice) {
   const kind = choice && choice.kind;
   let agentPath = null;
   let d = null;
-  if (kind === "claude" || kind === "codex") { d = await detectAgents(); agentPath = (d[kind] || {}).path || null; if (!agentPath) return false; }
+  if (kind === "claude" || kind === "codex") {
+    agentPath = timedOutPath(kind);
+    if (!agentPath) { d = await detectAgents(); agentPath = (d[kind] || {}).path || null; if (!agentPath) return false; }
+  }
   if (kind === "apikey" && !loadLlmKey()) return false;   // 連得上的前提是這台電腦上有一把驗過的金鑰
   const saved = connStore().save({ kind, path: agentPath, email: choice && choice.email });
   if (!saved) return false;
@@ -617,7 +616,7 @@ function relay() {
     post: (u, b, extra) => postJSON(u, b, extra), getCreds: blaveCreds, installId: () => tm().installId(), ver: app.getVersion(),
     log: (m) => console.error("[relay]", m),
     startTurn: (payload, origin) => startTurn(payload, origin), stopTurn: (sid) => stopTurn(sid, "phone"), turnBusy: (sid) => turns.has(sid),
-    isRestarting: () => !!restarting,
+    isRestarting: () => !!restarting, engineKind: () => (loadConnection() || {}).kind,
     sessions: { list: listSessions, rowsAfter: sessionRowsAfter, maxId: sessionMaxId, exists: sessionExists, remove: deleteSessionLocal },
     turnArgs: relayTurnArgs, known: relayKnown, origins: { add: chatOriginAdd, get: chatOriginMids },
     track: (name) => tm().track("feature_used", { name }),
@@ -627,7 +626,7 @@ function relay() {
   return _relay;
 }
 // 給畫面的只有開關、同步進度與數字,沒有憑證、沒有對話內容
-const relayStateOut = (st) => ({ visible: st.visible, on: st.on, pending: st.pending, signedIn: st.signedIn, sync: st.sync, mobileTurns: st.mobileTurns, queued: st.queued, phoneSids: st.phoneSids, pairSeq: st.pairSeq });
+const relayStateOut = (st) => ({ visible: st.visible, on: st.on, pending: st.pending, signedIn: st.signedIn, sync: st.sync, mobileTurns: st.mobileTurns, queued: st.queued, phoneSids: st.phoneSids, ask: st.ask, notice: st.notice });
 /* 手機那一輪用電腦當下存的引擎與型號(手機 MVP 不給選):照設定頁選擇器存的那一組;沒有就交給 turnModelArgs 的預設 */
 function relayTurnArgs() {
   const kind = (loadConnection() || {}).kind, slot = (loadModelPrefs() || {})[kind] || {};
@@ -995,6 +994,12 @@ async function startOAuth(lang, forBlaveAi) {
   // 重新登入(方案頁的「重新登入」、登入失效後的原地登入)時手上還有上一顆 token:新的換到手之後把舊的
   // 撤銷掉——不然伺服器上那顆連同它的資料 key 會一直活著,「已授權的電腦」也會多一列同名的裝置。
   // best-effort:撤不掉不影響這次登入。
+  // 手機對話的開關跟著「誰同意的」走:外殼認不出新 token 是不是同一個帳號,換 token 前一律照登出關掉(刪伺服器那份)。
+  // 不關的話 relay 的自動重打 enable 不用驗證就會替 B 帳號開起來,A 同意上傳的對話就流到 B,沒經過同意框。用舊憑證打 disable,所以要在 saveToken 之前
+  await rotator().settle();
+  const phoneOff = relay().isOn() && (relay().isVisible() || relay().authLost());   // 回給畫面:原本開著、而且設定 › 連結看得到那一區(或是 token 被撤、401 才收起來的),才講「重新登入後關了」
+  try { await relay().signOut(); } catch (_) { /* 刪不成:伺服器那份跟著舊 token 藏起來,30 天無活動自己清 */ }
+  // signOut 最長約 7 秒,這段可能有輪替落地:再等一次再讀舊值,讀舊值到 saveToken 之間不能有 await(否則撤到的是輪替前那顆)
   await rotator().settle();
   const prevToken = loadToken();
   if (!saveToken(r.body.access_token)) {
@@ -1014,6 +1019,8 @@ async function startOAuth(lang, forBlaveAi) {
   saveDataKey(r.body.data_api_key, r.body.data_secret_key);
   clearAppSecret();
   saveAppSecret(r.body.app_secret);      // 舊版 api 沒有這欄:之後按「啟動方案」會被要求重新登入
+  // 平台旗標登入前問到的是「沒有」:現在問一次,設定 › 連結不用等下一輪 2 分鐘。要在新 app_secret 存好之後(新 token 配舊 secret 會 401、把那一區藏起來)
+  relay().tick().catch(() => {});
   // 換了帳號:cloud.js 自己會認出 token 換了、把上一個人的東西丟掉(不靠這一行);這一行只是讓畫面不必等下一輪輪詢
   if (_cloud && _cloud.isRunning()) _cloud.refresh(true).catch(() => {});
   lastAcct = null;                    // 可能換了一個帳號:上一個帳號的「含不含資料」不能沿用
@@ -1027,7 +1034,7 @@ async function startOAuth(lang, forBlaveAi) {
   const s = forBlaveAi ? await Promise.race([acctNow, new Promise((ok) => { timer = setTimeout(() => ok(null), LOGIN_ACCT_WAIT_MS); })]) : null;
   clearTimeout(timer);
   if (!HEADLESS && loginFocus(forBlaveAi, s) === "steal") app.focus({ steal: true });
-  return { ok: true };
+  return { ok: true, phoneOff };
 }
 
 // ── 第 4 步:引擎 ─────────────────────────────────────────────
@@ -1219,7 +1226,7 @@ function codexPkg() {
   });
   return _codexPkg;
 }
-/* 開 app:刪舊版(現在在用的那一版留著),連的是 Codex 就在背景補抓。不等它、失敗只留 log(列上有重試;送訊息時走偵測鏈或講正在下載)。
+/* 開 app:刪舊版(現在在用的那一版留著),連的是 Codex 就在背景補抓。不等它、失敗只留 log(列上有重試;送訊息時講正在下載或請他到連結畫面)。
    只在開 app 這一刻刪:之後可能有回合正握著舊版 */
 function codexKick() {
   if (liveTurnCount() > 0) return;
@@ -1536,7 +1543,10 @@ function loadStrategy(name) {
   // 參數掃描(lib/param_scan.write_scan 的 scan.json)與樣本外驗證(lib/walk_forward.run_walk_forward 的 wf.json):
   // 逐欄檢查在 renderer/report-robust.js 的 sanitizeScan / report-wf.js 的 sanitizeWf
   const scan = readResultJson(path.join(dir, "scan.json")), wf = readResultJson(path.join(dir, "wf.json"));
-  try { code = fs.readFileSync(path.join(dir, "strategy.py"), "utf8"); } catch (_) {}
+  let codeBuf = null;
+  try { codeBuf = fs.readFileSync(path.join(dir, "strategy.py")); code = codeBuf.toString("utf8"); } catch (_) {}
+  // 掃描／樣本外是哪一版碼跑的(lib 寫的 code_hash = lib.strategy.code_hash):跟現在的檔不同就不是這份碼的結論,畫面照過時畫
+  if (codeBuf) { const h = crypto.createHash("sha256").update(codeBuf).digest("hex").slice(0, 16); for (const r of [scan, wf]) if (r && typeof r.code_hash === "string" && r.code_hash !== h) r.code_stale = true; }
   return { name, stats, scan, wf, code, dataSources: stratDataSources(dir), missingSources: stratMissingSources(dir), versions: stratVersions(dir), perf: stratPerf(dir), ...stratMeta(code), exports: stratExports(dir, code), cryptoKline: stratUsesKline(dir) };
 }
 /* 績效的新鮮度(renderer/perf.js 的「更新績效」),形狀同 runtime strategy_reporter._read_perf:{ at, refresh? },沒有 stats.json = null。
@@ -1746,13 +1756,15 @@ function compareVersions(name, a, b) {
   const meta = (blob, n) => { const o = {}; VERSION_META_KEYS.forEach((k) => { o[k] = blob[k] === undefined ? null : blob[k]; }); o.n = n; return o; };
   const py = fs.existsSync(VENV_PY) ? VENV_PY : basePython();
   return new Promise((resolve) => {
-    const cp = execFile(py, ["-I", "-c", VERSION_DIFF_PY], { timeout: 15000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env: { ...process.env, ...PY_ENV } }, (err, stdout) => {
-      let d = null;
-      try { d = err ? null : JSON.parse(String(stdout)); } catch (_) { d = null; }
-      resolve(d && Array.isArray(d.hunks) ? { code: "OK", data: { strategy: name, a: meta(A.blob, a), b: meta(B.blob, b), hunks: d.hunks, truncated: d.truncated === true } } : { code: "ERROR" });
-    });
-    cp.stdin.on("error", () => {});
-    cp.stdin.end(JSON.stringify({ a: A.blob.code, b: B.blob.code }));
+    try {
+      const cp = execFile(py, ["-I", "-c", VERSION_DIFF_PY], { timeout: 15000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env: { ...process.env, ...PY_ENV } }, (err, stdout) => {
+        let d = null;
+        try { d = err ? null : JSON.parse(String(stdout)); } catch (_) { d = null; }
+        resolve(d && Array.isArray(d.hunks) ? { code: "OK", data: { strategy: name, a: meta(A.blob, a), b: meta(B.blob, b), hunks: d.hunks, truncated: d.truncated === true } } : { code: "ERROR" });
+      });
+      cp.stdin.on("error", () => {});
+      cp.stdin.end(JSON.stringify({ a: A.blob.code, b: B.blob.code }));
+    } catch (_) { resolve({ code: "ERROR" }); }
   });
 }
 /* 這支策略用到哪些自帶資料來源(`DATA_<來源>_<欄位>`)。掃的是資料夾內**所有 .py**,對齊 references/cloud-handoff.md §5 的
@@ -2511,6 +2523,7 @@ async function publicPricing() {
   // free_ai_credit:綁卡前的 AI 額度(連結畫面換版與否看它;數字本身不上畫面);api 沒給或 0(停發)→ null,畫面維持原字
   return { trial: b.trial, free_ai_credit: n(b.free_ai_credit), starter_hourly: hr, starter_monthly: (st && n(st.monthly_twd)) || (hr ? Math.round(hr * 720) : null),
     starter_annual: st ? n(st.annual_twd) : null,
+    tiers: [...(Array.isArray(b.linux) ? b.linux : []), ...(Array.isArray(b.windows) ? b.windows : [])].filter(Boolean).map((x) => ({ tier: x.tier, label: x.label, vcpu: n(x.vcpu), ram_gb: n(x.ram_gb) })),
     plan: { monthly_billing_active: pl.monthly_billing_active === true, annual_pay_months: n(pl.annual_pay_months),
       annual_period_days: n(pl.annual_period_days), period_days: n(pl.period_days), grace_days: n(pl.grace_days) } };
 }
@@ -2679,30 +2692,6 @@ async function libraryReport(id, langRaw) {
   libReportCache.set(ck, { at: Date.now(), report });
   return report;
 }
-/* 策略詳情的成功筆記(spec-0.1.12-library-notes §2.2):GET /studio/success_notes/read_note?note_id=——每打一次 api 就記一筆閱讀,
-   所以匿名打(不帶桌面資料 key、主行程的 https 本來就沒有 cookie)、成功快取 30 分鐘、失敗不記。匿名回 201、帶 cookie 回 200,兩個都算。
-   付費筆記回 success:false + 空 content:當讀不到。回給畫面只留四欄;內文是外部 HTML,畫面那一側再過白名單重建(libNoteBuild)。 */
-const LIB_NOTE_HTML_MAX = 50000, LIB_NOTE_TTL_MS = 30 * 60 * 1000;
-function libNoteSanitize(body, id) {
-  const n = body && typeof body === "object" && body.success === true && body.note && typeof body.note === "object" ? body.note : null;
-  if (!n || typeof n.content !== "string" || !n.content.trim()) return null;
-  const t = Date.parse(typeof n.created_at === "string" ? n.created_at : "");
-  return { id, title: typeof n.title === "string" ? n.title.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, LIB_TITLE_MAX) : "",
-    html: n.content.slice(0, LIB_NOTE_HTML_MAX), date: isFinite(t) ? new Date(t).toISOString().slice(0, 10) : null };   // api 的 GMT 是資料庫的裸時間:取 UTC 年月日,不轉本地時區
-}
-const libNoteCache = new Map();   // id → { at, note }
-async function libraryNote(id) {
-  if (!Number.isInteger(id) || id <= 0) return null;
-  const hit = libNoteCache.get(id);
-  if (hit && Date.now() - hit.at < LIB_NOTE_TTL_MS) return hit.note;
-  let r = null;
-  try { r = await getJSON(`${API_BASE}/studio/success_notes/read_note?note_id=${id}`, {}); } catch (_) { return null; }
-  if (r.status !== 200 && r.status !== 201) return null;
-  const note = libNoteSanitize(r.body, id);
-  if (!note) return null;
-  libNoteCache.set(id, { at: Date.now(), note });
-  return note;
-}
 /* 購買付費策略:POST /oauth/desktop/marketplace/purchase,帶帳號 token + app_secret(同 planStart:會動餘額與信用卡,
    帳號 token 單獨不准)。回 { status, body }:body 只留畫面分支要的幾欄;打不到 → { status: 0, body: null }。 */
 function libPurchaseBody(b) {
@@ -2759,6 +2748,7 @@ async function libraryDownload(strategyId) {
   const key = loadToken() ? loadDataKey() : null;
   // 舊契約只在有 key 時退回舊句(agent 自己用 .env 的 key 打 /code);沒有 key 時舊 agent 會撞牆、叫人登入,免登入策略不准出現那句(spec §0.1)
   if (!libContractReady()) return key ? { ok: true, legacy: true } : { ok: false, kind: libAnonOk(strategyId) ? "fail" : "signin" };
+  const q = `?lang=${siteLang()}`;   // api 照介面語言換掉碼裡的 DISPLAY_NAME / DESCRIPTION(官方原文是中文)
   const anon = async () => {
     if (!libAnonOk(strategyId)) return null;
     // 埋點的 install_id 讓 api 記「N 人安裝」的匿名那份(策略 × install_id 去重);用戶關掉使用事件就不帶,只是不計數。
@@ -2766,11 +2756,11 @@ async function libraryDownload(strategyId) {
     let h = {};
     try { if (telemetryLive() && tm().isEnabled()) h = { "X-Install-Id": tm().installId() }; } catch (_) { h = {}; }
     h = Object.assign(h, libVerHeader());
-    try { return await getJSON(`${API_BASE}/openclaw/marketplace/strategies/${strategyId}/public_code`, h); } catch (_) { return { status: 0, body: null }; }
+    try { return await getJSON(`${API_BASE}/openclaw/marketplace/strategies/${strategyId}/public_code${q}`, h); } catch (_) { return { status: 0, body: null }; }
   };
   let r = null, viaAnon = false;
   if (key) {
-    try { r = await getJSON(`${API_BASE}/openclaw/marketplace/strategies/${strategyId}/code`, Object.assign({ "api-key": key.api_key, "secret-key": key.secret_key }, libVerHeader())); }
+    try { r = await getJSON(`${API_BASE}/openclaw/marketplace/strategies/${strategyId}/code${q}`, Object.assign({ "api-key": key.api_key, "secret-key": key.secret_key }, libVerHeader())); }
     catch (_) { return { ok: false, kind: "fail" }; }
     const kb = r.body && typeof r.body === "object" ? r.body : {};
     if (r.status === 401 || (r.status === 403 && kb.error_code === "ERR005")) { r = await anon(); viaAnon = true; }   // key 被撤(別台登出 / 撤銷):能匿名的照樣裝
@@ -2911,21 +2901,43 @@ function stratPrefsSet(patch) {
   return stratPrefsGet();
 }
 /* 雲端那一袋的部位大小(renderer/portfolio.js mgSizingCloudLoad):同一個 ui-prefs.json,綁這次登入的 who——
-   換帳號 / 重新登入讀不到上一份(回 null = 照預設)。形狀在這裡清洗才落地,renderer 讀回來再洗一次 */
+   換帳號 / 重新登入讀不到上一份(回 null = 沒填過)。形狀在這裡清洗才落地,renderer 讀回來再洗一次 */
 function mgSizingClean(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return null;
   const pos = (x) => (typeof x === "number" && isFinite(x) && x > 0 ? x : null), tg = v.target && typeof v.target === "object" ? v.target : {};
   return { fund: pos(v.fund), fundCcy: typeof v.fundCcy === "string" && /^[A-Z]{2,8}$/.test(v.fundCcy) ? v.fundCcy : null,
-    method: ["vol", "mdd", "lev"].indexOf(v.method) >= 0 ? v.method : "vol", target: { vol: pos(tg.vol), mdd: pos(tg.mdd), lev: pos(tg.lev) } };
+    method: ["vol", "mdd", "lev"].indexOf(v.method) >= 0 ? v.method : null, target: { vol: pos(tg.vol), mdd: pos(tg.mdd), lev: pos(tg.lev) } };
 }
+/* 同一條路的優化設定:勾的成員、方法、各方法的參數。形狀同 renderer mgOptClean,再加 sel */
+function mgOptCloudClean(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const name = /^[A-Za-z0-9_-]{1,64}$/, ok = (x) => (typeof x === "number" && isFinite(x)) || typeof x === "boolean" || (typeof x === "string" && x.length <= 200);
+  const out = { sel: Array.isArray(v.sel) ? v.sel.filter((n) => typeof n === "string" && n && n.length <= 64).slice(0, 500) : null, alloc: typeof v.alloc === "string" && name.test(v.alloc) ? v.alloc : null, params: {} };
+  const src = v.params && typeof v.params === "object" ? v.params : {};
+  Object.keys(src).slice(0, 64).forEach((a) => {
+    if (!name.test(a) || !src[a] || typeof src[a] !== "object") return;
+    const o = {}; Object.keys(src[a]).slice(0, 32).forEach((k) => { if (ok(src[a][k])) o[k] = src[a][k]; }); out.params[a] = o;
+  });
+  return out;
+}
+/* {ok:false} = 讀不到(沒登入、檔壞了、沒權限),不等於沒存過:renderer 不能當沒填過讓人蓋掉。檔不存在 = 全新安裝,ok、全空 */
 function mgSizingCloudGet() {
-  const who = currentWho(); if (!who) return null;
-  try { const o = JSON.parse(fs.readFileSync(uiPrefsPath(), "utf8")).mgSizingCloud; return o && o.who === who ? mgSizingClean(o.v) : null; } catch (_) { return null; }
+  const who = currentWho(); if (!who) return { ok: false };
+  let o = {};
+  try { o = JSON.parse(fs.readFileSync(uiPrefsPath(), "utf8")); } catch (e) { if (e.code !== "ENOENT") return { ok: false }; }
+  if (!o || typeof o !== "object") return { ok: false };
+  const mine = (x) => (x && x.who === who ? x.v : null);
+  return { ok: true, v: mgSizingClean(mine(o.mgSizingCloud)), opt: mgOptCloudClean(mine(o.mgOptCloud)) };
 }
 function mgSizingCloudSet(v) {
   const who = currentWho(), c = mgSizingClean(v);
   if (!who || !c) return false;
   try { uiPrefsPatch({ mgSizingCloud: { who, v: c } }); return true; } catch (_) { return false; }   // 寫不進去:這一次的設定只在畫面上
+}
+function mgOptCloudSet(v) {
+  const who = currentWho(), c = mgOptCloudClean(v);
+  if (!who || !c) return false;
+  try { uiPrefsPatch({ mgOptCloud: { who, v: c } }); return true; } catch (_) { return false; }
 }
 
 async function blaveModels() {
@@ -3249,7 +3261,7 @@ function engineKick() {
   ensureEngineShared().then(() => tradeStartIfReady(), (e) => console.error("[engine] background setup failed: " + ((e && e.message) || e)));
 }
 /* Binance 真錢連接(binance_link.js)。金鑰只從 renderer 的表單經過這裡一次:查過權限 → 用 trusted 的路交給 daemon 寫進 workspace 的 .env。
-   這裡不 log 金鑰、不另存;落地的 state 檔只有檢查結果與當時的對外 IP。my_ip 要帳號 token(沒登入 Blave 的人查不到 IP,表單照樣能用)。 */
+   這裡不 log 金鑰、不另存;落地的 state 檔只有檢查結果與當時的對外 IP。my_ip 不帶 token:回應與身分無關,帶了失效的 token 反而 401、查不到 IP。舊版 api 沒 token 回 401,照查不到處理。 */
 let _binanceLink = null, binanceStarted = false;
 const binanceStatePath = () => path.join(app.getPath("userData"), "binance-link.json");
 // 真實交易所的金鑰只從這裡進 daemon(trusted:daemon.js TRUSTED_SETS 一家一組);renderer 的 trade-send 只收模擬交易
@@ -3258,7 +3270,7 @@ function binanceLink() {
   if (!_binanceLink) {
     _binanceLink = require("./binance_link").createBinanceLink({
       http: (u, h) => getJSON(u, h),
-      myIp: () => { const tok = loadToken(); if (!tok) return Promise.resolve(null); return postJSON(`${API_BASE}/oauth/desktop/my_ip`, { token: tok }, { family: 4 }); },
+      myIp: () => postJSON(`${API_BASE}/oauth/desktop/my_ip`, {}, { family: 4 }),
       send: sendTrustedCreds,
       readEnv: () => { try { return fs.readFileSync(path.join(WS, ".env"), "utf8"); } catch (_) { return null; } },
       loadState: () => JSON.parse(fs.readFileSync(binanceStatePath(), "utf8")),
@@ -3478,12 +3490,13 @@ async function runTurn(rec, { sessionId, message, model: rawModel, effort: rawEf
   // 用戶連的是哪一個,引擎就跑哪一個。原本這裡完全不看 kind,一律 spawn Claude
   // 那條路——選了 Codex 的人第一句話就失敗(引擎去找 `claude`)。
   const conn = loadConnection() || {};
-  // codex 的執行檔一律用**當下偵測到的**,不用連結紀錄裡那個路徑:舊版明文檔遷移過來的 path 是 agent 寫得到的字(稽核 R4)。
-  // 偵測不到就**整輪失敗**,絕不退回去跑 Claude(稽核 ①):用戶連的是 Codex,靜默換一家供應商 = 換一條帳、換一個模型,
+  // codex 的執行檔一律用**隨包那顆**,不用連結紀錄裡那個路徑:舊版明文檔遷移過來的 path 是 agent 寫得到的字(稽核 R4)。
+  // 沒有就**整輪失敗**,絕不退回去跑 Claude(稽核 ①):用戶連的是 Codex,靜默換一家供應商 = 換一條帳、換一個模型,
   // 而畫面上的連線狀態還寫著 Codex。畫面會請他重新偵測 / 重連。
   const codexBin = conn.kind === "codex" ? await codexBinNow() : null;
-  // 隨包那顆還在抓、偵測鏈上也沒有:講「正在下載」,不叫他去重新偵測
+  // 三個碼:DOWNLOADING = 抓的中途(含〔再試一次〕重抓);BROKEN = 隨包那顆上次偵測跑不起來(列上有〔再試一次〕);MISSING = 還沒抓、也沒在抓
   if (conn.kind === "codex" && !codexBin && _codexPkg && _codexPkg.busy()) throw new Error("AGENT_BIN_DOWNLOADING");
+  if (conn.kind === "codex" && !codexBin && BAD_BIN.codex) throw new Error("AGENT_BIN_BROKEN");
   if (conn.kind === "codex" && !codexBin) throw new Error("AGENT_BIN_MISSING");
   const useCodex = !!codexBin;
   const llmKey = conn.kind === "apikey" ? loadLlmKey() : null;
@@ -3590,6 +3603,9 @@ async function runTurn(rec, { sessionId, message, model: rawModel, effort: rawEf
     ...(useCodex ? ["--engine", "codex", "--codex-bin", codexBin] : []),
     ...viewingArgs(viewing),
     ...suggestArgs(suggestMode),
+    // 澄清表單(renderer/form.js):電腦版 spawn 的永遠是包裡那份 runtime,沒有版本錯配(tests/check_shell_viewing.js 釘著 runtime 認得)。
+    // 手機來的回合不帶:手機畫不出表單,模型寫了 <form> 用戶只會等不到問題
+    ...(rec.origin === "mobile" ? [] : ["--clarify-form"]),
     // argv 上只有設定檔的**路徑**(碼在檔案裡,0600、workspace 以外、這一輪結束就刪);runtime 只在電腦版(LocalSink)認這個旗標
     ...(mcpFile ? ["--mcp-config=" + mcpFile] : []),
     ...(mcpServers.length ? ["--mcp-servers=" + mcpServers.join(",")] : []),
@@ -3665,7 +3681,8 @@ async function startTurn(payload, origin) {
   turns.set(sid, rec);
   // 手機來的對話:畫面開成背景分頁(加在最後、不切過去,spec 技術方案 §1.5);事件照 sid 畫進去
   // started:這一輪不是畫面送出的,畫面要從這裡才知道那個分頁在回覆中;echo = 手機送的那句,歷史畫完後接在後面(帶「來自手機」)
-  if (rec.origin === "mobile") sendTurn(sid, "tab-open", { origin: "mobile", focus: false, echo: typeof payload.message === "string" ? payload.message : "" });
+  // since:這一刻之後 runtime 寫進 session.db 的那句就是 echo——畫面讀歷史若已讀到它,不再補畫一次
+  if (rec.origin === "mobile") sendTurn(sid, "tab-open", { origin: "mobile", focus: false, echo: typeof payload.message === "string" ? payload.message : "", since: Date.now() / 1000 });
   if (rec.cloud) { try { cloudHost().start(); } catch (_) { /* 起不來:名額照讀不到算 */ } }
   // 最低版本閘:只擋 Blave AI;連自己 CLI 的人照常聊
   try {
@@ -3803,6 +3820,8 @@ function createWindow() {
     Menu.buildFromTemplate([{ label: tmLabels.menuCopyLink || MENU_EN.menuCopyLink, click: () => clipboard.writeText(p.linkURL) }]).popup({ window: win });
   });
   win.on("enter-full-screen", appMenuSync); win.on("leave-full-screen", appMenuSync);   // 全螢幕那一格的字跟著換
+  // 人回到電腦前:開關關著時多問一次 /relay/enabled,剛配對的手機不用等 2 分鐘的 tick 就跳確認框(relay.focusTick 自己限 20 秒一次)
+  win.on("focus", () => { if (app.hasSingleInstanceLock()) relay().focusTick().catch(() => {}); });
   win.loadFile(path.join(__dirname, "renderer", "index.html"));
 }
 
@@ -4130,7 +4149,6 @@ app.whenReady().then(() => {
   // 策略庫(renderer/library.js):清單與已安裝表只收自家頁面;購買會動到餘額與信用卡,拒絕時回「打不到」的形狀
   handle("library-list", (_e, lang, force) => libraryList(lang, force === true), null);
   handle("library-report", (_e, id, lang) => libraryReport(id, lang), null);
-  handle("library-note", (_e, id) => libraryNote(id), null);
   ipcMain.handle("library-purchase", (e, id, confirmTopup) => (fromOurPage(e) ? libraryPurchase(id, confirmTopup) : { status: 0, body: null }));
   handle("library-installed", (_e, patch) => libraryInstalled(patch), {});
   // 側欄偏好(renderer/stratflags.js):順序與旗標只收自家頁面;拒絕時回空的 = 照預設序、沒旗標
@@ -4149,7 +4167,8 @@ app.whenReady().then(() => {
   handle("intro-seen", () => introSeenSet(), false);
   handle("strat-prefs", () => stratPrefsGet(), stratPrefsClean(null));
   handle("strat-prefs-set", (_e, patch) => stratPrefsSet(patch), stratPrefsClean(null));
-  handle("mg-sizing-cloud", () => mgSizingCloudGet(), null);
+  handle("mg-sizing-cloud", () => mgSizingCloudGet(), { ok: false });
+  handle("mg-opt-cloud-set", (_e, v) => mgOptCloudSet(v), false);
   handle("mg-sizing-cloud-set", (_e, v) => mgSizingCloudSet(v), false);
   handle("library-download", (_e, id) => libraryDownload(id), { ok: false, kind: "fail" });
   // 本機報告(renderer/reports.js):讀 <WS>/reports 的信封 / 本體 + sidecar 圖(data URI);renderer 不碰 fs
@@ -4164,12 +4183,13 @@ app.whenReady().then(() => {
   // 打開前畫面已經跳過確認框(§4.2);這裡只收布林
   handle("relay-set", async (_e, on) => (typeof on === "boolean" ? { ...(await relay().setOn(on)), state: relayStateOut(relay().state()) } : { ok: false }), { ok: false });
   handle("relay-retry", async () => { await relay().retry(); return relayStateOut(relay().state()); }, null);
-  // 設定區:配對碼、授權手機清單、勾選、撤銷、最近操作。回的是 relay.js 篩過的欄位,沒有憑證
-  handle("relay-pair-code", () => relay().pairCode(), { ok: false });
+  // 設定區的手機清單(唯讀)、配對後確認框跳出來了。回的是 relay.js 篩過的欄位,沒有憑證
   handle("relay-phones", () => relay().phones(), { ok: false });
-  handle("relay-grant", (_e, id, on) => relay().grant(typeof id === "string" ? id : "", on === true), { ok: false });
-  handle("relay-revoke", (_e, id) => relay().revoke(typeof id === "string" ? id : "", uiLang === "en" ? "en" : "zh"), { ok: false });
-  handle("relay-actions", (_e, id) => relay().actions(typeof id === "string" ? id : null), { ok: false });
+  handle("relay-ask-shown", (_e, id) => relay().askShown(typeof id === "string" ? id : ""), false);
+  handle("relay-ask-no", (_e, id) => relay().askNo(typeof id === "string" ? id : ""), false);
+  // 開關開著、帳號下剛配對了手機的那一行(account-session-revoke §3.3):畫出來了、關掉
+  handle("relay-notice-shown", (_e, id) => relay().noticeShown(typeof id === "string" ? id : ""), false);
+  handle("relay-notice-close", (_e, id) => relay().noticeClose(typeof id === "string" ? id : ""), false);
   // 自帶 API 金鑰:只有 set(驗過才存)/ test(重驗已存的那把)/ remove,加一支不帶值的取消。**沒有任何一支把金鑰交回畫面**
   const llmDenied = { ok: false, code: "NOT_ALLOWED", status: 0 };
   handle("apikey-set", (_e, a) => llmKeySet(a && typeof a === "object" ? { preset: a.preset, key: a.key, connect: a.connect === true } : null), llmDenied);

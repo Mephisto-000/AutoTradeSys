@@ -21,25 +21,25 @@ for (const m of app.matchAll(/^let ([^\n]*)/gm)) {
 }
 const tabKeys = [...ct.matchAll(/^  \["([\w.]+)", \(\) =>/gm)].map((m) => m[1]);
 const GLOBAL_OK = {
-  localReady: "本機引擎偵測", lastDetect: "本機 AI 偵測結果", detectAt: "同上", HINT: "連結畫面提示", loginSpawned: "登入行程", cur: "連的是哪個 AI(全 app 一個)",
-  hasToken: "Blave 登入", csReady: "對話清單第一次載入", acctOutBusy: "登出中", oauthPending: "登入中", SHL_SCROLL: "設定頁捲動", PRIV: "隱私設定", MV: "手機查看",
+  localReady: "本機引擎偵測", lastDetect: "本機 AI 偵測結果", detectAt: "同上", detectP: "同上(在飛的那一輪)", HINT: "連結畫面提示", loginSpawned: "登入行程", cur: "連的是哪個 AI(全 app 一個)",
+  SYS_QUIET: "換語言重畫聊天系統行時的旗標(同步段落)", hasToken: "Blave 登入", csReady: "對話清單第一次載入", acctOutBusy: "登出中", oauthPending: "登入中", SHL_SCROLL: "設定頁捲動", PRIV: "隱私設定", MV: "手機查看",
   MV_BUSY: "同上", PRIV_BUSY: "同上", RN: "回覆通知設定", rsCtx: "回覆音 AudioContext", rsLast: "回覆音 2 秒內只響一次(全 app)", composing: "輸入法組字(共用輸入框)",
   attachedFiles: "共用輸入框的附件;切分頁時由 tabShow 換成那個分頁的 composer.files", rpWaitShownAt: "中欄報告", rpcSeq: "中欄雲端報告", rpcOwed: "中欄雲端報告欠的重抓(任何回合結束才補)",
   csItems: "歷史清單", delCtx: "確認框", csSearched: "歷史搜尋埋點", turnSeq: "全 app 回合流水號(每個分頁另記 turnSeqMine)", lbOpener: "圖片放大框",
   thinkFoldSeq: "aria-controls 流水號", stepCharW: "量字寬的快取", loginPending: "本機 AI 登入中", acct: "帳號狀態", acctAt: "同上", acctRetry: "同上", balLast: "餘額",
   balSeq: "同上", acctGone: "去瀏覽器綁卡", acctPending: "帳號重查", acctSettled: "同上", taKeyed: "輸入框打過字(帳號卡)", planSlowSaid: "方案開通", planBusyPlan: "同上",
   planErr: "同上", planBusy: "同上", planSince: "同上", planTimer: "同上", planWas: "同上", planDoneSaid: "同上", planDonePending: "方案開好了那句:等眼前分頁閒著才講",
-  pub: "公開資訊", pubAt: "同上", PH: "手機對話設定(主行程 relay.js 的狀態)", PH_BUSY: "同上", PH_ERR: "同上", PH_PHONES: "同上(授權手機清單)", PH_CODE: "同上(配對碼)", PH_ACTS: "同上(最近操作)", PH_MSG: "同上(手機那一組的訊息槽)", PH_QUIET: "同上(同步數字變時不念)", PH_EXP: "同上(配對碼到期的計時)", planLoginBusy: "方案登入", planLastView: "同上", planLoginOut: "同上",
+  pub: "公開資訊", pubAt: "同上", PH: "手機對話設定(主行程 relay.js 的狀態)", PH_BUSY: "同上", PH_WAIT: "同上(這次請求;取消就換掉)", PH_ERR: "同上", PH_PHONES: "同上(帳號下的手機,唯讀)", PH_QUIET: "同上(同步數字變時不念)", PH_ASKED: "同上(配對確認框跳過的那一次)", PH_ASK_BOX: "同上(開著的配對確認框)", PH_NOTICE_KEY: "同上(輸入框上方「剛配對」那一列畫著哪一批;全 app 一列,不跟分頁換)", PH_NOTICE_CLOSED: "同上(剛按掉的那一批)", planLoginBusy: "方案登入", planLastView: "同上", planLoginOut: "同上",
 };
 const unclassified = lets.filter((n) => !tabKeys.includes(n) && !(n in GLOBAL_OK));
 ok("app.js 每一個頂層 let 都歸類:每個分頁一份(TAB_KEYS)或全 app 一份(GLOBAL_OK)", unclassified.length === 0, unclassified);
 const both = lets.filter((n) => tabKeys.includes(n) && n in GLOBAL_OK);
 ok("沒有一個名字兩邊都列", both.length === 0, both);
-const stale = Object.keys(GLOBAL_OK).filter((n) => !lets.includes(n)).concat(tabKeys.filter((k) => !k.includes(".") && !lets.includes(k) && k !== "SUG"));
+const stale = Object.keys(GLOBAL_OK).filter((n) => !lets.includes(n)).concat(tabKeys.filter((k) => !k.includes(".") && !lets.includes(k) && k !== "SUG" && k !== "FORM"));
 ok("清單上的名字都還在(拿掉的變數要從清單拿掉)", stale.length === 0, stale);
-ok("每輪模組的每輪欄位也進 TAB_KEYS:SUG(托盤跟著分頁)、XP.pending、RES.turn、RPT.turnAt／cloudTurn、BR.blocks／cur、UPD.turnCloud",
-  ["SUG", "XP.pending", "RES.turn", "RPT.turnAt", "RPT.cloudTurn", "BR.blocks", "BR.cur", "UPD.turnCloud"].every((k) => tabKeys.includes(k)) && /^let SUG = /m.test(read("suggest.js")) && /^let ACT = /m.test(app) && /^let creditCards = /m.test(app));
-ok("物件型的初值是工廠(每個分頁各一份,不共用同一個 Map／陣列)", /\["ACT", [^\n]*\(\) => \(\{ running: new Map\(\)/.test(ct) && /\["creditCards", [^\n]*\(\) => \[\]\]/.test(ct) && /\["SUG", [^\n]*\(\) => \(\{ pending: null/.test(ct));
+ok("每輪模組的每輪欄位也進 TAB_KEYS:SUG(托盤跟著分頁)、FORM(澄清表單跟著分頁)、XP.pending、RES.turn、RPT.turnAt／cloudTurn、BR.blocks／cur、UPD.turnCloud",
+  ["SUG", "FORM", "XP.pending", "RES.turn", "RPT.turnAt", "RPT.cloudTurn", "BR.blocks", "BR.cur", "UPD.turnCloud"].every((k) => tabKeys.includes(k)) && /^let SUG = /m.test(read("suggest.js")) && /^let FORM = /m.test(read("form.js")) && /^let ACT = /m.test(app) && /^let creditCards = /m.test(app));
+ok("物件型的初值是工廠(每個分頁各一份,不共用同一個 Map／陣列)", /\["ACT", [^\n]*\(\) => \(\{ running: new Map\(\)/.test(ct) && /\["creditCards", [^\n]*\(\) => \[\]\]/.test(ct) && /\["SUG", [^\n]*\(\) => \(\{ pending: null/.test(ct) && /\["FORM", \(\) => FORM, \(v\) => \{ FORM = v; \}, \(\) => \(\{ pending: null, live: null, filled: null, shown: false, inflight: null \}\)\],/.test(ct));
 
 // 1b. 其他 renderer 檔的模組層 let／var,以及每輪模組物件(LIB／RPT／XP／RES／BR／UPD)的每一個欄位:
 //     TAB = 每個分頁一份(TAB_KEYS);SID = 記著發起那一條的 sid／序號,收尾只認那一條;GLOBAL = 全 app 一份(寫明為什麼)
@@ -49,8 +49,8 @@ const MOD_GLOBAL = {
   "chattabs.js": { tabsK: "分頁列 tick 第幾格(全列一起)", tabsSaid: "讀屏播報合併" }, "i18n.js": { LANG: "語言" },
   "portfolio.js": { PO_ADD_SIG: "策略組合", ctMenu: "同上", ctOpen: "同上", mgmPend: "同上", mgmOpener: "同上", mgsDraft: "同上", mgsOpener: "同上" },
   "president.js": { PRES: "統一期貨", presTimer: "同上", PRES_FIRST_ARMED: "同上" }, "report-sharelist.js": { SHL_IO: "分享清單" }, "stratflags.js": { sfPop: "彈出層" }, "stratgroups.js": { sgMenu: "資料夾 ⋯ 選單,一次一個", sgPick: "emoji 選擇器,一次一個" },
-  "suggest.js": { SUG: "TAB_KEYS 整個換(托盤跟著分頁)" },
-  "trade.js": { TR_AS_SAVED: "自動下單頁", TR: "同上", trTipSeq: "同上", trHistTipEl: "同上", trHistTipAt: "同上", trHistTipOpened: "同上", trHistTipQuiet: "同上", trCvHide: "同上", trCvEscN: "同上", cxOpener: "同上", psOpener: "同上", psMode: "同上", psToAmt: "同上", psLoading: "同上", ENV_COMPOSING: "輸入法" },
+  "suggest.js": { SUG: "TAB_KEYS 整個換(托盤跟著分頁)" }, "form.js": { FORM: "TAB_KEYS 整個換(表單跟著分頁)", formSeq: "radio 群組名流水號(全 app 一組,兩條分頁的表單名字不撞)" },
+  "trade.js": { TR_AS_SAVED: "自動下單頁", TR: "同上", trTipSeq: "同上", trHistTipEl: "同上", trHistTipAt: "同上", trHistTipOpened: "同上", trHistTipQuiet: "同上", trCvHide: "同上", trCvEscN: "同上", cxOpener: "同上", psOpener: "同上", psMode: "同上", psToAmt: "同上", psFromWhy: "同上", psLoading: "同上", ENV_COMPOSING: "輸入法" },
   "versions.js": { vcSeq: "版本頁", vcSide: "同上" },
 };
 const FIELDS = {
@@ -85,11 +85,11 @@ const topNames = (src) => { const out = []; for (const m of src.matchAll(/^(?:le
   }
   ok("每輪模組物件裡看起來是「這一輪」的欄位(pending／turn／sid／seq／wait)都歸類;標 TAB 的真的在 TAB_KEYS", fbad.length === 0, fbad);
   ok("SID 類的收尾只認發起那一條:策略庫〔使用〕、新增報告、更新雲端主機、方案開好那句、掃描／樣本外的「已送出」序號",
-    /if \(p\.sid && p\.sid !== sessionId\) return;/.test(read("library.js")) && /LIB\.pending = \{ id: s\.id, env, before, sid: at\.sid \}/.test(read("library.js")) && /if \(LIB\.pending\) LIB\.pending\.sid = at\.sid;/.test(read("library.js"))
+    /\(!p\.sid \|\| p\.sid === sessionId\)/.test(read("library.js")) && /libPendingSet\(s\.id, \{ id: s\.id, env, before, sid: at\.sid \}\)/.test(read("library.js")) && /if \(LIB\.pending\.has\(s\.id\)\) LIB\.pending\.get\(s\.id\)\.sid = at\.sid;/.test(read("library.js"))
     && /const mine = \(q\) => !!q && \(!q\.sid \|\| q\.sid === sessionId\);/.test(read("reports.js")) && /RPT\.pending\[env\] = \{ env, before, sid: at && at\.sid \}/.test(read("reports.js"))
     && /if \(UPD\.cloudSid && UPD\.cloudSid !== sessionId\) return;/.test(app) && /UPD\.cloudSid = sid;/.test(app)
     && /planDonePending = sessionId;/.test(app) && /if \(planDonePending && planDonePending === sessionId\) planSayDone\(\);/.test(app)
-    && (app.match(/resolve\(ok \? at\.seq : false\)/g) || []).length === 2 && !/resolve\(ok \? turnSeq : false\)/.test(app)
+    && (app.match(/resolve\(ok \? at : false\)/g) || []).length === 2 && !/resolve\(ok \? turnSeq : false\)/.test(app)
     && /CS\.away = \{ sid: T \? T\.sid : sessionId, seq: turnSeqMine \};/.test(ct));
 }
 
@@ -111,11 +111,11 @@ const TAB = [   // 眼前這一條(分頁自己的 running;切分頁時整組換
   ["app.js", /if \(running\) planDonePending = sessionId; else planSayDone\(\);/, "方案開好了那句不插進眼前這條的串流,記是哪一條"],
   ["app.js", /if \(ph\) withTab\(T, \(\) => \{ running = true; turnSeq\+\+; turnSeqMine = turnSeq;/, "開成分頁時主行程那邊已在跑(手機來的):記成回合中"],
   ["app.js", /const keep = running \? \{ busy, liveBubble,/, "畫歷史時那一條在跑:狀態列與串流泡泡留著"],
-  ["chattabs.js", /withTab\(T, \(\) => \{ if \(!running\) \{ running = true; turnSeq\+\+; turnSeqMine = turnSeq; \} busyStart\(\); \}\);/, "started:不是這個畫面送出的那一輪也記成回合中"],
+  ["chattabs.js", /withTab\(T, \(\) => \{ if \(!running\) \{ running = true; turnSeq\+\+; turnSeqMine = turnSeq; turnFresh\(null\); lastUserTyped = false; lastUserText = ""; lastUserAttachments = \[\]; turnViewCloud = true; \} busyStart\(\); \}\);/, "started:不是這個畫面送出的那一輪也記成回合中(每輪狀態歸零)"],
   ["app.js", /^let running = false;/, "宣告"],
   ["chattabs.js", /\["running", \(\) => running, \(v\) => \{ running = v; \}/, "TAB_KEYS"],
   ["chattabs.js", /function csAway\(\) \{ if \(csTitle \|\| running\)/, "從別處送一句話:眼前這條在跑就另開"],
-  ["chattabs.js", /function csShowRunning\(\) \{ if \(running\) return;/, "查看:眼前這條在跑就看它"],
+  ["chattabs.js", /^  if \(running\) return;$/, "查看(csShowRunning):眼前這條在跑就看它"],
   ["chattabs.js", /const lone = order\.length === 1 && [^\n]*!running;/, "只有一條空的:列上不畫分頁"],
   ["chattabs.js", /const lone = CS\.order\.length <= 1 && !csTitle && !running;/, "⌘W 最後一個分頁"],
   ["chattabs.js", /\(T === CS\.loaded \? running : T\.st\.running\)/, "載入中那條讀全域、其他讀它自己那份(csAnyTurn／csTurnCount／csTabRunning／tabRun)"],
@@ -130,15 +130,11 @@ const ANY = [   // 任何回合(機器層級的鎖;busyOn() = csAnyTurn())
   ["app.js", /function upLocalTurn\(\) \{ try \{ return typeof csAnyTurn === "function" \? csAnyTurn\(\) : running === true;/, "更新會重開 app"],
   ["app.js", /busyLock\(d, csAnyTurn\(\)\)\); \}\); \}/, "刪策略"], ["app.js", /busyLock\(del, csAnyTurn\(\)\); del\.onBusy = \(\) => busyHit\("del"\);/, "刪策略"],
   ["app.js", /if \(csAnyTurn\(\)\) \{ rpcOwed = true; return; \}/, "雲端報告重抓等所有回合結束"],
-  ["app.js", /turn: csAnyTurn\(\), onMetric:/, "成交測試"], ["app.js", /return \{ t, busy: csAnyTurn\(\), turn: turnSeq, scope:/, "參數掃描／樣本外驗證"],
   ["busy.js", /function busyOn\(\) \{ return typeof csAnyTurn === "function" \? csAnyTurn\(\) : typeof running !== "undefined" && running === true; \}/, "鎖本身"],
   ["busy.js", /if \(!busyOn\(\)\) \{ fn\(\); return; \}/, "停了再做"], ["busy.js", /if \(!busyOn\(\)\) \{ go\(\); return; \}/, "busyCut"], ["busy.js", /const on = busyOn\(\);/, "busySync"],
   ["chattabs.js", /if \(!csAnyTurn\(\)\) return;/, "回覆中的時長每秒進一格"], ["chattabs.js", /function csAnyTurn\(\) \{/, "定義"],
   ["intro.js", /running: \(typeof csAnyTurn === "function" \? csAnyTurn\(\) : typeof running !== "undefined" && running === true\)/, "第一次對話 modal 不在任何回合中彈"],
-  ["library.js", /if \(!csAnyTurn\(\)\) LIB\.busyTold = null;/, "原因句"], ["perf.js", /const lock = csAnyTurn\(\);/, "更新績效"],
   ["reports.js", /if \(!csAnyTurn\(\)\) RPT\.busyTold = false;/, "原因句"], ["trade.js", /busyLock\(d, busyOn\(\)\); d\.onBusy = \(\) => busyHit\("del"\);/, "雲端刪策略"],
-  ["versions.js", /const busy = csAnyTurn\(\);/, "還原／再跑一次改策略檔"], ["versions.js", /if \(!S\.data \|\| S\.open === null \|\| csAnyTurn\(\)\) return;/, "還原"],
-  ["versions.js", /if \(!pd \|\| pd\.status !== "failed" \|\| csAnyTurn\(\)\) return false;/, "重試"],
 ];
 const LOCAL = [   // 同名但不是回合狀態
   ["app.js", /function phasesPaint\(ol, rows, now, running\)|\[running, rows\.map|tm && running && r\.start|running && i === rows\.length - 1/, "phasesPaint 的參數"],
@@ -167,12 +163,12 @@ ok("切換對話、開新對話、從別處送一句話不再上鎖:busy.js 沒�
     turnStopping = false, turnStopped = false, engineWait = false, engineAbort = null, engineSeq = 0, lastUserTyped = false, lastUserNote = null, lastUserText = "", lastUserAttachments = [],
     faultShown = false, acctCard = null, creditCards = [], dataCard = null, draft = "", turnFail = null, turnFailSrc = null, turnModel = null, turnGotReply = false, turnErrored = false,
     turnFaulted = false, turnLimit = false, turnChanged = false, turnCap = false, turnBubble = null, turnHadTool = false, turnCards = [], pendingErr = [], turnAiBubbles = [], turnFaultEl = null, turnSeqMine = 0,
-    SUG = {}; const UPD = {}, XP = {}, RES = {}, RPT = {}, BR = { blocks: [], cur: null }, synced = [];
+    SUG = {}, FORM = { live: null }; const UPD = {}, XP = {}, RES = {}, RPT = {}, BR = { blocks: [], cur: null }, synced = [];
     const document = { createElement: () => ({ hidden: false, className: "" }) }, $ = () => ({ appendChild() {} });
     function turnUiSync() { if (CS.bg) { CS.dirtyUi = true; return; } synced.push(sessionId); }
     ${core}
     ${ct.slice(ct.indexOf("function csAnyTurn() {"), ct.indexOf("function csTurnCount()"))}
-    return { CS, withTab, tabBound, tabMake, tabLoad, tabSave, csAnyTurn, synced, get: () => ({ running, sessionId, liveBubble }), set: (o) => { if ("running" in o) running = o.running; if ("liveBubble" in o) liveBubble = o.liveBubble; } };`;
+    return { CS, withTab, tabBound, tabMake, tabLoad, tabSave, csAnyTurn, synced, get: () => ({ running, sessionId, liveBubble, FORM }), set: (o) => { if ("running" in o) running = o.running; if ("liveBubble" in o) liveBubble = o.liveBubble; if ("FORM" in o) FORM = o.FORM; } };`;
   const X = new Function(sandbox)();
   const A = X.tabMake("desktop-aaaa1111"), B = X.tabMake("desktop-bbbb2222");
   X.CS.cur = A; X.tabLoad(A); X.CS.order = [A.sid, B.sid];
@@ -191,6 +187,8 @@ ok("切換對話、開新對話、從別處送一句話不再上鎖:busy.js 沒�
   ok("tabBound:延後才跑的 callback 換回當時那條(B),不是跑的那一刻眼前那條(A)", fired === B.sid && X.get().sessionId === A.sid);
   B.dead = true; fired = null; cb();
   ok("…那條已關掉收掉:不跑", fired === null);
+  X.withTab(B, () => X.set({ FORM: Object.assign(X.get().FORM, { live: "B-form" }) }));
+  ok("FORM 跟著分頁:背景那條畫的表單存回它自己那份,眼前那條的 FORM 是它自己的空狀態;每個分頁的初值各一份", !!B.st.FORM && B.st.FORM.live === "B-form" && !!A.st.FORM && X.get().FORM === A.st.FORM && X.get().FORM.live === null && A.st.FORM !== B.st.FORM);
 }
 ok("事件照 sid 找分頁:turn-event／turn-end／瀏覽器事件都經 withTab;沒開著的只記清單狀態", /function tabsOnEvent\(c\) \{[\s\S]*?withTab\(T, \(\) => turnEventIn\(c\)\);/.test(ct) && /window\.blave\.onTurnEvent\(tabsOnEvent\);/.test(ct)
   && /const pre = withTab\(T, \(\) => turnEndPre\(r\)\);[\s\S]*?await window\.blave\.detectAgents\(\)[\s\S]*?withTab\(T, \(\) => turnEndPost\(r, pre, d\)\)/.test(ct)

@@ -1,15 +1,15 @@
 /* window.BlaveReport.renderXt(el, { stats, name, market }, opts)
  * — 報告頁「成交測試」分頁(雲端工作頁 data-tab="xt" 那一段的移植,spec .claude/output/specs/lag-test-tab-2026-10-26.md §0、§3.5)。
  *
- * 按了才算(10-27):沒測過是空狀態一顆〔開始測試〕,有結果時 meta 列右側〔重新測試〕(新鮮描邊、過時填色,同參數掃描)。
+ * 按了才算(10-27):沒測過是空狀態一顆〔開始測試〕,有結果時 meta 列右側〔重新測試〕(鈕型照 report-robust.js 的 VAL_BTN,同參數掃描)。
  * 鈕送的是機器指令 stats_refresh {names:[name], exec_test:true}——不開對話回合、沒有確認框;鈕、疊層、失敗行由 perf.js 經 opts.rerun 交進來,
  * 跟回測數據分頁的〔更新績效〕共用同一份 perf 狀態。判讀句只陳述數字:門檻只決定挑哪幾個數字講,不產生任何結論字。
  * 純邏輯那一段(含兩層畫面狀態 xtPageOf / xtCellOf)跟 web 逐字同一份(tests/check_web_desktop_parity.js 切兩邊比)。
  *
  * 這支**不依賴桌面版的全域**,環境全在 opts:`t` = i18n;`buildMeta(o)` = 回測那一行 meta(只交標的 / 週期 / 期間,全頁叫交易成本、
  * 費率由成本段標題列講);`old` = 時光機看舊版本(版本不存 exec_test:只一句 vpanel-note、不給鈕);`behind` = 主機的 lib 確定不算 exec_test
- * (鈕那一格換成〔去更新〕+ 一句先更新,`onUpdate(btn)`;結果照畫);`ui()` = 這支的 perf 狀態 { perf: idle|running|failed, mine: 這頁按的那次 run|busy|fail|null }(perf.js perfXtInfo);
- * `turn` = agent 回合中;`rerun(kind)` = 鈕那一格,kind = empty|fresh|stale(回 null = 這支不能更新績效,不出鈕);
+ * (鈕那一格換成〔立即更新〕+ 一句先更新,`onUpdate(btn)`;結果照畫);`ui()` = 這支的 perf 狀態 { perf: idle|running|failed, mine: 這頁按的那次 run|busy|fail|null }(perf.js perfXtInfo);
+ * `rerun(kind)` = 鈕那一格,kind = empty|fresh|stale(回 null = 這支不能更新績效,不出鈕);
  * `onMetric()` = 表頭換了指標(值有變才叫;埋點在 app.js,這支不碰 telemetry)。
  *
  * SECURITY: exec_test 是 VM 端未信任輸入(雲端那份又經 api 轉過一手)——xtSanitize 逐格型別檢查,文字一律 textContent。 */
@@ -174,14 +174,13 @@
     if (!o.x) return 4;
     return xtStale(o.x, o.sharpe) ? 7 : 6;
   }
-  // 鈕那一格 o = {cfg: config_supports_exec_test, perf: idle|running|failed, mine: 這頁按的那次 run|busy|fail|null,
-  // turn: 有 agent 回合} → 3 lib 太舊、5 跑的期間、8 這頁按的失敗、9 回合中、0 一般〔開始測試〕／〔重新測試〕。
+  // 鈕那一格 o = {cfg: config_supports_exec_test, perf: idle|running|failed, mine: 這頁按的那次 run|busy|fail|null}
+  // → 3 lib 太舊、5 跑的期間、8 這頁按的失敗、0 一般〔開始測試〕／〔重新測試〕。
   // lib 太舊只換這一格:沒回報版本的機器旗標也是 false,stats.json 裡的結果照樣是對的
   function xtCellOf(o) {
     if (o.cfg !== true) return 3;
     if (o.perf === "running") return 5;
     if (o.perf === "failed" && !!o.mine && o.mine !== "busy") return 8;
-    if (o.turn) return 9;
     return 0;
   }
   // ---- 成交測試純邏輯 end ----
@@ -240,10 +239,10 @@
     return fillTpl(t("xt.verdict"), { lag: lag, cost: cost });
   }
 
-  // 主機太舊(第二層 #3):那一格換成〔去更新〕＋一句;空狀態時這句當 lead 放在鈕上面(同樣本外驗證空狀態落後態),結果頁放鈕下
+  // 主機太舊(第二層 #3):那一格換成〔立即更新〕＋一句;空狀態時這句當 lead 放在鈕上面(同樣本外驗證空狀態落後態),結果頁放鈕下
   function xtBehindCell(opts, lead) {
     const box = el("div", "xt-upd");
-    const go = el("button", "btn-fill", opts.t("minv.btn"));
+    const go = el("button", R()._rob.valBtn({ behind: true }).cls, opts.t("rp.btnUpdate"));
     go.type = "button";
     go.addEventListener("click", () => { if (typeof opts.onUpdate === "function") opts.onUpdate(go); });
     let line;
@@ -387,7 +386,7 @@
     const x = xtSanitize(bt.exec_test);
     const ui = (typeof opts.ui === "function" && opts.ui()) || {};
     const o = { verActive: false, restoring: false, cfg: opts.behind !== true, x, sharpe: bt["Sharpe Ratio"],
-      perf: ui.perf || "idle", mine: ui.mine || null, turn: opts.turn === true };
+      perf: ui.perf || "idle", mine: ui.mine || null };
     const page = xtPageOf(o), cell = xtCellOf(o);
     // 這頁按的那次在跑:舊結果整塊收掉、只留頂列(同掃描／驗證,不用淡化表示失效;落後那格蓋過時不收)。
     // perf.js perfXtSync 比的是輸入(這頁按的那次在不在跑),不是收不收——兩邊各算一次決定會對不上、無限重畫

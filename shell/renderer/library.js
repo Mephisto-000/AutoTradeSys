@@ -196,38 +196,6 @@ function wcReco(list, c) {
 // 卡的第一格(canon › Beginner strategy card › 指標列):回測樣本未滿 1 年講總報酬,否則年化
 function wcFirstKv(s) { const y = libSampleYears(s); return y !== null && y < 1 ? "total" : "ann"; }
 function libNoteTitle(s, lang) { const m = s && s.success_note_titles; const v = m && typeof m === "object" ? m[lang] : null; return typeof v === "string" && v.trim() ? v.trim() : null; }
-/* 筆記內文白名單重建(§2.4)。root = 解析好的惰性文件 body;mk(tag, cls) 造一個沒有屬性的空元素。只用 mk + 附加字串重建,
-   來源的屬性一個都不搬(事件屬性、href、style 從構造上就進不來)。a 拆成純文字:筆記裡的連結都導去網頁版,電腦版不導流。
-   第一個 <hr>(不論在第幾層)之後是寫給網頁訪客的導流段,整段不畫。 */
-const LIB_NT_TAGS = { P: "p", H3: "h3", UL: "ul", OL: "ol", LI: "li", STRONG: "strong", B: "strong", EM: "em", BR: "br", TABLE: "table", TR: "tr", TH: "th", TD: "td", BLOCKQUOTE: "div" };
-const LIB_NT_DROP = /^(IMG|PICTURE|SOURCE|VIDEO|AUDIO|SCRIPT|STYLE|LINK|META|IFRAME|FRAME|FRAMESET|OBJECT|EMBED|SVG|MATH|CANVAS|NOSCRIPT|TEMPLATE|FORM|INPUT|BUTTON|SELECT|TEXTAREA|HEAD|TITLE)$/;
-const LIB_NT_NO_TEXT = { table: 1, tr: 1, ul: 1, ol: 1 };   // 這幾種容器裡的裸字只會是排版空白
-function libNoteBuild(root, mk) {
-  const out = mk("div", "nt-body");
-  let cut = false;
-  const walk = (src, dst, dtag) => {
-    for (const n of Array.from((src && src.childNodes) || [])) {
-      if (cut) return;
-      if (n.nodeType === 3) {
-        const s = String(n.nodeValue == null ? "" : n.nodeValue);
-        if (dtag === "body") { if (s.trim()) { const p = mk("p"); p.append(s.trim()); dst.append(p); } }
-        else if (s.trim() || !LIB_NT_NO_TEXT[dtag]) dst.append(s);
-        continue;
-      }
-      if (n.nodeType !== 1) continue;
-      const tag = String(n.nodeName || "").toUpperCase();
-      if (tag === "HR") { cut = true; return; }
-      if (LIB_NT_DROP.test(tag)) continue;
-      const to = Object.prototype.hasOwnProperty.call(LIB_NT_TAGS, tag) ? LIB_NT_TAGS[tag] : null;
-      if (!to) { walk(n, dst, dtag); continue; }   // a / thead / tbody / 未知容器:拆掉留內容
-      const m = tag === "BLOCKQUOTE" ? mk("div", "nt-lead") : mk(to);
-      walk(n, m, to);
-      if (to === "table") { const w = mk("div", "nt-tw"); w.append(m); dst.append(w); } else dst.append(m);
-    }
-  };
-  walk(root, out, "body");
-  return out;
-}
 /* ── 純邏輯到此 ── */
 // p 的規則只有一份,在 strategy_versions.js fillP(那支在 library.js 之後載入,呼叫時才讀);門檻跟 api 的 mcpt_alpha 走
 function libP(tpl, p, alpha) {
@@ -236,13 +204,12 @@ function libP(tpl, p, alpha) {
 }
 
 const LIB = { bags: { local: libNewBag(), cloud: libNewBag() }, data: null, loading: false, skel: false, failed: false, stale: false, seq: 0,
-  pending: null, noNew: null, buying: null, installed: {}, chart: null, paintedEnv: null, reports: new Map(),   // reports: id → Promise<report|null>(詳情的 400 點曲線 + 回測期間)
+  pending: new Map(), noNew: null, buying: null, installed: {}, chart: null, paintedEnv: null, reports: new Map(),   // reports: id → Promise<report|null>(詳情的 400 點曲線 + 回測期間)
   dlFail: null,   // 本機代下載沒成:{ id, kind: blocked | gone | signin | fail | unsent }(§4.2);再按一次、離開詳情、libInvalidate 清掉
   cloudInstalled: {}, cloudWait: null, cloudNames: null,   // 雲端視角的「已安裝」(只在這次 app 開著的期間;見 libCloudChanged)
-  busyTold: null, noteSeq: 0,   // busyTold:回合中點過哪一支的停用主鈕(那句「上一輪還在跑。」要留著,回合結束 libSync 清掉);noteSeq:筆記載入的世代
   brOn: false, ideaShown: null };   // brOn:內建瀏覽器開關的快取;ideaShown:清單上次畫的找點子入口是開是關
 const LIB_CLOUD_WAIT_MS = 3 * 60 * 1000;   // 回合結束後等雲端清單跟上的上限(主機的回報器有延遲);過了就不再認新出現的那支是這次下載的
-function libNewBag() { return { open: false, detail: null, note: null, mkt: "all", scroll: 0, detScroll: 0, row: null }; }   // note = 開著的筆記 id(第三層;null = 沒開)
+function libNewBag() { return { open: false, detail: null, mkt: "all", scroll: 0, row: null }; }
 const libEnv = () => (typeof ENV !== "undefined" && ENV.cur === "cloud" ? "cloud" : "local");
 const libBag = (env) => LIB.bags[(env || libEnv()) === "cloud" ? "cloud" : "local"];
 const libWhere = () => t(libEnv() === "cloud" ? "lib.where.cloud" : "lib.where.local");
@@ -329,8 +296,8 @@ function libCtx() {
 function libCtaOf(s) {
   const c = libCtx();
   return libCta(s, Object.assign(c, {
-    running: false, cloud: c.env === "cloud" ? libCloud() : null,   // 回合中不再擋〔使用〕:另開分頁送(csSendAway);進度看 LIB.pending
-    pending: LIB.pending ? LIB.pending.id : null, noNew: LIB.noNew, buying: LIB.buying,
+    running: false, cloud: c.env === "cloud" ? libCloud() : null,   // 回合中不再擋〔使用〕:另開分頁送(csSendAway);進度看 LIB.pending(每支一份)
+    pending: LIB.pending.has(s.id) ? s.id : null, noNew: LIB.noNew, buying: LIB.buying,
     installedName: libInstalledOf(s, c.env),
   }));
 }
@@ -357,9 +324,10 @@ function libIdeaPaint() {
 }
 
 /* ── 開 / 關 ──────────────────────────────────────────── */
-// silent:歡迎頁卡開詳情不記 library_open(卡的流量另記 wcard_*,不灌進策略庫報表)
+// silent:歡迎頁卡開詳情不記 library_open(卡的流量另記 wcard_*,不灌進策略庫報表);它接著開詳情。其餘從別頁進來一律落列表,不留在上次那支
 async function libOpen(o) {
   const B = libBag();
+  if (!(o && o.silent)) B.detail = null;
   if (typeof trLeave === "function") trLeave(libEnv());
   if (typeof rptLeave === "function") rptLeave();   // 報告與策略庫互斥(renderer/reports.js)
   if (libEnv() === "local") { if (typeof stratSelect === "function") await stratSelect(null); }
@@ -419,22 +387,39 @@ function libInvalidate() { LIB.stale = true; LIB.dlFail = null; LIB.cloudInstall
 function libRefresh() { if (!$("lib").hidden) libLoad(false); }
 // 送出「用這支」那一輪結束(app.js onTurnEnd,stratRefresh(true) 之後):本機多了一支就記下對照表;沒有就出灰字。雲端只重問一次狀態
 function libTurnEnd() {
-  const p = LIB.pending;
-  if (!p || p.stage === "dl") return;   // 還在代下載:結束的是用戶另外送的那一輪,不是這支的
-  if (p.sid && p.sid !== sessionId) return;   // 結束的是別條(對話分頁並行):這支那一輪還在跑
-  LIB.pending = null;
+  // 還在代下載(stage dl)的不算:結束的是用戶另外送的那一輪。sid 對不上的是別條(對話分頁並行):那支那一輪還在跑
+  const mine = [...LIB.pending.values()].filter((p) => p.stage !== "dl" && (!p.sid || p.sid === sessionId));
+  if (!mine.length) return;
+  for (const p of mine) libTurnSettle(p);
+  libSync();
+  if (typeof wcPaint === "function") wcPaint();   // 剛裝好的那支立刻從歡迎頁的卡拿掉(稽核 B4)
+}
+function libTurnSettle(p) {
+  LIB.pending.delete(p.id);
   if (p.env === "local") {
-    // 新出現、或同名但 mtime 變了(「再下載一份」是整份覆蓋同名那支)都算成功;對照表已記的名字優先認它
-    const touched = RP.list.filter((x) => p.before.get(x.name) !== x.mtime);
-    const known = LIB.installed[String(p.id)], hit = touched.find((x) => x.name === known) || touched[0];
+    // 只認新出現的、或對照表已記的那支程式碼變了(「再下載一份」是整份覆蓋同名那支);別支被動到不算
+    const known = LIB.installed[String(p.id)], touched = RP.list.filter((x) => !p.before.has(x.name) || (x.name === known && p.before.get(x.name) !== x.codeMtime));
+    const hit = touched.find((x) => x.name === known) || touched[0];
+    // 兩支同時裝:多出來的資料夾分不出是誰的。寧可沒標「已安裝」,也不能把這支的資料夾記到另一支(同 cloudWait 的取捨)
+    if (p.overlap && !(hit && hit.name === known)) {
+      const taken = new Set(Object.values(LIB.installed)), free = touched.filter((x) => !taken.has(x.name));
+      if (free.length === 1 && !LIB.pending.size) { libInstalledSet(p.id, free[0].name); libTrack("lib_installed"); }
+      return;
+    }
     if (hit) { libInstalledSet(p.id, hit.name); libTrack("lib_installed"); } else { LIB.noNew = p.id; libTrack("library_no_new"); }
   } else {
     if (window.blave && typeof window.blave.cloudRefresh === "function") window.blave.cloudRefresh().catch(() => {});
     if (libCloudSettle(p, libCloudList())) { libTrack("lib_installed"); libCloudRepaintList(); }
     else LIB.cloudWait = { id: p.id, before: p.before, until: Date.now() + LIB_CLOUD_WAIT_MS };   // 清單還沒跟上:等輪詢帶新的來
   }
-  libSync();
-  if (typeof wcPaint === "function") wcPaint();   // 剛裝好的那支立刻從歡迎頁的卡拿掉(稽核 B4)
+}
+// 這支擋不擋:本機每支一份,不同支可以同時裝;雲端「等清單跟上」只有一格(LIB.cloudWait),一次一支
+function libPendingBlocks(s) { return LIB.pending.has(s.id) || (libEnv() === "cloud" && [...LIB.pending.values()].some((p) => p.env === "cloud")); }
+function libPendingSet(id, rec) {
+  const others = [...LIB.pending.values()].filter((p) => p.id !== id && p.env === rec.env);
+  if (others.length) { rec.overlap = true; for (const p of others) p.overlap = true; }
+  const old = LIB.pending.get(id); if (old && old.overlap) rec.overlap = true;
+  LIB.pending.set(id, rec);
 }
 function libInstalledSet(id, name) {
   LIB.installed[String(id)] = name;
@@ -442,7 +427,6 @@ function libInstalledSet(id, name) {
 }
 // 回合開始 / 結束(running 變了)、購買中、對照表變了:詳情的 CTA 就地重畫;清單的 tag 在 libStratChanged
 function libSync() {
-  if (!csAnyTurn()) LIB.busyTold = null;   // 清在這裡、不在 libPaintCta:忙碌中也會重畫,會把剛講的那句抹掉
   if (typeof wcBusySync === "function") wcBusySync();   // 歡迎頁卡的回合鎖與代下載鎖:用戶在歡迎頁時策略庫是藏著的,要在下一行之前
   if ($("lib").hidden) return;
   const B = libBag(), s = B.detail ? libFind(B.detail) : null;
@@ -457,14 +441,9 @@ function libPaint() {
   const B = libBag(); LIB.paintedEnv = libEnv();
   if (B.detail && LIB.data && !libFind(B.detail)) B.detail = null;   // 那支不在清單裡了(下架):回清單
   const det = B.detail ? libFind(B.detail) : null;
-  if (det && B.note !== null) B.note = libNoteId(det, LANG);   // 換語言:跟著換成那一語言的筆記,沒有就退回詳情
-  const reading = !!det && B.note !== null;
   $("lib-head-list").hidden = !!det; $("lib-back").hidden = !det;
-  // 筆記層的返回鈕寫策略名(一眼知道回到哪);全文放 title(單行截斷)
-  $("lib-back-l").hidden = reading; $("lib-back-s").hidden = !reading; $("lib-back-s").textContent = reading ? det.title : "";
-  if (reading) $("lib-back").title = det.title; else $("lib-back").removeAttribute("title");
   libMktClose(!det && $("lib-mkt-menu").contains(document.activeElement));   // 選單開著時清單重畫(清單到了、換語言):焦點在面板裡就還給觸發鈕,不掉到 body
-  if (det) { $("lib-rows").textContent = ""; $("lib-grps").textContent = ""; $("lib-state").hidden = true; if (reading) libPaintNote(det); else libPaintDetail(det); }
+  if (det) { $("lib-rows").textContent = ""; $("lib-grps").textContent = ""; $("lib-state").hidden = true; libPaintDetail(det); }
   else { libChartDrop(); $("lib-det").hidden = true; $("lib-det").textContent = ""; libPaintDesc(); libPaintList(); $("lib-body").scrollTop = B.scroll || 0; }
 }
 // 市場選單:選中的那項、觸發器上的值、每一項的支數(0 也印、照樣可選;網頁同一套)。清單還沒到就都不印;清單每重畫一次就跟著重算
@@ -653,14 +632,13 @@ function libNoDataText(s, why) {
   return libJoin(t(libNeeds(s) === "required" ? "lib.need.data" : "lib.need.unknown"), why === "no_balance" ? t("lib.why.noBalance") : why === "no_plan" ? t("lib.why.noPlan") : why === "plan_failed" ? t("lib.why.planFailed") : why === "unknown" ? t("lib.why.unknown") : "");
 }
 function libShowDetail(id) {
-  const B = libBag(); B.row = id; B.detail = id; B.note = null;
+  const B = libBag(); B.row = id; B.detail = id;
   libPaint(); $("lib-body").scrollTop = 0;
   const s = libFind(id); if (s) libBlocked(libBlockedWhy(libCtaOf(s)));
   $("lib-back").focus();
 }
 function libBack() {
   const B = libBag();
-  if (B.note !== null) { libNoteBack(); return; }
   B.detail = null; LIB.noNew = null; LIB.dlFail = null;
   libPaint();
   const r = $("lib-body").querySelector('.lib-row[data-id="' + B.row + '"]');   // 主段或(展開著的)社群段
@@ -712,8 +690,9 @@ function libPaintDetail(s) {
       const ul = libEl("ul", "gates");
       [["fee", "lib.gate1", "lib.gate1d"], ["mcpt", "lib.gate2", "lib.gate2d"], ["robust", "lib.gate3", "lib.gate3d"]].forEach(([key, n, d]) => {
         const li = libEl("li"), v = gc[key], gr = libEl("span", "gr");
-        gr.appendChild(libEl("span", "gv " + (v === "pass" ? "up" : v === "fail" ? "down" : "na"), t(v === "pass" ? "lib.gate.pass" : v === "fail" ? "lib.gate.fail" : "lib.gate.na")));
-        vals[key].forEach((x) => gr.appendChild(libEl("span", "gx mono", x)));
+        const gv = libEl("span", "gv " + (v === "pass" ? "up" : v === "fail" ? "down" : "na"), t(v === "pass" ? "lib.gate.pass" : v === "fail" ? "lib.gate.fail" : "lib.gate.naShort"));
+        gr.appendChild(key === "mcpt" && v !== "pass" && v !== "fail" ? libGateTip(gv, t("lib.gate.na"), "lib-gate-na-tip") : gv);
+        vals[key].forEach((x) => { const gx = libEl("span", "gx mono", x); gr.appendChild(key === "robust" && rob.ratio > 1 ? libGateTip(gx, t("lib.gate.robustOver"), "lib-gate-rob-tip") : gx); });
         li.append(libEl("span", "gn", t(n)), gr, libEl("span", "gd", t(d))); ul.appendChild(li);
       });
       c2.appendChild(ul);
@@ -769,18 +748,11 @@ function libPaintCta(s) {
   switch (c.state) {
     case "signedOut": row.appendChild(libSignInBtn()); break;   // 鈕本身就說了「登入 Blave」,鈕下不再補一句(Wei 10-17);卡與資料登入後真的撞到資料牆再講(Wei 10-02)
     case "noData": row.appendChild(libGateBtn(c.why)); note.classList.add("up"); note.textContent = libNoDataText(s, c.why); break;
-    case "busy": {   // 點了才講(同策略版本):不常駐那句;aria-disabled 讓鍵盤停得上去,點 / Enter / Space 才把原因寫進鈕下
-      const b = btn("btn-fill", c.paid ? buyLabel() : t("lib.use"), () => libBusyTell(s));
-      b.setAttribute("aria-disabled", "true"); b.title = t("turn.busy"); row.appendChild(b);
-      note.setAttribute("role", "status");
-      if (LIB.busyTold === s.id) { note.textContent = t("turn.busy"); busyFixLink(note, "stop"); b.setAttribute("aria-describedby", "lib-cta-note"); }
-      break;
-    }
     case "stopped": case "stale": row.appendChild(dis(c.paid ? buyLabel() : t("lib.use"))); note.textContent = t(c.state === "stopped" ? "ho.gate.stopped" : "ho.gate.stale"); break;
     case "pending": row.appendChild(dis(t("lib.pending"))); break;   // 鈕本身說了進行中,鈕下不再補「進度在右邊的對話」(Wei 10-17)
     case "buying": row.appendChild(dis(t("lib.buy.busy"))); break;
     case "installed":
-      row.append(btn("btn-fill", t("lib.open"), () => (libEnv() === "cloud" ? rpCloudSelect(c.name) : stratSelect(c.name))), btn("btn-quiet", t("lib.again"), (b) => libAsk(s, b)));
+      row.append(btn("btn-fill", t("lib.open"), async () => { await (libEnv() === "cloud" ? rpCloudSelect(c.name) : stratSelect(c.name)); $("rp-name").focus(); }), btn("btn-quiet", t("lib.again"), (b) => libAsk(s, b)));
       break;
     case "paid": row.appendChild(btn("btn-fill", buyLabel(), (b) => libBuyBox(s, "confirm", b, {}))); break;
     case "owned": row.appendChild(btn("btn-fill", t("lib.use"), (b) => libAsk(s, b))); break;
@@ -788,7 +760,7 @@ function libPaintCta(s) {
       row.appendChild(btn("btn-fill", t("lib.use"), (b) => libAsk(s, b)));
   }
   if (row.childNodes.length) box.appendChild(row);
-  note.hidden = !note.textContent && c.state !== "busy";   // 忙碌態那一格空著也留在無障礙樹裡:帶著內容才出現的 live region 讀屏常常不唸
+  note.hidden = !note.textContent;
   box.appendChild(note);
   if (c.err) { const e = libEl("p", "err"), m = libEl("span", "fault-mark"); m.setAttribute("aria-hidden", "true"); e.append(m, libEl("span", "", t("lib.err.noNew"))); box.appendChild(e); }
   if (LIB.dlFail && LIB.dlFail.id === s.id && c.state !== "pending") {
@@ -798,100 +770,32 @@ function libPaintCta(s) {
   if (hadFocus) { const b = box.querySelector("button:not(:disabled)"); if (b) b.focus(); }   // 停用的(下載中)接不了焦點:那條路由 libSend 自己還
 }
 
-// 回合中點了停用的主鈕:就地寫那句(不整個重畫,焦點留在鈕上);記下是哪一支,忙碌中重畫時補回
-function libBusyTell(s) {
-  LIB.busyTold = s.id; busyHit("send");
-  const n = $("lib-cta-note"), b = libCtaMain();
-  if (n) { n.textContent = t("turn.busy"); busyFixLink(n, "stop"); n.hidden = false; }   // 不在輸入框旁:補〔停止〕(聊天欄收著時看不到送出鍵)
-  if (b) b.setAttribute("aria-describedby", "lib-cta-note");
-}
 
-/* ── 成功筆記(spec-0.1.12-library-notes §2.3–2.5):詳情的入口卡 → 中欄第三層閱讀頁 ── */
-function libChevron() {
-  const NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg"), p = document.createElementNS(NS, "path");
-  svg.setAttribute("class", "ic"); svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("aria-hidden", "true"); p.setAttribute("d", "m9 18 6-6-6-6");
-  svg.appendChild(p);
+/* ── 成功筆記(canon › 說明文章外連):詳情的入口卡,用瀏覽器開網站那一頁。只能連免費筆記(付費的在網站上會跳解鎖牆);清單沒帶 price,外殼判斷不了,靠上架時把關 ── */
+function libExtIcon() {   // Lucide arrow-up-right
+  const NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("class", "ic"); svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("aria-hidden", "true");
+  ["M7 7h10v10", "M7 17 17 7"].forEach((d) => { const p = document.createElementNS(NS, "path"); p.setAttribute("d", d); svg.appendChild(p); });
   return svg;
 }
 function libNoteLink(s) {
-  const b = libEl("button", "lib-noteln"); b.type = "button"; b.id = "lib-noteln";
+  const title = libNoteTitle(s, LANG) || t("lib.note.fallback");   // 清單沒帶標題(舊 api)就寫固定字,入口照出
+  const a = libEl("a", "lib-noteln"); a.id = "lib-noteln";
+  a.href = "https://blave.org/studio/" + LANG + "/success_note/read/" + libNoteId(s, LANG) + "?src=desktop_note";
+  a.setAttribute("aria-label", t("lib.note.aria", { t: title }));
   const l = libEl("span", "l"), go = libEl("span", "go");
-  l.append(libEl("span", "k", t("lib.note.k")), libEl("span", "t", libNoteTitle(s, LANG) || t("lib.note.fallback")));   // 清單沒帶標題(舊 api)就寫固定字,入口照出
-  go.appendChild(libChevron());
-  b.append(l, go);
-  b.addEventListener("click", () => libNoteOpen(s));
-  return b;
-}
-function libNoteOpen(s) {
-  const B = libBag(), id = libNoteId(s, LANG);
-  if (!id) return;
-  B.detScroll = $("lib-body").scrollTop; B.note = id;
-  libPaint(); $("lib-body").scrollTop = 0;
-  const h = $("lib-nt-title"); if (h) h.focus();
-}
-// 回到詳情(頂部返回、頁尾「回到策略」同一條):捲回進來前的位置、焦點還給入口卡
-function libNoteBack() {
-  const B = libBag(); B.note = null; LIB.noteSeq++;
-  libPaint(); $("lib-body").scrollTop = B.detScroll || 0;
-  const b = $("lib-noteln"); if (b) b.focus(); else $("lib-back").focus();
-}
-function libPaintNote(s) {
-  libChartDrop();
-  const det = $("lib-det"); det.hidden = false; det.textContent = "";
-  const nt = libEl("article", "nt"); nt.setAttribute("aria-labelledby", "lib-nt-title");
-  const h = libEl("h5", "nt-title", libNoteTitle(s, LANG)); h.id = "lib-nt-title"; h.tabIndex = -1;
-  const meta = libEl("div", "nt-meta"), body = libEl("div", "nt-slot");
-  nt.append(libEl("div", "nt-k", t("lib.note.k")), h, meta, body);
-  det.appendChild(nt);
-  libNoteLoad(s, libBag().note);
-}
-// canon Loader:200ms 內回來不畫 skeleton;畫了至少留 300ms。標題已知就先畫標題,不知道時標題位置也是一條 skeleton
-async function libNoteLoad(s, id) {
-  const seq = ++LIB.noteSeq, here = () => LIB.noteSeq === seq && !$("lib").hidden && libBag().note === id && !!$("lib-nt-title");
-  let shownAt = 0;
-  const timer = setTimeout(() => {
-    if (!here()) return;
-    shownAt = Date.now();
-    const h = $("lib-nt-title"), slot = $("lib-det").querySelector(".nt-slot");
-    if (!h.textContent) { h.textContent = ""; const k = libEl("span", "sk nt-sk-h"); k.setAttribute("aria-hidden", "true"); h.appendChild(k); }
-    const sk = libEl("div", "nt-body nt-sk"); sk.setAttribute("aria-hidden", "true");
-    [[82, "h"], 0, [96], [88], [92], [70], 0, [90], [84], [60]].forEach((x) => { if (!x) { sk.appendChild(libEl("div", "nt-sk-gap")); return; } const b = libEl("div", "sk" + (x[1] ? " nt-sk-h" : "")); b.style.width = x[0] + "%"; sk.appendChild(b); });
-    slot.textContent = ""; slot.appendChild(sk);
-  }, 200);
-  let n = null;
-  try { n = await window.blave.libraryNote(id); } catch (_) { n = null; }
-  clearTimeout(timer);
-  if (!here()) return;
-  if (shownAt) {
-    const hold = typeof rpWaitHold === "function" ? rpWaitHold(shownAt, Date.now()) : 0;
-    if (hold) { await new Promise((res) => setTimeout(res, hold)); if (!here()) return; }
-  }
-  const h = $("lib-nt-title"), slot = $("lib-det").querySelector(".nt-slot"), meta = $("lib-det").querySelector(".nt-meta");
-  slot.textContent = "";
-  const ok = n && typeof n === "object" && typeof n.html === "string" && n.html;
-  if (!ok) {
-    if (h.querySelector(".sk")) h.textContent = libNoteTitle(s, LANG) || "";
-    const st = libEl("p", "lib-state"); st.setAttribute("role", "status");
-    const b = libEl("button", "btn-out", t("lib.retry")); b.type = "button";
-    b.addEventListener("click", () => { h.focus(); slot.textContent = ""; libNoteLoad(s, id); });   // 先把焦點交給標題再清:不然被拿掉的這顆鈕會把焦點丟到 BODY
-    st.append(t("lib.note.err"), document.createElement("br"), b); slot.appendChild(st);
-    return;
-  }
-  h.textContent = (typeof n.title === "string" && n.title) || libNoteTitle(s, LANG) || "";
-  meta.textContent = ""; if (typeof n.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(n.date)) meta.appendChild(libMono(n.date));
-  // DOMParser 的 text/html 文件是惰性的(不跑 script、不載資源);再由 libNoteBuild 只用白名單標籤、零屬性重建
-  slot.appendChild(libNoteBuild(new DOMParser().parseFromString(n.html, "text/html").body, (tag, cls) => libEl(tag, cls)));
-  const foot = libEl("div", "nt-foot"), back = libEl("button", "btn-out", t("lib.note.back")); back.type = "button";
-  back.addEventListener("click", libNoteBack);
-  foot.appendChild(back); slot.appendChild(foot);
-  libTrack("library_note");
+  l.append(libEl("span", "k", t("lib.note.k")), libEl("span", "t", title));
+  go.appendChild(libExtIcon());
+  a.append(l, go);
+  a.addEventListener("click", (e) => { e.preventDefault(); window.blave.openExternal(a.href); libTrack("lib_note_web"); });
+  return a;
 }
 
 /* ── 用這支(規格 §4.1):確認框 → 送一句固定訊息 ── */
 /* o.from === "welcome"(歡迎頁①的卡):確定後先切到這支的詳情再送。下載失敗、沒送出、沒新策略只畫在詳情的 #lib-cta,
    從歡迎頁直送的話錯誤畫進藏著的面板(稽核 M1)。焦點由 delClose 先還給卡的 CTA,libShowDetail 再交給詳情的返回鈕 */
 function libAsk(s, opener, o) {
-  if (LIB.pending) return;   // 代下載那一兩秒 running 還是 false:切到另一支再按不能起第二個下載
+  if (libPendingBlocks(s)) return;   // 同一支不起第二個下載;別支本機可以同時裝
   if (typeof envCanSwitch === "function" && !envCanSwitch()) return;   // 別的框開著 / 選字中
   const cloud = libEnv() === "cloud", fee = libFeeLine(libEnv(), LIB.data ? LIB.data.dataAccess : null, libNeeds(s));
   const again = libCtaOf(s).state === "installed";   // 頁首拿掉了覆蓋說明,改在按下「再下載一份」後的框裡講
@@ -907,23 +811,23 @@ function libAsk(s, opener, o) {
    本機先由外殼代下載(§4.2;主行程 libraryDownload 寫 workspace/tmp/library_<id>.py),成功才送 lib.msgLocal——
    那句是 runtime 契約(references/marketplace.md › Desktop-downloaded picks)。雲端照舊送 lib.msg / lib.msgPaid,外殼寫不進雲端主機 */
 async function libSend(s, o) {
-  if (LIB.pending) return;
+  if (libPendingBlocks(s)) return;
   const env = libEnv(), local = env !== "cloud";
   const msg = libMsg(s, t(local ? "lib.msgLocal" : libIsFree(s) ? "lib.msg" : "lib.msgPaid"));
   if (!msg) return;
   if (typeof paneSt !== "undefined" && paneSt.chat.off) paneToggle("chat", false);   // 聊天欄收著就先展開:過程在那裡回報
-  const cl = env === "cloud" ? libCloudList() : RP.list, before = cl ? new Map(cl.map((x) => [x.name, x.mtime])) : null;   // 同 stratRefresh 的比法:名字 + mtime;雲端清單缺席就不記(之後不猜)
+  const cl = env === "cloud" ? libCloudList() : RP.list, before = cl ? new Map(cl.map((x) => [x.name, env === "cloud" ? x.mtime : x.codeMtime])) : null;   // 本機比程式碼的 mtime(mtime 含 stats／scan,別支更新績效會被當成這支裝好);雲端只有 mtime,清單缺席就不記(之後不猜)
   if (env === "cloud") LIB.cloudWait = null;   // 上一支還在等清單跟上就放掉:寧可它沒標「已安裝」,也不能把第二支的資料夾記到第一支
   LIB.dlFail = null;
   let send = msg, opts;
   if (local) {
     // 送出對象在按下去那一刻定案:下載那一兩秒裡切到雲端視角,這句也不能變成送給雲端主機(那邊沒有 tmp/library_<id>.py)
     opts = { viewing: typeof chatViewing === "function" ? chatViewing() : { env: "local" } };
-    LIB.pending = { id: s.id, env, before, stage: "dl" }; LIB.noNew = null; libSync();
+    libPendingSet(s.id, { id: s.id, env, before, stage: "dl" }); LIB.noNew = null; libSync();
     let r = null;
     try { r = await window.blave.libraryDownload(s.id); } catch (_) { r = null; }
     if (!r || r.ok !== true) {
-      LIB.pending = null;
+      LIB.pending.delete(s.id);
       const kind = r && ["blocked", "gone", "anonGone", "signin", "rateLimited", "agentOld", "agentOldReopen"].includes(r.kind) ? r.kind : "fail";
       if (kind === "agentOld" || kind === "agentOldReopen") libBlocked("agent_old");   // 想用但這台 lib 太舊(api 交付碼前擋下)
       if (kind === "gone" || kind === "anonGone") libInvalidate();   // 下架了(或匿名那條已不給):清單重拉(先清再記,libInvalidate 會把 dlFail 清掉)
@@ -933,20 +837,20 @@ async function libSend(s, o) {
     }
     if (r.legacy) {   // workspace 還是舊契約:照舊由 agent 自己下載
       send = libMsg(s, t(libIsFree(s) ? "lib.msg" : "lib.msgPaid"));
-      if (!send) { LIB.pending = null; libSync(); return; }
+      if (!send) { LIB.pending.delete(s.id); libSync(); return; }
     }
-    LIB.pending.stage = "turn"; libSync();
+    LIB.pending.get(s.id).stage = "turn"; libSync();
   }
   const sent = csSendAway(send, opts), at = CS.away;
-  if (LIB.pending) LIB.pending.sid = at.sid;   // 代下載那段的 pending(stage turn)也只認這一條
+  if (LIB.pending.has(s.id)) LIB.pending.get(s.id).sid = at.sid;   // 代下載那段的 pending(stage turn)也只認這一條
   sent.then((ok) => {
     if (ok) {
-      LIB.pending = { id: s.id, env, before, sid: at.sid }; LIB.noNew = null; libTrack("library_use");
+      libPendingSet(s.id, { id: s.id, env, before, sid: at.sid }); LIB.noNew = null; libTrack("library_use");
       if (o && o.from === "welcome") libTrack(local ? "wcard_use" : "wcard_use_cloud");
       // 這支的資料需求(§8):只在本機送——雲端沒有資料牆,這個屬性在那邊沒有意義
       if (local) { try { window.blave.trackEvent("lib_pick", { data: libPickData(s) }); } catch (_) { } }
     }
-    else if (local) { LIB.pending = null; LIB.dlFail = { id: s.id, kind: "unsent" }; }   // 下載中有別句先送出(回合在跑)等:講出來,不靜默
+    else if (local) { LIB.pending.delete(s.id); LIB.dlFail = { id: s.id, kind: "unsent" }; }   // 下載中有別句先送出(回合在跑)等:講出來,不靜默
     libSync();
     // 回合送出了,但引擎是 Blave AI 而帳號不能跑:下一步就是 402(按了「使用」但被擋)
     const a = typeof acct !== "undefined" ? acct : null;
@@ -956,7 +860,9 @@ async function libSend(s, o) {
 
 /* ── 購買(規格 §4.4):兩段確認框對齊網頁 libBuy / libPurchase;憑證只在主行程 ── */
 function libBuyBox(s, stage, opener, o) {
-  if (LIB.buying !== null || LIB.pending) return;   // 代下載中:買完接著的 libSend 會被擋掉,變成付了錢卻沒裝
+  if (LIB.buying !== null) return;
+  // 任何一支裝到一半都不開購買(碰錢不放寬;代下載中買完接著的 libSend 可能被擋掉,變成付了錢卻沒裝)
+  if (LIB.pending.size) { const n = $("lib-cta-note"); if (n) { n.textContent = t("lib.buyWait"); n.hidden = false; } return; }
   if (typeof envCanSwitch === "function" && !envCanSwitch()) return;
   const price = libPriceText(s) || "—", title = t("lib.buy.title", { title: s.title });
   if (stage === "confirm") {
@@ -1009,6 +915,13 @@ function libMdd(v) { return typeof v === "number" && isFinite(v) ? -Math.abs(v) 
 function libBenchTip(bm) {
   const sym = libBenchSym(bm);
   return libJoin(t(bm.adjusted === false ? "bt.tip.benchmarkBhRaw" : "bt.tip.benchmarkBhAdj", { sym }), bm.as_of ? t("bt.tip.benchmarkBhAsOf", { date: bm.as_of }) : "");
+}
+// 品質關卡那格的短解釋:同 libBenchTable 的泡泡(lib-tipw + mp-tip + .tip),字本身是觸發點,字級色都跟著那格
+function libGateTip(node, text, id) {
+  const tw = libEl("span", "lib-tipw"), btn = libEl("button", "mp-tip"), tip = libEl("span", "tip", text);
+  btn.type = "button"; btn.appendChild(node); tip.id = id; tip.setAttribute("role", "tooltip"); btn.setAttribute("aria-describedby", id);
+  tw.append(btn, tip);
+  return tw;
 }
 function libBenchLabel(bm) { return libRich("bt.benchmarkBh", { sym: libMono(libBenchSym(bm)) }); }
 function libBenchLegend(bm) {
@@ -1081,7 +994,7 @@ function libChartDraw(host, r) {
 /* ── 接線(這支比 app.js 先載:只用 getElementById,不碰 app.js 的全域;handler 裡的才在點擊時取)── */
 (function libWire() {
   const g = (id) => document.getElementById(id);
-  g("lib-nav").addEventListener("click", () => { if (!libBag().open) libOpen(); else sideReclick(() => libLeave()); });   // 再點一次 = 回 welcome(trade.js sideReclick)
+  g("lib-nav").addEventListener("click", () => { if (!libBag().open) libOpen(); else sideReclick(() => libLeave(), libBag().detail ? libBack : null); });   // 詳情先回列表;列表再點 = 回 welcome(trade.js sideReclick)
   g("lib-back").addEventListener("click", libBack);
   g("lib-mkt-trig").addEventListener("click", () => { if (g("lib-mkt-menu").hidden) libMktOpen(); else libMktClose(false); });
   g("lib-mkt-menu").addEventListener("click", (e) => { const b = e.target.closest(".ct-mi[data-mkt]"); if (b) libMktPick(b.dataset.mkt); });

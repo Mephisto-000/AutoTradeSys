@@ -67,12 +67,12 @@ if (!process.versions.electron) {
   // ── ② 原文鎖 ──
   const chips = html.slice(html.indexOf('class="wc-chips"'), html.indexOf('id="wl-fold"'));
   const wcBox = html.slice(html.indexOf('id="main-empty"'), html.indexOf("</section>", html.indexOf('id="main-empty"')));
-  ok("② index.html(onboarding E/F):#main-empty 裡是 .wc-inner#wc(步驟清單,預設 hidden)與 .wc-fin#wf(完成後首頁,預設 hidden;class 不叫 .wf,樣本外驗證分頁的根也是 .wf);#wc 由上到下 記號 → ①(策略卡 #wc-cards、#chat-idea、#onb-lib)→ ②(#chat-ns、#wl-fold、#wl;0.1.34 起手句 #st-rows 退役)→ ③ → #onb-fin(0.1.29 拿掉市場題與④);#chat-lib、起手籤 #chat-eg、0.1.27 的三張卡 #wc-reco 退役",
+  ok("② index.html(onboarding E/F):#main-empty 裡是 .wc-inner#wc(步驟清單,預設 hidden)與 .wc-fin#wf(完成後首頁,預設 hidden;class 不叫 .wf,樣本外驗證分頁的根也是 .wf);#wc 由上到下 記號 → ①(策略卡 #wc-cards、#chat-idea、#onb-lib)→ ②(#chat-ns、#wl-fold、#wl;0.1.34 起手句 #st-rows 退役)→ ③(0.1.29 拿掉市場題與④),#onb-fin 在 #wf 裡籤的上方;#chat-lib、起手籤 #chat-eg、0.1.27 的三張卡 #wc-reco 退役",
     /<div class="wc-inner" id="wc" hidden>/.test(wcBox) && /<div class="wc-fin" id="wf" hidden>/.test(wcBox) && /<svg class="wc-fin-mark"/.test(wcBox) && /<div class="wc-fin-acts">/.test(wcBox) && wcBox.split('class="wc-inner"').length === 2 && !html.includes('id="chat-lib"') && !html.includes('id="chat-eg"') && !html.includes('id="wc-reco"') && !html.includes('id="st-rows"') && !/ws\.chatExample/.test(html + appSrc)
-    && ['class="wc-mark"', 'id="wc-cards"', 'id="chat-idea"', 'id="onb-lib"', 'id="chat-ns"', 'id="wl-fold"', 'id="wl"', 'id="onb-po"', 'id="onb-fin"', 'id="wf"'].every((x, i, a) => wcBox.includes(x) && (i === 0 || wcBox.indexOf(x) > wcBox.indexOf(a[i - 1]))));
+    && ['class="wc-mark"', 'id="wc-cards"', 'id="chat-idea"', 'id="onb-lib"', 'id="chat-ns"', 'id="wl-fold"', 'id="wl"', 'id="onb-po"', 'id="wf"', 'id="wf-lib"'].every((x, i, a) => wcBox.includes(x) && (i === 0 || wcBox.indexOf(x) > wcBox.indexOf(a[i - 1]))));
   { // 樣本外驗證分頁的根是 <div class="bt wf">(report-wf.js):別的 css 寫 .wf / .wf-* 選擇器就會一起套上去(0.1.27 起歡迎頁 F 的 .wf 把整個分頁置中)。
     // 列舉 shell 底下每一支 css 的每一個選擇器;只有 report-wf.css 能用,app.css 那兩條共用清單(回合鎖灰鈕 .wf-go、原因行 .wf-cap)本來就是在指分頁裡的元素
-    const ALLOW = { "app.css": [".wf-cap", ".wf-go"] }, bad = [];
+    const ALLOW = { "app.css": [".wf-go"] }, bad = [];
     const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.name === "node_modules" ? [] : e.isDirectory() ? walk(path.join(d, e.name)) : /\.css$/.test(e.name) ? [path.join(d, e.name)] : []));
     const files = walk(SHELL);
     for (const f of files) {
@@ -282,18 +282,18 @@ if (!process.versions.electron) {
     ok("② 0.1.34 起手句退役:七個 starter_* 字串兩語字串表與 .po 都沒有;①策略卡的 workspace_lib_bt_span 加回(zh「回測 {span}」、en「Backtest {span}」);0.1.27 卡片其餘專用字(wc.annLabel、workspace_wel_or / _more、workspace_lib_detail)不回來,策略庫面板的 lib.annLabel 不動",
       ["crypto_row", "crypto_send", "tw_row", "tw_send", "txf_row", "txf_send", "since"].every((k) => !(("starter_" + k) in STR.zh) && !(("starter_" + k) in STR.en)) && !/msgid "starter_/.test(zpo)
       && STR.zh["workspace_lib_bt_span"] === "回測 {span}" && STR.en["workspace_lib_bt_span"] === "Backtest {span}"
-      && ["wc.annLabel", "workspace_wel_or", "workspace_wel_more", "workspace_lib_detail"].every((k) => !(k in STR.zh) && !(k in STR.en)) && STR.en["lib.annLabel"] === "Annual Return · backtest" && STR.zh["lib.annLabel"] === "年化報酬・回測"
+      && ["wc.annLabel", "workspace_wel_or", "workspace_wel_more", "workspace_lib_detail"].every((k) => !(k in STR.zh) && !(k in STR.en)) && STR.en["lib.annLabel"] === "Annual Return" && STR.zh["lib.annLabel"] === "年化報酬"
       && !/wcCurve|SEND_ROW_IC|ST_ROWS|ST_FEATURE|stPaint|stGo|stSync|stTurnEnd/.test(src));
     ok("② tag 用既有的 wd.mk.*(en 台股改 TW Stocks);輸入框提示改成講想法的短句(spec §9:聊天欄最窄 336 也放得下)",
       STR.en["wd.mk.tw"] === "TW Stocks" && STR.zh["wd.mk.tw"] === "台股" && STR.zh["ws.placeholder"] === "說一個交易想法…" && STR.en["ws.placeholder"] === "Describe a trading idea…");
-    ok("② ①策略卡的 CTA(spec §3.1):先擋回合中與代下載中(busySendTell)、狀態不是 free 只開詳情、free 才 libAsk(from welcome);名字按鈕記 wcard_open／wcard_open_cloud 再開詳情(libOpen silent);鎖由 wcBusySync 就地換(busyLock、正在裝的那支換 lib.pending)",
-      /if \(LIB\.pending\) \{ busySendTell\(\); return; \}[^\n]*\n\s*if \(libCtaOf\(s\)\.state !== "free"\) \{ wcDetail\(s\); return; \}\n\s*libAsk\(s, a, \{ from: "welcome" \}\);/.test(cutFn(src, "wcUse"))
+    ok("② ①策略卡的 CTA(spec §3.1):先擋同一支還在裝與雲端一次一支(busySendTell)、狀態不是 free 只開詳情、free 才 libAsk(from welcome);名字按鈕記 wcard_open／wcard_open_cloud 再開詳情(libOpen silent);鎖由 wcBusySync 就地換(busyLock、正在裝的那支換 lib.pending)",
+      /if \(libPendingBlocks\(s\)\) \{ busySendTell\(\); return; \}[^\n]*\n\s*if \(libCtaOf\(s\)\.state !== "free"\) \{ wcDetail\(s\); return; \}\n\s*libAsk\(s, a, \{ from: "welcome" \}\);/.test(cutFn(src, "wcUse"))
       && /trackFeature\(onbEnv\(\) === "cloud" \? "wcard_open_cloud" : "wcard_open"\); wcDetail\(s\);/.test(cutFn(src, "wcCard")) && /await libOpen\(\{ silent: true \}\); libShowDetail\(s\.id\);/.test(cutFn(src, "wcDetail"))
-      && /busyLock\(a, busy\);/.test(cutFn(src, "wcBusySync")) && /t\(mine \? "lib\.pending" : "lib\.use"\)/.test(cutFn(src, "wcBusySync")));
+      && /busyLock\(a, mine \|\| lockAll\);/.test(cutFn(src, "wcBusySync")) && /t\(mine \? "lib\.pending" : "lib\.use"\)/.test(cutFn(src, "wcBusySync")));
     // wcPaint 原文接假 DOM:骨架、收起、雲端停了收起、指紋沒變不碰 DOM
     { const mk = () => ({ hidden: true, kids: [], set textContent(v) { this.kids = []; this.cleared = (this.cleared || 0) + 1; }, appendChild(x) { this.kids.push(x); return x; }, querySelectorAll: () => [] });
       const run = (o) => { const box = mk(), C = Object.assign({ $: () => box, WC: { shown: true, key: null }, LANG: "zh", JSON, hasToken: false, acct: null, acctPending: 0, acctSettled: true,
-          LIB: { data: null, skel: false, pending: null }, onbEnv: () => "local", libCloud: () => "live", wcAcctWait: null, wcReco: (l, c) => (c.wait ? null : l), wcSkel: () => "SK", wcCard: (s, first) => "C" + s.id + (first ? "*" : ""), wcBusySync() {}, wcInstalled: () => false }, o);
+          LIB: { data: null, skel: false, pending: null }, onbEnv: () => "local", libCloud: () => "live", wcAcctWait: null, wcReco: (l, c) => (c.wait ? null : l), wcSkel: () => "SK", wcCard: (s, first) => "C" + s.id + (first ? "*" : ""), wcBusySync() {}, wcAlert() {}, wcInstalled: () => false }, o);
         vm.createContext(C); vm.runInContext("var wcAcctWait = " + /const wcAcctWait = ([^\n]*);/.exec(src)[1] + ";\n" + cutFn(src, "wcPaint"), C); C.wcPaint(); const first = box.kids.slice(), c1 = box.cleared; C.wcPaint();
         return { kids: first.join(), hidden: box.hidden, again: box.cleared === c1 }; };
       const L = (n) => ({ strategies: Array.from({ length: n }, (_, i) => ({ id: i + 1, title: "s" + i })), dataAccess: null });
@@ -320,7 +320,7 @@ if (!process.versions.electron) {
   const bin = GATE.bin(SHELL, "③");
   if (!bin) { console.log(red ? `\n${red} FAILED` : "\nALL PASS"); process.exit(red ? 1 : 0); }
   const r = require("child_process").spawnSync(bin, [__filename], { stdio: "inherit", env: { ...process.env, ELECTRON_ENABLE_LOGGING: "" } });
-  process.exit(red || r.status ? 1 : 0);
+  process.exit(red || r.status !== 0 ? 1 : 0);   // 被訊號結束時 status 是 null,也算紅
 }
 
 const { app, BrowserWindow } = require("electron");

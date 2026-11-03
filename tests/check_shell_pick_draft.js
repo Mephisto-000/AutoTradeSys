@@ -30,10 +30,10 @@ ctx.psMode = "amounts";
 vm.runInContext("function trUnit() { return 'USDT'; } function trCcy() { return 'USDT'; } function trEquity() { return 10000; }", ctx);
 const pure = block("/* ── 純邏輯(", "/* ── 純邏輯到此") + block("/* ── 視角純邏輯(", "/* ── 視角純邏輯到此");
 vm.runInContext("var delCtx = null;\n" + (src.match(/^const TR_CF = [^\n]*\n/m) || [""])[0].replace(/^const /, "var "), ctx);
-vm.runInContext(pure.replace(/^const /gm, "var ") + "\nvar trTipSeq = 0, psMode = 'amounts', psToAmt = false;\n" + ["trEl", "trSec", "trTipLabel", "poHelpGroup", "poCfgSec", "trHead", "trFmt", "trFmt2", "trFmtPrice", "trMoneyInto", "trReport", "trContracts", "trStored", "trBase", "trNamesOf", "trNames",
+vm.runInContext(pure.replace(/^const /gm, "var ") + "\nvar trTipSeq = 0, psMode = 'amounts', psToAmt = false, psFromWhy = false;\n" + ["trEl", "trSec", "trTipLabel", "poHelpGroup", "poCfgSec", "trHead", "trFmt", "trFmt2", "trFmtPrice", "trMoneyInto", "trReport", "trContracts", "trStored", "trBase", "trNamesOf", "trNames",
   "trListNames", "trDisplay", "trPickOff", "trPickBtn", "trVenueId", "trVenueLabel", "trVenueKind", "trTwBroker", "trStratName", "trTwNamesWant", "trTwName", "trTwNameEl", "trTxfWant", "trRowTxf", "trRowTxfNew", "trCtPend", "trCtStored", "trCt", "trCtGate", "trCtDirty", "trCtRollTag",
   "trRowMoneyStored", "trCtPayload", "trRowIsLot", "trRowMoney", "trLotsFmt", "trLotsTgtFmt", "trLotsInto", "trQuoteMap", "trNoSignalYet", "trZoneOf", "trZoneLabel", "trZoneUnit", "trFxView", "trZoneSum", "trTotalText",
-  "trPaintPosCell", "trAmountTable", "trGoStartKey", "trTradableFunded", "trUnrouted", "trRouteDirty", "trCloseTag", "trStratHeld", "trPaperTwOk", "trPaperTw", "trCtCloseTag", "trCfOpen", "trCfStates", "trCfHolds", "trCfAsof", "trMarks", "trCfQty", "trCfRows", "trCfTick", "trCfMD", "trPvRequest", "trLivePositions", "trBook", "trTwClosedKeys", "trGatedKeys", "trAwaitKeys", "poPartStates", "poSigTable", "trPosDetail", "trManualPart",
+  "trPaintPosCell", "trAmountTable", "trNoVenueYet", "trGoStartKey", "trTradableFunded", "trUnrouted", "trRouteDirty", "trCloseTag", "trStratHeld", "trPaperTwOk", "trPaperTw", "trCtCloseTag", "trCfOpen", "trCfBookBad", "trCfStates", "trCfHolds", "trMarks", "trCfQty", "trCfRows", "trCfTick", "trPvRequest", "trLivePositions", "trBook", "trTwClosedKeys", "trGatedKeys", "trAwaitKeys", "poPartStates", "poSigTable", "trPosDetail", "trManualPart",
   "trPlanTotal", "trTxfPrice", "trNetRows", "trWithUnit", "trCatchWill", "trGateSide", "trTradesSym", "trAppRestartQuiet", "trAmountsEdited", "trSentBeforeOf", "psApply", "trCtReported", "trSentCheck", "trWith", "trUnsavedAny", "trUnsaved"].map(cutF).join("\n"), ctx);
 
 // 這台電腦、沒連交易所(儲存不開確認框,直接送);已存:a 有錢、z 金額 0。new1 是回測過、還沒進組合的
@@ -83,15 +83,31 @@ const save = async (f) => { ctx.BOX = null; btn(f, "save").on.click(); if (ctx.B
     ok("② 存好之後:草稿交回(picked null)、new1 亮燈、總訊號部位出現 new1 的標的", S.picked === null && dot(S, "new1") === true && /ETHUSDT/.test(sigSyms()), J({ picked: S.picked, sig: sigSyms() })); }
   { const S = fresh();
     pick(["a", "z", "new1"]);
-    await save(table());
-    ok("② 金額 0 也照存(跟原本的規則一樣:key 在 = 在組合裡)", sends.length === 1 && J(sends[0].args.amounts) === J({ a: 500, z: 0, new1: 0 }) && dot(S, "new1") === true, J(sends)); }
+    ok("② 只有空的新列:〔儲存〕停用(Wei 11-02)", btn(table(), "save").disabled === true);
+    S.edits.new1 = 0; S.raw.new1 = "0"; await save(table());
+    ok("② 新列打了 0 留著:照存(key 在 = 在組合裡)", sends.length === 1 && J(sends[0].args.amounts) === J({ a: 500, z: 0, new1: 0 }) && dot(S, "new1") === true, J(sends)); }
+  { const S = fresh();
+    pick(["a", "z", "new1"]); S.edits.a = 700; await save(table());
+    ok("② 另一列有改、新列空著:新列略過,不寫 0", sends.length === 1 && J(sends[0].args.amounts) === J({ a: 700, z: 0 }), J(sends)); }
 
+  // 雲端:空列存完不留在 picked(稽核 v041-last-fixes P1-1):等回報那句要在,報告對上要放掉,別處加的策略不被平掉
+  { const S = fresh(); S.env = "cloud"; S.st.cloud = { reported_at: 1, machine: { state: "running" } }; ctx.TR_BAGS = { local: {}, cloud: S }; vm.runInContext("TR_BAGS = this.TR_BAGS; envCloudKind = () => 'running'; trSend = (S0, cmd, step) => S0.api.tradeSend(cmd, step);", ctx);
+    pick(["a", "z", "new1"]); S.edits.a = 700; const f0 = table(); await save(f0);
+    ok("雲端 空列:送出的沒有它、picked 也拿掉", sends.filter((x) => x.cmd === "amounts").length === 1 && J(sends.filter((x) => x.cmd === "amounts")[0].args.amounts) === J({ a: 700, z: 0 }) && (S.picked === null || !S.picked.has("new1")), J({ sends, picked: S.picked && [...S.picked] }));
+    ok("雲端 空列:等回報那句在,不是〔還原〕＋停用的〔儲存〕", bar(table()).textContent.includes("tr.cloud.pendAmounts"), bar(table()).textContent);
+    ctx.C = S; vm.runInContext("trSentCheck(this.C, Date.now())", ctx);
+    ok("雲端 空列:報告對上後 picked 放掉、沒有未存", S.sent === null && S.picked === null && vm.runInContext("trUnsaved()", ctx) === false, J({ sent: S.sent, picked: S.picked && [...S.picked] }));
+    ctx.TR_BAGS = { local: S, cloud: {} }; vm.runInContext("TR_BAGS = this.TR_BAGS;", ctx); }
+  // 空列換合約不算有東西可存(稽核 P2-1)
+  { const S = fresh(); pick(["a", "z", "new1"]); S.list[2].symbol = "TXF"; S.ct.edits.new1 = "MXF";
+    ok("空的台指期新列換合約:〔儲存〕照舊停用", btn(table(), "save").disabled === true); }
   // ③ 還原丟掉草稿
   { const S = fresh();
     pick(["a", "z", "new1"]); S.edits.new1 = 300;
     btn(table(), "revert").on.click();
     const f = table();
-    ok("③ 還原:新勾的那列消失、什麼都沒送、儲存列收起", S.picked === null && vm.runInContext("trNames()", ctx).indexOf("new1") < 0 && sends.length === 0 && bar(f).hidden === true && dot(S, "new1") === false, J({ picked: S.picked, sends })); }
+    // 這組沒綁交易所:儲存列的位置換成「還沒連接交易所」,沒有儲存與還原鈕
+    ok("③ 還原:新勾的那列消失、什麼都沒送、儲存鈕收起", S.picked === null && vm.runInContext("trNames()", ctx).indexOf("new1") < 0 && sends.length === 0 && !/tr\.save|tr\.revert/.test(bar(f).textContent) && dot(S, "new1") === false, J({ picked: S.picked, sends, bar: bar(f).textContent })); }
 
   // ④ 移除成員也要儲存才生效(金額 0 的也一樣)
   { const S = fresh();
@@ -110,10 +126,10 @@ const save = async (f) => { ctx.BOX = null; btn(f, "save").on.click(); if (ctx.B
 
   // ⑤ 確認框:新勾的列標「加入」;已存沒變的不列(0.1.27 canon 確認 modal:表只列會變的,推翻 0124 D2 的「沒變的退灰」)
   { const S = fresh(); S.st.report.venues = { binance: { credentials: true, pair: true, order: true, account: true } };
-    pick(["a", "z", "new1"]);
+    pick(["a", "z", "new1"]); S.edits.new1 = 0; S.raw.new1 = "0";
     btn(table(), "save").on.click();
     const rows = ctx.BOX ? flat(ctx.BOX.extra).filter((n) => /^cf-row( |$)/.test(n.className)) : [], r = rows.find((n) => /^NEW1/.test(n.textContent));
-    ok("⑤ 確認框:new1 那列標 tr.cfTagAdd(金額 0 也算會變);已存沒變的 a、z 不列", !!r && /tr\.cfTagAdd/.test(r.textContent) && !rows.some((n) => /^(A|Z)/.test(n.textContent)), J(rows.map((n) => [n.className, n.textContent])));
+    ok("⑤ 確認框:打了 0 的 new1 那列標 tr.cfTagAdd(金額 0 也算會變);已存沒變的 a、z 不列", !!r && /tr\.cfTagAdd/.test(r.textContent) && !rows.some((n) => /^(A|Z)/.test(n.textContent)), J(rows.map((n) => [n.className, n.textContent])));
     ok("⑤ 框還沒按確定:沒有送出", sends.length === 0); }
 
   // ⑥ 讀不到設定時按確定:不記草稿

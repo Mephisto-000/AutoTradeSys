@@ -12,7 +12,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -75,7 +78,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -165,7 +171,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -283,7 +292,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -403,7 +415,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -598,7 +613,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -615,7 +633,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -640,7 +661,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -739,7 +763,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -822,7 +849,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -945,7 +975,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -1166,7 +1199,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -1354,7 +1390,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -1508,7 +1547,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -1613,7 +1655,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -1719,7 +1764,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -1830,7 +1878,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -1961,7 +2012,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -2109,7 +2163,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -2241,7 +2298,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -2476,7 +2536,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -2608,7 +2671,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {
@@ -2797,6 +2863,402 @@
       }
     },
     {
+      "name": "enable_ok",
+      "desc": "打開:enable 只帶憑證,200 → 開、輪詢",
+      "requests": [
+        {
+          "endpoint": "enable",
+          "body": {},
+          "response": {
+            "status": 200,
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
+          }
+        },
+        {
+          "endpoint": "poll",
+          "response": {
+            "status": 0,
+            "body": null
+          }
+        }
+      ],
+      "shell": {
+        "startTurn": [],
+        "stopTurn": []
+      }
+    },
+    {
+      "name": "enable_rate_limited",
+      "desc": "打開:429 ERR429 走 FAILED",
+      "requests": [
+        {
+          "endpoint": "enable",
+          "body": {},
+          "response": {
+            "status": 429,
+            "body": {
+              "error_code": "ERR429"
+            }
+          }
+        }
+      ],
+      "shell": {
+        "startTurn": [],
+        "stopTurn": []
+      }
+    },
+    {
+      "name": "enable_audit_unavailable",
+      "desc": "打開:稽核寫不進(503 AUDIT_UNAVAILABLE)走 FAILED",
+      "requests": [
+        {
+          "endpoint": "enable",
+          "body": {},
+          "response": {
+            "status": 503,
+            "body": {
+              "error_code": "AUDIT_UNAVAILABLE"
+            }
+          }
+        }
+      ],
+      "shell": {
+        "startTurn": [],
+        "stopTurn": []
+      }
+    },
+    {
+      "name": "enable_state_unavailable",
+      "desc": "打開:503 RELAY_STATE_UNAVAILABLE 走 FAILED",
+      "requests": [
+        {
+          "endpoint": "enable",
+          "body": {},
+          "response": {
+            "status": 503,
+            "body": {
+              "error_code": "RELAY_STATE_UNAVAILABLE"
+            }
+          }
+        }
+      ],
+      "shell": {
+        "startTurn": [],
+        "stopTurn": []
+      }
+    },
+    {
+      "name": "enable_chat_off",
+      "desc": "打開:403 APP_CHAT_OFF 收起設定區",
+      "requests": [
+        {
+          "endpoint": "enable",
+          "body": {},
+          "response": {
+            "status": 403,
+            "body": {
+              "error_code": "APP_CHAT_OFF"
+            }
+          }
+        }
+      ],
+      "shell": {
+        "startTurn": [],
+        "stopTurn": []
+      }
+    },
+    {
+      "name": "reenable_ok",
+      "desc": "本機開著、api 沒記著:自動重打 enable(不帶驗證碼欄位),200 照常",
+      "requests": [
+        {
+          "endpoint": "enable",
+          "body": {},
+          "response": {
+            "status": 200,
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
+          }
+        },
+        {
+          "endpoint": "enable",
+          "body": {},
+          "response": {
+            "status": 200,
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
+          }
+        },
+        {
+          "endpoint": "poll",
+          "response": {
+            "status": 0,
+            "body": null
+          }
+        }
+      ],
+      "shell": {
+        "startTurn": [],
+        "stopTurn": []
+      }
+    },
+    {
+      "name": "prompt_off_no",
+      "desc": "開關關著:enabled 帶 prompt → 畫面拿到 ask;框一出現打 prompt/seen(device_id),按〔不用〕再打一次帶 answer no;再給同一個不再出",
+      "requests": [
+        {
+          "endpoint": "enabled",
+          "body": {},
+          "response": {
+            "status": 200,
+            "body": {
+              "enabled": true,
+              "on": false,
+              "prompt": {
+                "device_id": "devresp0001",
+                "label": "iPhone 15",
+                "platform": "ios",
+                "paired_at": 1730530000
+              }
+            }
+          }
+        },
+        {
+          "endpoint": "prompt/seen",
+          "body": {
+            "device_id": "devresp0001"
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true
+            }
+          }
+        },
+        {
+          "endpoint": "prompt/seen",
+          "body": {
+            "device_id": "devresp0001",
+            "answer": "no"
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true
+            }
+          }
+        },
+        {
+          "endpoint": "enabled",
+          "body": {},
+          "response": {
+            "status": 200,
+            "body": {
+              "enabled": true,
+              "on": false,
+              "prompt": {
+                "device_id": "devresp0001",
+                "label": "iPhone 15",
+                "platform": "ios",
+                "paired_at": 1730530000
+              }
+            }
+          }
+        }
+      ],
+      "shell": {
+        "startTurn": [],
+        "stopTurn": []
+      }
+    },
+    {
+      "name": "prompt_off_on",
+      "desc": "開關關著:框一出現打 prompt/seen,按〔打開〕→ enable(api 由 enable 覆寫),不再帶 answer",
+      "requests": [
+        {
+          "endpoint": "enabled",
+          "body": {},
+          "response": {
+            "status": 200,
+            "body": {
+              "enabled": true,
+              "on": false,
+              "prompt": {
+                "device_id": "devresp0001",
+                "label": "iPhone 15",
+                "platform": "ios",
+                "paired_at": 1730530000
+              }
+            }
+          }
+        },
+        {
+          "endpoint": "prompt/seen",
+          "body": {
+            "device_id": "devresp0001"
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true
+            }
+          }
+        },
+        {
+          "endpoint": "enable",
+          "body": {},
+          "response": {
+            "status": 200,
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
+          }
+        },
+        {
+          "endpoint": "poll",
+          "response": {
+            "status": 0,
+            "body": null
+          }
+        }
+      ],
+      "shell": {
+        "startTurn": [],
+        "stopTurn": []
+      }
+    },
+    {
+      "name": "enabled_429",
+      "desc": "/relay/enabled 每台限流 429 ERR429:總開關、開關、確認框都照上一次,不收起設定區、不停輪詢",
+      "requests": [
+        {
+          "endpoint": "enabled",
+          "body": {},
+          "response": {
+            "status": 200,
+            "body": {
+              "enabled": true,
+              "on": false,
+              "prompt": {
+                "device_id": "devresp0001",
+                "label": "iPhone 15",
+                "platform": "ios",
+                "paired_at": 1730530000
+              }
+            }
+          }
+        },
+        {
+          "endpoint": "enabled",
+          "body": {},
+          "response": {
+            "status": 429,
+            "body": {
+              "error_code": "ERR429",
+              "message": "Too many requests"
+            }
+          }
+        }
+      ],
+      "shell": {
+        "startTurn": [],
+        "stopTurn": []
+      }
+    },
+    {
+      "name": "paired_notice_on",
+      "desc": "開關開著:enabled 帶 paired_notice → 畫面拿到 notice;一出現打 prompt/seen(device_id),之後 api 不再給、那一行留到關掉;關掉不打 api",
+      "requests": [
+        {
+          "endpoint": "enabled",
+          "body": {},
+          "response": {
+            "status": 200,
+            "body": {
+              "enabled": true,
+              "on": true,
+              "prompt": null,
+              "paired_notice": null
+            }
+          }
+        },
+        {
+          "endpoint": "enable",
+          "body": {},
+          "response": {
+            "status": 200,
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
+          }
+        },
+        {
+          "endpoint": "enabled",
+          "body": {},
+          "response": {
+            "status": 200,
+            "body": {
+              "enabled": true,
+              "on": true,
+              "prompt": null,
+              "paired_notice": {
+                "device_id": "devresp0002",
+                "label": "Pixel 9",
+                "platform": "android",
+                "paired_at": 1730530000,
+                "more": 1
+              }
+            }
+          }
+        },
+        {
+          "endpoint": "prompt/seen",
+          "body": {
+            "device_id": "devresp0002"
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true
+            }
+          }
+        },
+        {
+          "endpoint": "enabled",
+          "body": {},
+          "response": {
+            "status": 200,
+            "body": {
+              "enabled": true,
+              "on": true,
+              "prompt": null,
+              "paired_notice": null
+            }
+          }
+        },
+        {
+          "endpoint": "poll",
+          "response": {
+            "status": 0,
+            "body": null
+          }
+        }
+      ],
+      "shell": {
+        "startTurn": [],
+        "stopTurn": []
+      }
+    },
+    {
       "name": "D_started_lost",
       "desc": "探針 D:started 一直沒回應 → 重送到期限 → start_aborted＋message_failed not_run(不知道 api 有沒有記到開跑,api 認其中一個),不跑",
       "requests": [
@@ -2805,7 +3267,10 @@
           "body": {},
           "response": {
             "status": 200,
-            "body": {}
+            "body": {
+              "enabled": true,
+              "server_time": 1
+            }
           }
         },
         {

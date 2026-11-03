@@ -269,8 +269,8 @@ const EVENTS = {
     // 0.1.38 側欄策略資料夾(renderer/stratgroups.js、stratflags.js):操作成功才送,不帶資料夾名、策略名或哪個 emoji;
     // spec 原名 strat_folder_* 超過 prop VARCHAR(16),縮成 sfolder_*。api 白名單同順序,接在 0.1.37 的 app_link_android 之後
     "sfolder_create", "sfolder_auto", "sfolder_rename", "sfolder_emoji", "sfolder_reorder", "sfolder_delete", "sfolder_toggle", "sfolder_move",
-    // 0.1.39 手機 App 跟這台電腦對話(spec mobile-agent-chat-mvp §7;主行程 relay.js 送):phone_chat_on／off = 確認框按〔開啟〕／關掉;
-    // phone_pair = 這台出的碼配對完成(出碼後清單多一支)、phone_revoke = 在這台撤銷一支手機;phone_turn = 手機那一輪真的開跑;
+    // 0.1.39 手機 App 跟這台電腦對話(spec mobile-agent-chat-mvp §7;主行程 relay.js 送):phone_chat_on／off = 從關打開成功／關掉;
+    // phone_pair = 這台出的碼配對完成、phone_revoke = 在這台撤銷一支手機(兩個 0.1.43 起無送出點:配對與撤銷搬到 App／網站,等 0.1.42 退場再拿);phone_turn = 手機那一輪真的開跑;
     // phone_turn_q = 同一條在跑、排在後面;phone_turn_stop = 電腦前的人停掉手機那一輪;phone_sync_ok／fail = 開啟後第一次上傳完成／失敗要按重試
     "phone_chat_on", "phone_chat_off", "phone_pair", "phone_revoke", "phone_turn", "phone_turn_q", "phone_turn_stop", "phone_sync_ok", "phone_sync_fail",
     // 0.1.39 建議下一步點了直接送(同 api,api 先上):點托盤直接送出的那輪,還沒回覆、沒工具收據就被停止(renderer/suggest.js sugUndo)
@@ -279,7 +279,29 @@ const EVENTS = {
     // 按主鈕開了金額框／金額框存成功／從策略頁開連接框／從策略頁開啟動框／按雲朵 icon 鈕
     "sp_auto_open", "sp_amt_saved", "sp_cx_opened", "sp_start_opened", "sp_cloud_icon",
     // 0.1.39 Codex 引擎隨包(主行程 shell/codexpkg.js 送):套件下載、校驗、解壓、驗過、上架都成功。api 白名單同順序,api 先上
-    "codex_pkg_done"] },
+    "codex_pkg_done",
+    // 0.1.41 聊天裡的澄清表單(renderer/form.js;同 api 順序,api 先上):畫出來、按「用這些設定」、填入的句子原樣／改過送出且回合
+    // started／queued、按「我自己打」、畫過沒填自己打字送出。不帶選了哪個值
+    "clarify_shown", "clarify_filled", "clarify_sent", "clarify_sent_ed", "clarify_self", "clarify_missed",
+    // 策略頁「怎麼看」外連三個分頁、策略庫成功筆記外開(canon › 說明文章外連;app.js、library.js)。api 白名單同順序,api 先上
+    "rp_help_bt", "rp_help_rob", "rp_help_wf", "lib_note_web",
+    // 優化分頁讀不到上次的設定:按〔重試〕／〔重新填〕(同網頁;只記名字)
+    "mg_prefs_retry", "mg_prefs_reset",
+    // 雲端開通頁(0.1.41;renderer/app.js cloudPricingGo、trade.js envPaintEmpty):「其他方案與月價」外開定價頁、讀不到雲端／查不到帳號時的〔重新查看〕
+    "cloud_pricing", "cloud_recheck",
+    // 雲端歡迎頁停機那一行的〔到自動下單〕(0.1.41;renderer/welcome.js wcAlert)
+    "wc_stopped_go",
+    // 0.1.42 打開手機對話的 email 驗證:關卡擋下、驗過、鎖住;設定 › 連結按〔重新驗證〕。0.1.43 驗證碼拿掉,無送出點,等 0.1.42 退場再拿
+    "phone_vfy_shown", "phone_vfy_ok", "phone_vfy_locked", "phone_reverify",
+    // 0.1.43 手機配對完、這台關著時主視窗跳的確認框(renderer/app.js phAskMaybe;同 api 順序,api 先上):跳出來、按〔打開〕、按〔不用〕或關掉框;
+    // 設定 › 連結按〔到網站撤銷〕(phGroup)
+    "phone_ask_shown", "phone_ask_on", "phone_ask_no", "phone_web_revoke",
+    // 0.1.43 開關開著、帳號下剛配對了手機,輸入框上方那一列(renderer/app.js phNoticePaint;同 api 順序,api 先上):出現、按 ✕、按這一列的〔到網站撤銷〕
+    "phone_new_shown", "phone_new_close", "phone_new_revoke",
+    // 0.1.44 優化分頁〔套用金額〕停用原因、工具列缺方法那一句的補救連結(renderer/portfolio.js mgWhyGo;同 api 順序,api 先上)
+    "mg_why_fix",
+    // 0.1.44 沒有回測完成的策略時,策略組合 › 配置／優化霧上的〔新增策略〕(renderer/portfolio.js poFog;同 trade_fog_new);報告空清單霧上的〔新增報告〕(renderer/reports.js rptFog)。同 api 順序,api 先上
+    "po_fog_new", "mg_fog_new", "rpt_fog_new"] },
 };
 // `claude auth status` 的 authMethod 原值 → cli_auth 的 how(隨包 CLI 2.1.281 的 auth status 只會給這六個)。唯一的一份:
 // 主行程 detectAgents 算好放進 out.claude.how,畫面與主行程都讀那一欄。null／缺 = none,表外 = other

@@ -2,8 +2,8 @@
    onboarding 期間(E,#wc):記號 → 步驟清單 ①找靈感 ②做策略並回測 ③加到策略組合,不分市場(0.1.29 Wei:拿掉市場題與④自動下單)。
    ①② 全新時同時展開;③ 輪到才露鈕;完成的一步收成一行(打勾＋名字,不帶 meta);①② 點了重新展開,③ 點了直接到策略組合頁。完成判定全從現有狀態推:
    ② = 那個視角的清單有一支回測過(本機 RP.list、雲端 TR_BAGS.cloud.list 的 hasBacktest)、③ = 那個視角存著的金額有一支 > 0(trStored,同 strat_deployed 的判準)。
-   做完③的當下原地一行「都設好了」(這次開著期間留著),之後就是完成後的首頁(F,#wf):淡化記號＋一列籤。
-   「已進 F」兩個視角分開存主行程 ui-prefs(IPC welcome-prefs:done = 這台電腦、cloudDone = 雲端),不上傳。既有用戶第一次判斷就已經完成的直接進 F,不顯示「都設好了」、不送 onb_done——
+   做完之後是完成後的首頁(F,#wf):淡化記號＋一列籤;做完③當下就換成 F,籤當場可按。
+   「已進 F」兩個視角分開存主行程 ui-prefs(IPC welcome-prefs:done = 這台電腦、cloudDone = 雲端),不上傳。既有用戶第一次判斷就已經完成的直接進 F,不送 onb_done——
    所以那一次判斷要等到狀態檔真的讀到(報告還沒來時③一律當沒輪到,不下結論)。
    ①放最多三張現成策略卡(spec desktop-welcome-library-first;挑法 library.js wcReco):名字開詳情、「安裝並回測 →」走策略庫同一個確認框,確定後切到詳情再送。
    0.1.26 的起手句 0.1.34 退役;stFill 留著給 intro.js(第一次對話 modal)用。
@@ -57,13 +57,12 @@ function onbSteps(o) {
   });
   return { steps, complete: !!o.known && done.every(Boolean) };
 }
-/* E／F 切換。o = { flag(已進 F), complete, base(第一次讀到狀態檔那一刻完成了沒;null = 還沒讀到), fin(這次開著時已經顯示過「都設好了」) }。
-   回 { view: E | fin | F, setFlag, event }:當下完成才慶祝、才送 onb_done;上線那天就已經完成的直接進 F */
+/* E／F 切換。o = { flag(已進 F), complete, base(第一次讀到狀態檔那一刻完成了沒;null = 還沒讀到) }。
+   回 { view: E | F, setFlag, event }:當下完成才送 onb_done;上線那天就已經完成的不送。旗標一寫下一輪就走 flag,事件只送一次 */
 function onbPhase(o) {
-  if (o.fin) return { view: "fin", setFlag: false, event: false };
   if (o.flag) return { view: "F", setFlag: false, event: false };
   if (o.base === null || o.base === undefined || !o.complete) return { view: "E", setFlag: false, event: false };
-  return o.base === false ? { view: "fin", setFlag: true, event: true } : { view: "F", setFlag: true, event: false };
+  return { view: "F", setFlag: true, event: o.base === false };
 }
 /* ── 純邏輯到此 ── */
 
@@ -160,11 +159,13 @@ $("wl-fold").addEventListener("click", () => {
 
 /* ── 入門步驟(E)與完成後的首頁(F)── */
 // key:①策略卡的指紋;retried:清單讀不到只重試一次的語言;synced:對帳過的(帳號, 清單)資料權限組;tip:gloss 泡泡的 id 流水號
-const WC = { shown: false, armed: false, key: null, retried: null, synced: null, tip: 0 };
+const WC = { shown: false, armed: false, key: null, retried: null, synced: null, tip: 0, alert: null };
 // prefs:null = 還在讀(讀到之前不畫,不然已進 F 的人會先閃一下步驟清單)。base／fin／open 兩個視角各一份(ONB.v),畫面只有一份(key、amt 跟著現在的視角)
-const onbV = () => ({ base: null, fin: false, open: [false, false, false] });
+const onbV = () => ({ base: null, open: [false, false, false] });
 const ONB = { prefs: null, v: { local: onbV(), cloud: onbV() }, key: null, amt: false };
 const ONB_FLAG = { local: "done", cloud: "cloudDone" };
+/* 原因句要沒讀到撐過這麼久才出。狀態檔在就是第一輪讀到,不會出;只差一輪時畫面要等下一輪輪詢(閒置 15 秒,實測整段亮 15 秒),不延遲就是白跳一次版面 */
+const ONB_WAIT_MS = 12000;
 const onbEnv = () => (typeof ENV !== "undefined" && ENV.cur === "cloud" ? "cloud" : "local");
 
 const ONB_STEP_KEYS = ["onb.s1", "onb.s2", "onb.s3"];   // 字逐字同網頁 workspace_onb_s1–s3(兩語)
@@ -190,7 +191,8 @@ function onbData(env) {
   const funded = Object.keys(stored).some((n) => Number(stored[n]) > 0);
   // ③ 已經勾了沒存、或存了但金額全 0:下一步是填金額,不是再開一次框(借頁首 trZCase 的 draft／amt 兩個判斷;那支要綁好帳戶才回值,新手多半沒綁,不整支照搬)
   const amt = known && !funded && (Object.keys(stored).length > 0 || trWith(L, () => trZDraft()));
-  return { known, bt: (cloud ? (L && L.list) || [] : RP.list).some((x) => x.hasBacktest), funded, amt };
+  // wait:狀態問過了還是沒讀到。平常只閃一下,常駐程式起不來時會一直這樣,③ 沒有鈕,要講原因(開機第一輪還沒回來不算;雲端停機、過時有自己那一行)
+  return { known, bt: (cloud ? (L && L.list) || [] : RP.list).some((x) => x.hasBacktest), funded, amt, wait: !!st && !known && !(cloud && libCloud() !== "live") };
 }
 /* ── ①的策略卡(spec desktop-welcome-library-first §2–3)── */
 // 手上沒有、作廢了、換了語言才問(主行程有 5 分鐘快取)。不從 wcPaint 叫:libLoad 結束會叫 wcPaint,讀不到時會一直重打。
@@ -218,6 +220,7 @@ function wcPaint() {
   const env = onbEnv(), cloud = env === "cloud" ? libCloud() : null;
   // 雲端主機停了或沒跟上:歡迎頁照樣出(trade.js envPaint 的 gate 不擋 stopped／stale),這裡是唯一一道;原因句住在策略庫詳情
   const off = cloud !== null && cloud !== "live";
+  wcAlert(cloud);
   const picks = off || !LIB.data ? [] : wcReco(LIB.data.strategies, { env, signedIn: !!hasToken, dataAccess: LIB.data.dataAccess, wait: env !== "cloud" && wcAcctWait(), installed: (s) => wcInstalled(s, env) });
   const skel = !off && (picks === null || (!LIB.data && LIB.skel));
   const shown = skel ? [] : picks;
@@ -229,6 +232,23 @@ function wcPaint() {
     box.hidden = !skel && !shown.length;   // 讀不到、策略庫空、都裝過了:整塊不見,①只剩兩顆籤;不出錯誤字
   }
   wcBusySync();
+}
+/* 雲端停機／過時:E 的記號下、F 的籤上各一行,不然看起來正常,按下去才知道不能做。停機的恢復鈕住在自動下單頁,帶過去;過時通常自己會好,只講一句 */
+function wcAlert(cloud) {
+  const kind = cloud === "stopped" || cloud === "stale" ? cloud : "", key = LANG + kind;
+  if (WC.alert === key) return;
+  WC.alert = key;
+  [$("wc-alert"), $("wf-alert")].forEach((p) => {
+    p.textContent = ""; p.hidden = !kind; p.classList.toggle("calm", kind === "stale");
+    if (!kind) return;
+    const m = wdEl("span", "fault-mark"); m.setAttribute("aria-hidden", "true");
+    p.append(m, wdEl("span", "", t(kind === "stopped" ? "wc.stopped" : "tr.cloud.unknown")));
+    if (kind !== "stopped") return;
+    const a = wdEl("button", "ln-arrow"), ar = wdEl("span", "ar", "→");
+    a.type = "button"; ar.setAttribute("aria-hidden", "true"); a.append(wdEl("span", "lbl", t("wc.goTrade")), ar);
+    a.addEventListener("click", () => { trackFeature("wc_stopped_go"); trOpen(); });
+    p.appendChild(a);
+  });
 }
 /* 骨架卡:拿一支樣板策略走 wcCard 原樣建 DOM(同字型、同 mono、同斷行),字換成透明的條。卡高跟著每個寬度級距自己算,
    meta 在窄欄折兩行時骨架也折兩行,讀到時版面不跳。樣板取最常見的形狀(永續合約 × 週期 × 多年樣本) */
@@ -284,17 +304,17 @@ function wcCard(s, first) {
 /* 「安裝並回測 →」:不是一鍵,走策略庫同一個確認框(libAsk from welcome)。先擋回合中與代下載中——別支在代下載時這張的 libCtaOf 仍是 free,
    不先擋的話 libAsk 會靜默 return、畫面沒反應。狀態不是 free(例如剛登出)只開詳情,閘門與原因句由詳情講 */
 function wcUse(s, a) {
-  if (LIB.pending) { busySendTell(); return; }   // 代下載中(另一支):回合中不再擋,另開分頁送
+  if (libPendingBlocks(s)) { busySendTell(); return; }   // 同一支還在裝、或雲端已有一支在裝(一次一支);本機別支照裝
   if (libCtaOf(s).state !== "free") { wcDetail(s); return; }
   libAsk(s, a, { from: "welcome" });
 }
 // 回合鎖與代下載鎖(app.js 送出／解鎖那三排、library.js libSync):就地換,不重建卡。正在裝的那支換成「安裝與回測中…」;名字按鈕不鎖
 function wcBusySync() {
   const box = $("wc-cards"); if (!box || box.hidden) return;
-  const busy = !!LIB.pending, pid = LIB.pending && LIB.pending.env === onbEnv() ? String(LIB.pending.id) : null;
+  const env = onbEnv(), mineIds = new Set([...LIB.pending.values()].filter((p) => p.env === env).map((p) => String(p.id))), lockAll = env === "cloud" && mineIds.size > 0;   // 雲端一次一支;本機只鎖正在裝的那張
   box.querySelectorAll(".wc-card:not(.is-skel) .ln-arrow").forEach((a) => {
-    const mine = a.dataset.id === pid, tx = a.querySelector(".lbl"), want = t(mine ? "lib.pending" : "lib.use");
-    busyLock(a, busy);
+    const mine = mineIds.has(a.dataset.id), tx = a.querySelector(".lbl"), want = t(mine ? "lib.pending" : "lib.use");
+    busyLock(a, mine || lockAll);
     if (tx.textContent !== want) tx.textContent = want;
     a.querySelector(".ar").hidden = mine;
   });
@@ -328,9 +348,8 @@ function onbToggle(i) {
 function onbEval(env) {
   const V = ONB.v[env], f = ONB_FLAG[env], d = onbData(env), S = onbSteps({ bt: d.bt, funded: d.funded, known: d.known, open: V.open });
   if (d.known && V.base === null) V.base = S.complete;
-  const ph = onbPhase({ flag: ONB.prefs[f], complete: S.complete, base: V.base, fin: V.fin });
+  const ph = onbPhase({ flag: ONB.prefs[f], complete: S.complete, base: V.base });
   if (ph.setFlag) { ONB.prefs[f] = true; onbSave({ [f]: true }); }
-  if (ph.view === "fin") V.fin = true;
   if (ph.event && env === "local") trackFeature("onb_done");
   if (ph.event && env === "cloud" && onbEnv() === "cloud") trackFeature("onb_done_cloud");
   return { d, S, ph };
@@ -342,13 +361,14 @@ function onbPaint() {
   onbEval(env === "cloud" ? "local" : "cloud");
   const { d, S, ph } = onbEval(env);
   ONB.amt = d.amt;
+  const V = ONB.v[env];
+  if (!d.wait) V.waitAt = 0; else if (!V.waitAt) V.waitAt = Date.now();
+  const why = d.wait && d.bt && Date.now() - V.waitAt >= ONB_WAIT_MS;
   wcPaint();   // 放在指紋 return 之前:切視角、雲端轉 stale／stopped 都走這裡,卡要跟著換或收(自己有指紋)
-  const key = JSON.stringify([LANG, env, ph.view, S.steps, d.amt]);
+  const key = JSON.stringify([LANG, env, ph.view, S.steps, d.amt, why]);
   if (key === ONB.key) return;
   ONB.key = key;
-  wf.hidden = ph.view !== "F"; wc.hidden = ph.view === "F";
-  $("onb-fin").hidden = ph.view !== "fin";
-  $("onb-steps").hidden = ph.view !== "E";
+  wf.hidden = ph.view === "E"; wc.hidden = ph.view !== "E";
   if (ph.view !== "E") return;
   S.steps.forEach((s, i) => { onbHead(i, s); $("onb-b" + (i + 1)).hidden = !s.open; });
   // 雲端主機本來就含 Blave 資料(主機費含資料費):「免費 vs Blave 資料」那份清單在雲端會講錯事實,同網頁歡迎頁不出
@@ -356,6 +376,7 @@ function onbPaint() {
   fold.hidden = cloud;
   if (cloud) { $("wl").hidden = true; fold.setAttribute("aria-expanded", "false"); }
   $("onb-po").textContent = t(d.amt ? "po.goAmounts" : "tr.pick");
+  $("onb-wait").hidden = !why;
 }
 $("onb-lib").addEventListener("click", () => libOpen());
 // ③ 到策略組合頁並打開選擇策略框,讓用戶自己勾(Wei 0.1.29:不替他挑一支);勾了沒存／存了 0 → 落在金額格

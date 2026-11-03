@@ -4,7 +4,7 @@ msgstr ""
 "Language: en\n"
 
 msgid "cn.h"
-msgstr "Blave has no AI of its own."
+msgstr "Connect Your Agent"
 
 msgid "cn.blave.title"
 msgstr "Use Blave AI"
@@ -376,10 +376,13 @@ msgid "turn.exit"
 msgstr "Engine exited with code {code}"
 
 msgid "AGENT_BIN_MISSING"
-msgstr "Not sent: your AI command-line tool can’t be found. Re-detect it in Connect, or connect another."
+msgstr "The Codex engine isn’t downloaded yet. Open Connect and press Connect"
 
 msgid "AGENT_BIN_DOWNLOADING"
 msgstr "Not sent: the Codex engine is still downloading. Send again when it’s done."
+
+msgid "AGENT_BIN_BROKEN"
+msgstr "The Codex engine won’t start. Open Connect and press Try Again"
 
 msgid "turn.error"
 msgstr "Something went wrong: {msg}"
@@ -982,10 +985,7 @@ msgstr "Sign-in didn’t finish."
 msgid "row.orCmd"
 msgstr "Or run {cmd} in a terminal."
 
-msgid "row.orApp"
-msgstr "Or sign in through the ChatGPT app, then come back."
-
-# 「無法啟動」那一列名字底下(連結畫面、設定 › 模型接入):回前景會自動重新偵測,所以寫 come back(同 row.orApp,不帶 here)
+# 「無法啟動」那一列名字底下(連結畫面、設定 › 模型接入):回前景會自動重新偵測,所以寫 come back(不帶 here)
 msgid "row.reinstall"
 msgstr "Reinstall {name}, then come back."
 
@@ -999,7 +999,7 @@ msgid "cn.pkgInstall"
 msgstr "Installing"
 
 msgid "cn.pkgTar"
-msgstr "This Windows version is too old. Update Windows or install Codex yourself"
+msgstr "This Windows version is too old for the Codex engine. Update Windows"
 
 msgid "cn.pkgNet"
 msgstr "Couldn’t download. Check your connection and try again"
@@ -1018,6 +1018,13 @@ msgstr "Try Again"
 
 msgid "row.orBrowser"
 msgstr "This opens your browser to finish signing in."
+
+msgid "cn.pkgArch"
+msgstr "This computer’s architecture isn’t supported by the Codex engine"
+
+# 登入檢查逾時(main.js *_timeout 且有 path):可以連,真正結果等送出訊息
+msgid "row.authUnknown"
+msgstr "Couldn’t check sign-in. Send a message to find out"
 
 # 偵測說沒登入、但 CLI 帶整份環境與用戶設定檔時說已登入(main.js authOutside):金鑰在環境變數、settings.json 或 apiKeyHelper,agent 回合讀不到
 msgid "row.keyOff"
@@ -1120,9 +1127,6 @@ msgstr "Balance unavailable right now"
 
 msgid "plan.month"
 msgstr "{p} TWD / month"
-
-msgid "plan.hour"
-msgstr "{h} TWD an hour from your balance (30-day month)"
 
 msgid "plan.trialFree"
 msgstr "No machine fee until {d}. After that, the price above applies."
@@ -1445,6 +1449,9 @@ msgstr "Signing out doesn’t turn off your cloud machine. It keeps billing."
 msgid "acct.out.5"
 msgstr "The mobile app won’t show this computer’s positions anymore."
 
+msgid "acct.out.6"
+msgstr "Phone chat turns off and chats on Blave are deleted."
+
 msgid "acct.lbl"
 msgstr "Blave account"
 
@@ -1509,7 +1516,7 @@ msgid "cx.store.q"
 msgstr "Where are my keys stored?"
 
 msgid "cx.venue"
-msgstr "Exchange / broker"
+msgstr "Exchange or futures broker"
 
 msgid "cx.paper"
 msgstr "Paper trading (no keys)"
@@ -1518,7 +1525,7 @@ msgid "cx.paperShort"
 msgstr "Paper trading"
 
 msgid "cx.connect"
-msgstr "Connect an Exchange"
+msgstr "Connect Account"
 
 msgid "cx.connecting"
 msgstr "Connecting…"
@@ -1589,7 +1596,7 @@ msgid "tr.tbAria"
 msgstr "Auto trading: {state}"
 
 msgid "tr.nav"
-msgstr "Auto trading"
+msgstr "Auto Trading"
 
 msgid "tr.autoOn"
 msgstr "Auto-trading running"
@@ -1622,7 +1629,7 @@ msgid "tr.s.died"
 msgstr "Trading stopped"
 
 msgid "tr.noAccount"
-msgstr "No exchange connected"
+msgstr "No trading account connected"
 
 msgid "tr.loading"
 msgstr "Loading…"
@@ -1718,7 +1725,7 @@ msgid "tr.err.bitgetCopyKey"
 msgstr "{sym} not placed: this is a copy-trading or elite-trader account. Create a trading key from a regular account in API Management: Read and Trade, no Withdraw."
 
 msgid "tr.err.key"
-msgstr "{sym} not placed: the exchange rejected this key. Check the account in Auto trading › Settings; press Retest connection if it’s there."
+msgstr "{sym} not placed: the exchange rejected this key. Check the account in Auto Trading › Settings; press Retest connection if it’s there."
 
 msgid "tr.err.reduceOnly"
 msgstr "{sym} not placed: the exchange refused a reduce-only order; its position or orders differ from Blave’s record. Check the position there."
@@ -1992,13 +1999,13 @@ msgid "tr.tab.set"
 msgstr "Settings"
 
 msgid "tr.onboard"
-msgstr "Connect an exchange account, then press Release pause above and set amounts."
+msgstr "Connect a trading account, then press Release pause above and set amounts."
 
 msgid "tr.onboard.cloud"
 msgstr "Order sizes are derived from your exchange equity, and this cloud machine has no exchange connected yet."
 
 msgid "tr.cloud.onboardExtra"
-msgstr "The exchange connected on this computer doesn’t carry over. The cloud needs its own connection."
+msgstr "The account connected on this computer doesn’t carry over. The cloud needs its own."
 
 msgid "tr.zeroMeansOff"
 msgstr "Position = amount × signal. 0 means no orders — the strategy still runs and computes its signal; it just holds no position."
@@ -2749,7 +2756,7 @@ msgid "tm.notifTitle"
 msgstr "Trading paused"
 
 msgid "tm.notifBody"
-msgstr "No orders will be sent; existing positions are untouched. To resume, press Start trading on the Auto trading page in Blave."
+msgstr "No orders will be sent; existing positions are untouched. To resume, press Start trading on the Auto Trading page in Blave."
 
 msgid "tm.pauseFail"
 msgstr "The pause command didn’t go through, so it may still be trading. Open Blave and press Pause trading again."
@@ -2855,9 +2862,6 @@ msgstr "Blave — {where}"
 msgid "tr.mode.real"
 msgstr "Real money"
 
-msgid "side.cloud.starting"
-msgstr "Machine starting"
-
 msgid "side.cloud.emptyCut1"
 msgstr "No strategies in the cloud yet."
 
@@ -2867,23 +2871,77 @@ msgstr "Paused"
 msgid "env.empty.title"
 msgstr "Cloud"
 
-msgid "env.empty.desc"
-msgstr "No cloud machine yet"
-
 msgid "env.open.h"
-msgstr "Keep Your Strategies Running with This Computer Off"
+msgstr "Close the laptop, the strategy keeps running"
 
 msgid "env.open.lead"
-msgstr "A machine that stays on runs your strategies on schedule and places the orders, with Blave’s market and positioning data included."
+msgstr "Blave market and positioning data included."
 
 msgid "env.open.more"
-msgstr "See the Full Plan"
+msgstr "Other Plans and Prices"
+
+msgid "env.open.spec"
+msgstr "{label} · {vcpu} vCPU · {ram} GB"
+
+msgid "env.open.price"
+msgstr "{p} TWD / {n} days"
+
+msgid "env.open.tagTrial"
+msgstr "Trial until {d}"
+
+msgid "env.open.tagPlan"
+msgstr "Plan active until {u}"
+
+msgid "env.open.pend"
+msgstr "{id} is waiting to go up."
+
+msgid "env.open.trialOffer"
+msgstr "Your first card gets a {t}‑day trial. Cancel during it and nothing is charged."
+
+msgid "env.open.offer"
+msgstr "{t}‑day trial, cancel during it and nothing is charged. The first period is charged automatically when it ends."
+
+msgid "env.open.bind"
+msgstr "Add Card, Start Trial"
+
+msgid "env.open.included"
+msgstr "Your API plan includes data, not a machine."
+
+msgid "env.open.trial"
+msgstr "{p} TWD is charged automatically when the trial ends, unless you cancel."
+
+msgid "env.open.trialOff"
+msgstr "Starting a machine costs nothing extra."
+
+msgid "env.open.planOn"
+msgstr "Your plan includes one machine of the same tier at no extra cost."
+
+msgid "env.open.failH"
+msgstr "Payment failed"
+
+msgid "env.open.repay"
+msgstr "Blave data is paused. Retried daily; the plan ends on {gu}."
+
+msgid "env.open.repayNoNum"
+msgstr "Blave data is paused. Payment is retried daily."
+
+msgid "env.empty.unknown"
+msgstr "Couldn’t check this account."
+
+msgid "wc.stopped"
+msgstr "Cloud machine stopped."
+
+msgid "wc.goTrade"
+msgstr "Go to Auto Trading"
+
+msgid "onb.wait"
+msgstr "Order status hasn’t loaded yet. You can add to Portfolio once it does."
 
 msgid "side.cloud.emptyReady"
 msgstr "Your machine is up. Strategies you send here will be listed."
 
 msgid "env.empty.starting"
-msgstr "The cloud machine is starting, usually about a minute. This page changes to the cloud’s content once it is up."
+msgstr "The cloud machine is starting, usually about a minute."
 
 msgid "env.empty.relogin"
 msgstr "Your Blave sign-in has expired. Please sign in again. Chats and strategies on this computer aren’t affected."
@@ -3355,7 +3413,7 @@ msgid "cx.ip.loading"
 msgstr "Looking up…"
 
 msgid "cx.ip.fail"
-msgstr "You may not be signed in to Blave, or this network is IPv6-only. The whitelist needs this computer’s public IPv4."
+msgstr "The connection may have failed, or this network is IPv6-only. The whitelist needs this computer’s public IPv4."
 
 msgid "cx.ip.noneLong"
 msgstr "Couldn’t find this computer’s public IP"
@@ -3437,22 +3495,22 @@ msgid "tm.key.ipTitle"
 msgstr "{where}: public IP changed"
 
 msgid "tm.key.ipBody"
-msgstr "Update the Binance whitelist to {ip}, then press Retest connection in Auto trading › Settings. Orders can’t be placed until then."
+msgstr "Update the Binance whitelist to {ip}, then press Retest connection in Auto Trading › Settings. Orders can’t be placed until then."
 
 msgid "tm.key.rejTitle"
 msgstr "{where}: Binance rejected the key"
 
 msgid "tm.key.rejSameIpBody"
-msgstr "Check at Binance that the key still exists with the same permissions. If not, create one, then disconnect and reconnect in Auto trading › Settings."
+msgstr "Check at Binance that the key still exists with the same permissions. If not, create one, then disconnect and reconnect in Auto Trading › Settings."
 
 msgid "tm.key.rejUnknownBody"
-msgstr "Open Auto trading › Settings to check the IP and the key: the public IP may have changed, or the key may have been deleted. Orders can’t be placed until then."
+msgstr "Open Auto Trading › Settings to check the IP and the key: the public IP may have changed, or the key may have been deleted. Orders can’t be placed until then."
 
 msgid "tm.key.permTitle"
 msgstr "{where}: trading was turned off for the Binance key"
 
 msgid "tm.key.permBody"
-msgstr "Turn trading permission back on for this key at Binance, then press Retest connection in Auto trading › Settings. Orders can’t be placed until then."
+msgstr "Turn trading permission back on for this key at Binance, then press Retest connection in Auto Trading › Settings. Orders can’t be placed until then."
 
 msgid "tr.hostLock"
 msgstr "The previous order engine is still shutting down; retrying automatically ({n}/{max}). No orders go out meanwhile."
@@ -3643,10 +3701,10 @@ msgid "ho.rename.maybeUp"
 msgstr "If the cloud already has a strategy with this name, this copy is saved under a new name; the original stays as it is."
 
 msgid "ho.srcLive.up"
-msgstr "The one on this computer keeps trading. The cloud copy starts trading only after you give it an amount on the cloud’s Auto trading page."
+msgstr "The one on this computer keeps trading. The cloud copy starts trading only after you give it an amount on the cloud’s Auto Trading page."
 
 msgid "ho.srcLive.down"
-msgstr "The one in the cloud keeps trading. The copy here starts trading only after you give it an amount on this computer’s Auto trading page."
+msgstr "The one in the cloud keeps trading. The copy here starts trading only after you give it an amount on this computer’s Auto Trading page."
 
 msgid "ho.block.goCloud"
 msgstr "View in Cloud"
@@ -3668,6 +3726,12 @@ msgstr "Stay in the Cloud"
 
 msgid "ho.gate.stale"
 msgstr "The cloud’s state can’t be read right now, so this isn’t being sent."
+
+msgid "ho.sending"
+msgstr "This strategy is already on its way. Progress is in the chat."
+
+msgid "ho.updating"
+msgstr "The cloud machine is updating. Send it after that finishes."
 
 msgid "ho.gate.stopped"
 msgstr "Your cloud machine is stopped, so nothing can be sent up right now."
@@ -4175,6 +4239,15 @@ msgstr "Missing the {a} and {b} keys, so this strategy can’t run."
 msgid "rp.missKeyB.many"
 msgstr "Missing keys for {a}, {b} and {k} more, so this strategy can’t run."
 
+msgid "rp.btnUpdate"
+msgstr "Update now"
+
+msgid "rp.help"
+msgstr "How to read"
+
+msgid "rp.help.aria"
+msgstr "How to read (opens in browser)"
+
 msgid "rp.missKey.go"
 msgstr "Open Data Sources"
 
@@ -4314,7 +4387,7 @@ msgid "tr.ov.evRestartStoppedNote"
 msgstr "no orders are sent"
 
 msgid "tm.evRestartStoppedNote"
-msgstr "Nothing is managing your positions; exits and stops won’t run. Press Start trading in Auto trading to resume. Stop orders on the exchange still work."
+msgstr "Nothing is managing your positions; exits and stops won’t run. Press Start trading in Auto Trading to resume. Stop orders on the exchange still work."
 
 msgid "tr.cloud.cxSavedStale"
 msgstr "The key was sent, but the cloud machine hasn’t reported back. Connect again, or ask the agent in chat to check the machine."
@@ -4540,6 +4613,12 @@ msgstr "Cloud machine {cv}"
 msgid "up.row.cloudOff"
 msgstr "Cloud machine (stopped)"
 
+msgid "up.row.checkFail"
+msgstr "Update failed. Try again"
+
+msgid "up.row.downloading"
+msgstr "Downloading the new version"
+
 msgid "up.row.latest"
 msgstr "Up to date"
 
@@ -4608,7 +4687,13 @@ msgstr "Restarting…"
 
 # 側欄左下的更新膠囊(新版已暫存好;spec desktop-update-pill §3)。不寫版號;下單中字尾接「…」。細軌圓鈕的 aria-label 也是這句
 msgid "up.pill"
-msgstr "Update · Restart"
+msgstr "Restart to update"
+
+msgid "up.pillV"
+msgstr "Restart to update: {v}"
+
+msgid "up.pillS"
+msgstr "Update: {v}"
 
 # 更新 modal 一般(沒在下單)的標題;{v} = 已暫存的新版號(canon 具名例外:只這個標題可以寫版號)
 msgid "up.md.title"
@@ -4671,7 +4756,7 @@ msgid "tr.pick.ok"
 msgstr "Done"
 
 msgid "tr.pick.empty"
-msgstr "No backtested strategies yet — ask the agent in chat to build and backtest one."
+msgstr "No backtested strategies yet."
 
 msgid "tr.pick.gone"
 msgstr "no longer on this computer — uncheck to remove"
@@ -4795,9 +4880,6 @@ msgstr "Start Scan"
 
 msgid "rob.btnSent"
 msgstr "Sent — See Chat"
-
-msgid "rob.busy"
-msgstr "Wait for this reply to finish before sending."
 
 msgid "rob.emptyCap"
 msgstr "When the agent finishes, the verdict and heatmap appear here."
@@ -5091,7 +5173,7 @@ msgid "lib.nav"
 msgstr "Strategy Library"
 
 msgid "lib.desc"
-msgstr "Verified first, then longest backtest."
+msgstr "Returns are backtested. Verified first."
 
 msgid "lib.mkt.aria"
 msgstr "Market"
@@ -5121,13 +5203,13 @@ msgid "lib.installed"
 msgstr "Installed"
 
 msgid "lib.kv.total"
-msgstr "Total return"
+msgstr "Total Return"
 
 msgid "lib.gate.feeAssumed"
 msgstr "Assumed {v}"
 
 msgid "lib.gate.feeActual"
-msgstr "Exchange {v}"
+msgstr "Actual {v}"
 
 msgid "lib.gate.p"
 msgstr "p = {p}"
@@ -5151,7 +5233,7 @@ msgid "lib.years"
 msgstr "{n}-yr sample"
 
 msgid "lib.annLabel"
-msgstr "Annual Return · backtest"
+msgstr "Annual Return"
 
 msgid "lib.installs"
 msgstr "{n} installs"
@@ -5168,11 +5250,8 @@ msgstr "Success Note"
 msgid "lib.note.fallback"
 msgstr "Read the Note"
 
-msgid "lib.note.back"
-msgstr "Back to Strategy"
-
-msgid "lib.note.err"
-msgstr "Couldn't load this note."
+msgid "lib.note.aria"
+msgstr "Success Note {t} (opens in browser)"
 
 msgid "lib.empty"
 msgstr "The library is empty right now."
@@ -5202,7 +5281,7 @@ msgid "lib.kv.sample"
 msgstr "Sample"
 
 msgid "lib.kv.days"
-msgstr "Days listed"
+msgstr "Days Listed"
 
 msgid "lib.kv.installs"
 msgstr "Installs"
@@ -5225,7 +5304,7 @@ msgid "lib.gate1"
 msgstr "Honest backtest"
 
 msgid "lib.gate1d"
-msgstr "Fees at or above the exchange's normal rate, no fake history"
+msgstr "Fees at or above the actual rate, no fake history"
 
 msgid "lib.gate2"
 msgstr "Statistically significant"
@@ -5344,6 +5423,9 @@ msgstr "Confirm Purchase"
 msgid "lib.buy.busy"
 msgstr "Purchasing…"
 
+msgid "lib.buyWait"
+msgstr "You can buy after the strategy being installed is done."
+
 msgid "lib.buy.topup"
 msgstr "Balance {balance} — not enough. Your card will be charged {price} before purchase."
 
@@ -5446,6 +5528,9 @@ msgstr "Download my purchased strategy \"{title}\" (#{id}) and run a backtest"
 msgid "lib.msgLocal"
 msgstr "The library strategy \"{title}\" (#{id}) is downloaded. Install it and run a backtest to see the results."
 
+msgid "lib.msgTitle"
+msgstr "{title} · Install and Backtest"
+
 msgid "lib.where.local"
 msgstr "this computer"
 
@@ -5518,7 +5603,7 @@ msgid "rpt.new.descLabel"
 msgstr "What the report should cover"
 
 msgid "rpt.new.descPh"
-msgstr "Describe the report you want — e.g. a brief on my TW-stock holdings today, including institutional net buying."
+msgstr "E.g. today’s Taiwan stock holdings, with institutional flows"
 
 msgid "rpt.new.examples"
 msgstr "Examples:"
@@ -6294,7 +6379,7 @@ msgid "cap.venue"
 msgstr "Capital Futures"
 
 msgid "cap.group.tw"
-msgstr "Taiwan stocks"
+msgstr "Taiwan futures"
 
 msgid "cap.title"
 msgstr "Connect Capital Futures"
@@ -6632,6 +6717,9 @@ msgstr "Backtested strategies only"
 
 msgid "xp.why.tm"
 msgstr "Only the current version can be exported."
+
+msgid "xp.sending"
+msgstr "This export is already running. Progress is in the chat."
 
 msgid "xp.why.busy"
 msgstr "The agent is replying. Export after it finishes."
@@ -8057,7 +8145,7 @@ msgstr "Change the trading password"
 
 # ── 方案制(.m = api 切換之後的版本;app.js pvK 依 planMo() 挑)──
 msgid "pv.d.noTrial.m"
-msgstr "This account has no first-card trial. Blave data comes with a Blave Agent plan (from {p} TWD a month)."
+msgstr "This account has no first-card trial. Blave data comes with a Blave Agent plan (from {p} TWD every {pd} days)."
 
 msgid "pv.d.trial.m"
 msgstr "Data is free until {d}. When the trial ends, the first period {p} TWD is charged, then it renews every {pd} days. Paid from your balance first, the card if it doesn’t cover a period."
@@ -8074,13 +8162,13 @@ msgstr "Your first card starts a free trial"
 
 # 「自動」不能拿掉,否則會被讀成可選訂閱;扣第一期／取消就不扣留給綁卡那一步的 pv.f.offer.m
 msgid "pv.f.out.m"
-msgstr "After the trial, billing starts automatically at {p} TWD a month."
+msgstr "After the trial, billing starts automatically at {p} TWD every {pd} days."
 
 msgid "pv.f.offer.m"
-msgstr "A {v} TWD card check goes to your balance, and auto top-up turns on. The trial runs {t} days, then {p} TWD a month is charged automatically: from your balance first, this card if that’s short. Cancel during the trial and nothing is charged."
+msgstr "A {v} TWD card check goes to your balance, and auto top-up turns on. The trial runs {t} days, then the first period ({p} TWD every {pd} days) is charged automatically: from your balance first, this card if that’s short. Cancel during the trial and nothing is charged."
 
 msgid "pv.e.sub.m"
-msgstr "When the trial ends, {p} TWD a month is charged automatically; cancel during the trial and nothing is charged."
+msgstr "When the trial ends, the first period is charged automatically: {p} TWD every {pd} days. Cancel during the trial and nothing is charged."
 
 msgid "pv.e.noTrial.m"
 msgstr "This computer can’t reach Blave data yet. It comes with a Blave Agent plan."
@@ -8101,7 +8189,7 @@ msgid "pv.st.noPlan"
 msgstr "No plan"
 
 msgid "pv.d.plan.m"
-msgstr "Blave data comes with a Blave Agent plan (from {p} TWD a month; no cloud machine needed). Without one, this app runs on public data only."
+msgstr "Blave data comes with a Blave Agent plan (from {p} TWD every {pd} days). Without one, this app runs on public data only."
 
 msgid "pv.f.plan.m"
 msgstr "Starting pays the first period now: from your wallet first, then your card."
@@ -8515,10 +8603,10 @@ msgid "po.fogStrat"
 msgstr "Strategy {x}"
 
 msgid "tr.fogConnect"
-msgstr "Connect an exchange and your strategies trade on their own."
+msgstr "Connect an account and your strategies can trade on their own."
 
 msgid "tr.cloud.fogConnect"
-msgstr "The cloud machine needs its own exchange connection; once connected, it trades on its own."
+msgstr "The cloud machine needs its own account. Once connected, strategies can trade on their own."
 
 msgid "tr.unmanagedTag"
 msgstr "Off-strategy"
@@ -8572,7 +8660,7 @@ msgid "mg.apply"
 msgstr "Apply Amounts"
 
 msgid "mg.applyDiffSet"
-msgstr "Strategies differ from the Allocation tab"
+msgstr "Allocation {a}, here {b}"
 
 msgid "mg.askAgent"
 msgstr "Discuss with the agent"
@@ -8634,9 +8722,6 @@ msgstr "Equal share per strategy; nothing is fitted."
 msgid "mg.fund"
 msgstr "Capital"
 
-msgid "mg.fundTip"
-msgstr "Defaults to the total on the Allocation tab"
-
 msgid "mg.beatsTip.ret"
 msgstr "Share of 1,000 random-weight portfolios over the same period with a lower total return. A reference figure that varies a lot with the period."
 
@@ -8675,9 +8760,6 @@ msgstr "Method"
 
 msgid "mg.moreMethods"
 msgstr "Other methods?"
-
-msgid "mg.noFx"
-msgstr "TWD FX rate unavailable — lots can't be converted."
 
 msgid "mg.optDoneToast"
 msgstr "Optimization done — see Weight Allocation on the Optimize tab."
@@ -8872,7 +8954,7 @@ msgid "po.goHalt"
 msgstr "Trading paused"
 
 msgid "po.goBtn"
-msgstr "Start in Auto trading"
+msgstr "Start in Auto Trading"
 
 msgid "tr.opt.catchWill"
 msgstr "Will {side} {sym} {n}"
@@ -8962,16 +9044,13 @@ msgid "pv.h.revoked"
 msgstr "Please sign in again"
 
 msgid "mg.applyWhyLogin"
-msgstr "Sign in to Blave to get the TWD rate; TAIEX futures lots can’t be converted without it"
+msgstr "Sign in to Blave to get the exchange rate"
 
 msgid "mg.applyWhyFx"
-msgstr "No TWD rate, so TAIEX futures lots can’t be converted"
+msgstr "No exchange rate, so amounts can’t be converted"
 
 msgid "mg.applyWhyQuote"
 msgstr "No TAIEX futures quote yet, so lots can’t be converted"
-
-msgid "mg.applyWhySize"
-msgstr "Set the capital and target first"
 
 msgid "mg.applyWhySame"
 msgstr "Suggested amounts match the current ones"
@@ -9022,11 +9101,11 @@ msgid "tr.cf.titleFire"
 msgstr "Save and place orders"
 
 msgid "tr.cf.capOrders"
-msgstr "Orders for the next round ({n})"
+msgstr "Estimated orders for the next round ({n})"
 
 # 全部是台股、這一輪都留到開盤時的表頭;後面接 asof 那段
 msgid "tr.cf.capOrdersOpen"
-msgstr "Orders to send at the open ({n})"
+msgstr "Estimated orders at the open ({n})"
 
 msgid "tr.cf.capChanges"
 msgstr "{n} targets change ({ccy})"
@@ -9093,6 +9172,12 @@ msgstr "The part being replaced in {syms} stays as it is until the first signal 
 msgid "tr.cf.gated"
 msgstr "No orders this round for {syms}: waiting for a new signal."
 
+msgid "tr.cf.nextRound"
+msgstr "The next round places any orders based on the latest signal."
+
+msgid "tr.cf.closeMaybe"
+msgstr "Removed or zeroed strategies close any position they hold."
+
 msgid "po.unsaved"
 msgstr "Unsaved"
 
@@ -9137,19 +9222,13 @@ msgid "tr.fxOld"
 msgstr "TWD conversions use the {d} rate (≈); signing in updates it."
 
 msgid "mg.applyWhyFxOld"
-msgstr "The saved TWD rate is over 30 days old; sign in to Blave to convert TAIEX futures lots"
+msgstr "The saved exchange rate is over 30 days old; sign in to Blave to update it"
 
 msgid "mg.lotsUnder"
 msgstr "0 lots (under 1 lot)"
 
 msgid "mg.lotsUnderFoot"
 msgstr "TAIEX futures below one lot aren’t counted: ≈ {amt} less invested"
-
-msgid "mg.lotsOverFoot"
-msgstr "TAIEX futures rounded up to whole lots ({lots}): {pct}% more than allocated"
-
-msgid "mg.lotsOverFootN"
-msgstr "{name} rounded up to whole lots of TAIEX futures ({lots}): {pct}% more than allocated"
 
 msgid "mg.waitPrefixOpt"
 msgstr "Optimize: "
@@ -9161,16 +9240,97 @@ msgid "mg.btWaitPerf"
 msgstr "Waiting for performance updates…"
 
 msgid "sz.oldMdd"
-msgstr "Cloud machine version is out of date, so max drawdown isn’t available. Press Update cloud machine in Settings › General, then rerun the optimization"
+msgstr "Cloud machine is out of date, so max drawdown isn’t available; update the cloud machine"
 
 msgid "sz.staleMdd"
-msgstr "This result was computed before the update. Rerun the optimization to use max drawdown"
+msgstr "Rerun the optimization to use max drawdown"
 
 msgid "sz.shortMdd"
 msgstr "Under 90 days of shared data, so max drawdown isn’t available"
 
 msgid "mg.needFund"
-msgstr "Click “{method}” and enter the capital first; then the suggested amounts can be worked out."
+msgstr "Enter the capital first"
+
+msgid "mg.needSize"
+msgstr "Set the position size first"
+
+msgid "mg.needMethod"
+msgstr "Pick a position size method first"
+
+msgid "mg.needTarget"
+msgstr "Enter the position size target first"
+
+msgid "mg.applyDiffSetN"
+msgstr "Allocation has {n} not listed here"
+
+msgid "mg.applyWhyUnread"
+msgstr "Can’t read the amounts; apply once it updates"
+
+msgid "sz.noVol"
+msgstr "No volatility data in the last 90 days, so target volatility is off"
+
+msgid "mg.why.alloc"
+msgstr "Change Allocation"
+
+msgid "mg.why.method"
+msgstr "Change Method"
+
+msgid "mg.why.tbMethod"
+msgstr "Method"
+
+msgid "mg.why.changeMethod"
+msgstr "change the method"
+
+msgid "mg.why.changeTarget"
+msgstr "change the target"
+
+msgid "mg.why.shortMdd"
+msgstr "Under 90 days of shared data, so max drawdown isn’t available; change the method"
+
+msgid "mg.why.noVol"
+msgstr "No volatility data in the last 90 days, so target volatility is off; change the method"
+
+msgid "mg.why.rerun"
+msgstr "Rerun the optimization"
+
+msgid "mg.why.updCloud"
+msgstr "update the cloud machine"
+
+msgid "mg.why.signin"
+msgstr "Sign in to Blave"
+
+msgid "mg.why.signinUpd"
+msgstr "sign in to Blave to update it"
+
+msgid "mg.why.pickTitle"
+msgstr "Allocation strategies"
+
+msgid "mg.sizeNoHist"
+msgstr "This result can’t work out target volatility; change the method"
+
+msgid "mg.sizeNoSolve"
+msgstr "This drawdown target can’t be turned into a leverage; change the target"
+
+msgid "sz.unset"
+msgstr "Not set"
+
+msgid "mg.needAlloc"
+msgstr "Click Method and pick an allocation method first"
+
+msgid "mg.allocGone"
+msgstr "“{method}” is no longer on this machine; click Method to pick another"
+
+msgid "mg.needParams"
+msgstr "Click Method and fill in the parameters for “{method}” first"
+
+msgid "mg.prefsFail"
+msgstr "Couldn’t read your saved portfolio settings"
+
+msgid "mg.prefsRetry"
+msgstr "Retry"
+
+msgid "mg.prefsReset"
+msgstr "Start Over"
 
 msgid "tr.cloud.notApplied"
 msgstr "The machine hasn’t applied the amounts you just saved yet, so this shows what’s on the machine; it updates once applied."
@@ -9226,9 +9386,6 @@ msgstr "You've built {n} strategies."
 # 回合中的鎖(busy.js;設計 spec busy-lock-2026-10 第一期):點了被鎖的控件,在控件附近的訊息槽講一句原因＋補救連結
 msgid "busy.update"
 msgstr "A conversation is still replying. Restarting would interrupt it."
-
-msgid "busy.perf"
-msgstr "The agent is replying and may still be editing strategies. Refresh after it finishes."
 
 msgid "busy.rerun"
 msgstr "The agent is replying and may still be editing strategies. Run it again after it finishes."
@@ -9286,9 +9443,6 @@ msgid "onb.doneSr"
 msgstr "{step}, done"
 
 # Shown in place the moment the last step is done (stays while the app is open)
-msgid "onb.fin"
-msgstr "You're All Set"
-
 # Accessible name of the welcome steps list (index.html #onb-steps)
 msgid "set.onb"
 msgstr "Getting started"
@@ -9767,9 +9921,6 @@ msgstr "Performance was updated. Rerun the test to update this."
 msgid "xt.busyRefresh"
 msgstr "Performance is updating. Press again when it finishes."
 
-msgid "xt.busyTurn"
-msgstr "The agent is replying and may still be editing strategies. Test after it finishes."
-
 # 下單結果不明(order_unconfirmed,canon notifications §3):事件列標題／說明、本機 P1 通知內文、列下那一句;策略段(策略檔名)組字
 msgid "tr.ov.evUnconfirmed"
 msgstr "Order outcome unknown"
@@ -9979,16 +10130,16 @@ msgid "ph.cf.title"
 msgstr "Allow phone chat?"
 
 msgid "ph.cf.1"
-msgstr "Messages from your phone run on this computer. The agent can do anything it can here, including placing orders."
+msgstr "Every phone on your account can tell this computer what to do, including placing orders. Phones paired later can too."
 
 msgid "ph.cf.2"
-msgstr "Chats from the last 30 days are uploaded so your phone can show them. Keys and folder paths are masked first."
+msgstr "Chats from the last 30 days and new ones are uploaded, with keys and folder paths masked. Turning this off deletes the copy on Blave."
 
 msgid "ph.cf.3"
-msgstr "Attachments, images and strategy code stay here. Turning this off deletes the copy on Blave."
+msgstr "Attachments, strategy code and images in older chats stay here. Images in replies to your phone are uploaded."
 
 msgid "ph.cf.ok"
-msgstr "Turn on"
+msgstr "Turn On"
 
 msgid "ph.off.title"
 msgstr "Turn off phone chat?"
@@ -10000,7 +10151,7 @@ msgid "ph.off.del"
 msgstr "Chats on Blave are deleted. Chats on this computer stay."
 
 msgid "ph.off.ok"
-msgstr "Turn off"
+msgstr "Turn Off"
 
 msgid "ph.syncing"
 msgstr "Synced {n} of {m} chats"
@@ -10023,50 +10174,48 @@ msgstr "The chats on Blave aren't deleted yet. They will be once you're back onl
 msgid "ph.err"
 msgstr "Couldn't turn it on. Check your connection and try again."
 
-msgid "ph.group"
-msgstr "Phones allowed on this computer"
+msgid "ph.offRelogin"
+msgstr "Phone chat was turned off when you signed in again. Turn it back on in Settings › Connections."
 
-msgid "ph.pair"
-msgstr "Pair a Phone"
+# 0.1.43 設定 › 連結 手機那一組的標籤(取代 ph.group):帳號下配對過的手機,唯讀(mockup-web-only-pairing-2026-11-02 §8)
+msgid "ph.list"
+msgstr "Phones on This Account"
 
-msgid "ph.pairHow"
-msgstr "Scan it in the app's Agent tab, or enter the code."
+# 組標籤右邊的文字鈕,開網站 設定 › 已配對的手機;帳號還沒有手機時不出
+msgid "ph.webRevoke"
+msgstr "Revoke on Website"
 
-msgid "ph.pairUntil"
-msgstr "Valid until {hm}"
+# 〔到網站撤銷〕的讀屏名稱:會開瀏覽器(同 rp.help.aria)
+msgid "ph.webRevoke.aria"
+msgstr "Revoke on Website (opens in browser)"
 
-msgid "ph.pairExpired"
-msgstr "This code has expired."
+# 開著、帳號還沒有手機:組內那一槽
+msgid "ph.none"
+msgstr "No phones paired yet. Pair one in the app's Agent tab."
 
-msgid "ph.pairAgain"
-msgstr "Get a New Code"
+# 手機配對完、這台開關關著時主視窗跳的確認框(§9b):標題帶機型,內文沿用 ph.cf.1–3;電腦當時沒開的話標題後面另接配對時間(mono)
+msgid "ph.ask.title"
+msgstr "{name} wants to connect to this computer"
 
-msgid "ph.pairFail"
-msgstr "Couldn't get a pairing code. Try again."
+msgid "ph.ask.no"
+msgstr "Not Now"
 
-msgid "ph.pairMax"
-msgstr "You have 5 phones. Revoke one to pair another."
+msgid "ph.ask.ok"
+msgstr "Turn On"
 
-msgid "ph.pairedSay"
-msgstr "Paired {name}"
+# 開關開著、帳號下剛配對了手機:輸入框上方那一列(設計 account-security-mails §7.3),句尾接〔到網站撤銷〕ph.webRevoke、右上 ✕(set.close)
+msgid "ph.newPhone"
+msgstr "{name} was just paired and can now control this computer."
+
+# 同上,同時不只一支:只寫最新一支的名字,其他用支數(more ≥ 1);en 不分單複數
+msgid "ph.newPhones"
+msgstr "{name} and {more} more were just paired and can now control this computer."
 
 msgid "ph.meta"
-msgstr "Paired {paired} · Last used {used}"
+msgstr "Last used {used}"
 
 msgid "ph.metaNever"
-msgstr "Paired {paired} · Not used yet"
-
-msgid "ph.acts"
-msgstr "Recent Activity"
-
-msgid "ph.actsMore"
-msgstr "Show All"
-
-msgid "ph.actsFail"
-msgstr "Couldn't load activity."
-
-msgid "ph.revoke"
-msgstr "Revoke"
+msgstr "Not used yet"
 
 msgid "ph.iphone"
 msgstr "iPhone"
@@ -10074,59 +10223,8 @@ msgstr "iPhone"
 msgid "ph.android"
 msgstr "Android phone"
 
-msgid "ph.errRow"
-msgstr "Couldn't save that. Check your connection and try again."
-
 msgid "ph.phonesFail"
 msgstr "Couldn't load your phones."
-
-msgid "ph.revokedSay"
-msgstr "Revoked {name}"
-
-msgid "ph.revoke.title"
-msgstr "Revoke {name}?"
-
-msgid "ph.revoke.body"
-msgstr "This phone can no longer chat with the agent. Pair it again to use it."
-
-msgid "ph.revoke.stop"
-msgstr "If a reply it started is still running, it stops."
-
-msgid "ph.revoke.ok"
-msgstr "Revoke"
-
-msgid "ph.act.send"
-msgstr "Sent a message"
-
-msgid "ph.act.stop"
-msgstr "Stopped a reply"
-
-msgid "ph.act.withdraw"
-msgstr "Withdrew a message"
-
-msgid "ph.act.session_new"
-msgstr "New chat"
-
-msgid "ph.act.session_rename"
-msgstr "Renamed a chat"
-
-msgid "ph.act.session_delete"
-msgstr "Deleted a chat"
-
-msgid "ph.act.pair"
-msgstr "Paired"
-
-msgid "ph.act.auth"
-msgstr "Verified"
-
-msgid "ph.act.revoke"
-msgstr "Revoked"
-
-msgid "ph.act.grant"
-msgstr "Allowed on this computer"
-
-msgid "ph.act.ungrant"
-msgstr "Stopped on this computer"
 
 msgid "tm.phoneHiddenTitle"
 msgstr "Phone chat is on"
@@ -10138,7 +10236,7 @@ msgid "tm.phoneHiddenWin"
 msgstr "Blave is still open, so your phone can reach it. To quit, use the system tray icon."
 
 msgid "sp.btn"
-msgstr "Auto-trade"
+msgstr "Auto-Trade"
 
 msgid "sp.cx"
 msgstr "Connect account"
@@ -10154,3 +10252,119 @@ msgstr "Unsaved portfolio changes"
 
 msgid "tr.pick.twdVenue"
 msgstr "TWD strategies can't trade on {venue}"
+
+# 聊天裡的澄清表單(0.1.41;spec agent-clarify-form-2026-10-31 §6,renderer/form.js):台指期回測缺兩個以上設定時,回覆底下的四題單選。
+# 題名是欄位 label(名詞,不寫指示);網頁同一句的 msgid 是 workspace_ 加這個 key 把 . 換成 _(tests/check_web_desktop_parity.js 逐字比)
+msgid "form.txf_backtest.q.prod"
+msgstr "Contract"
+
+msgid "form.txf_backtest.q.tf"
+msgstr "Bar interval"
+
+msgid "form.txf_backtest.q.per"
+msgstr "Backtest period"
+
+msgid "form.txf_backtest.q.st"
+msgstr "Strategy type"
+
+msgid "form.txf_backtest.prod.txf"
+msgstr "TXF (full)"
+
+msgid "form.txf_backtest.prod.mxf"
+msgstr "MXF (mini)"
+
+msgid "form.txf_backtest.prod.tmf"
+msgstr "TMF (micro)"
+
+msgid "form.txf_backtest.tf.d"
+msgstr "Daily"
+
+msgid "form.txf_backtest.tf.m1"
+msgstr "1-min"
+
+msgid "form.txf_backtest.tf.m5"
+msgstr "5-min"
+
+msgid "form.txf_backtest.tf.m15"
+msgstr "15-min"
+
+# {year} 是這個商品的起始年(runtime 依這台有沒有 Blave 資料算好帶來,換商品時跟著換)
+msgid "form.txf_backtest.per.all"
+msgstr "All available data (from {year})"
+
+msgid "form.txf_backtest.per.y3"
+msgstr "Last 3 years"
+
+msgid "form.txf_backtest.per.y1"
+msgstr "Past year"
+
+msgid "form.txf_backtest.st.ma"
+msgstr "MA crossover"
+
+msgid "form.txf_backtest.st.ch"
+msgstr "Channel breakout"
+
+msgid "form.txf_backtest.st.other"
+msgstr "Other, I'll describe"
+
+# 只在這台電腦拿不到 Blave 資料時畫在 K 線週期那題底下,三個分 K 的 aria-describedby 指它;口徑同 data.noPlan(登入 vs 方案兩分法)
+msgid "form.note.nodata"
+msgstr "Intraday bars need Blave data; this account can't get it right now"
+
+msgid "form.note.nodata_signed_out"
+msgstr "Intraday bars need Blave data; sign in to Blave first"
+
+msgid "form.use"
+msgstr "Use these settings"
+
+msgid "form.self"
+msgstr "I'll type it"
+
+# 表單畫出來那一刻讀屏念一次(只在眼前分頁)
+msgid "form.say"
+msgstr "A few settings to pick; the form is under the reply"
+
+# 按「用這些設定」組進輸入框、不送。{code} 是 TXF／MXF／TMF;{tf}／{st}／{per} 直接代入上面的選項字。
+# en 由 formSentence 把代入字首字母轉小寫(第一個字全大寫的 MA、1-min 不轉),{st} 前補 a／an(MA 開頭用 an)
+msgid "form.txf_backtest.sentence"
+msgstr "Backtest {st} strategy on TAIFEX {code} {tf} bars, using {per}"
+
+# 策略類型選「其他」時用這句,游標停在句尾讓用戶接著打
+msgid "form.txf_backtest.sentence_other"
+msgstr "Backtest a strategy on TAIFEX {code} {tf} bars, using {per}; the strategy is:"
+
+# 電腦版 UI 修正 0.1.44(spec desktop-ui-fixes-2026-11-02)
+msgid "po.fogNew"
+msgstr "Ask the agent for a strategy. Once it’s backtested, you can size it."
+
+msgid "mg.fogNew"
+msgstr "Ask the agent for a few strategies. Once they’re backtested, you can optimize."
+
+msgid "lib.gate.naShort"
+msgstr "N/A"
+
+msgid "lib.gate.robustOver"
+msgstr "Neighboring parameters average better than the chosen set"
+
+msgid "br.set.sub"
+msgstr "The agent can open pages to look things up and work on websites."
+
+msgid "rpt.fogRow.a"
+msgstr "Report A: weekly performance review"
+
+msgid "rpt.fogRow.b"
+msgstr "Report B: Taiwan stocks"
+
+msgid "rpt.fogRow.c"
+msgstr "Report C: crypto funding and liquidation watch"
+
+# 雲端視角沒登入／沒主機／啟動中／讀不到:輸入框停用時的 placeholder
+msgid "chat.ph.cloudGate"
+msgstr "Set up the cloud machine to send it instructions"
+
+msgid "chat.ph.cloudUnreach"
+msgstr "Can’t reach the cloud machine"
+
+# 報告空清單 Setup fog 卡上那句;扁平態仍用 rpt.emptyHint
+msgid "rpt.fogNew"
+msgstr "Ask the agent for your first report."

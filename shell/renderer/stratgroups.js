@@ -14,7 +14,8 @@ const SG_EMOJI = (
 );
 const SG_EMOJI_LIST = [...SG_EMOJI], SG_EMOJI_SET = new Set(SG_EMOJI_LIST);
 const SG_CATS = ["sg.cat.common", "sg.cat.market", "sg.cat.strategy", "sg.cat.animal", "sg.cat.nature", "sg.cat.object"];
-const SG_MAX = 20, SG_NAME_MAX = 20, SG_MIN_LIST = 8, SG_COLS = 6;
+// SG_AUTO_MIN:「建市場資料夾」的支數門檻,同網頁 strat_folders.js 的 AUTO_MIN(新增資料夾鈕一律出,不看支數)
+const SG_MAX = 20, SG_NAME_MAX = 20, SG_AUTO_MIN = 8, SG_COLS = 6;
 // 建市場資料夾(§10):market → [組名字串, 預填 emoji]。不在表上的市場(含空值)留在未分類。
 // 組名用自己的 sg.mkt.*(同網頁 workspace_sg_mkt_*):建好就成了用戶的資料夾名,受 20 碼點上限管,不跟策略庫的市場標籤綁在一起
 const SG_MARKETS = {
@@ -23,7 +24,8 @@ const SG_MARKETS = {
 };
 const sgEmojiName = (e) => t("sg.e." + e.codePointAt(0).toString(16).toUpperCase());
 const sgStore = () => (typeof ENV !== "undefined" && ENV.cur === "cloud" ? SF_CLOUD : SF_LOCAL);
-const sgOn = (sc, list) => sc.groups().folders.length > 0 && list.length > 0;
+// 有資料夾就畫組標題,0 支策略也畫(不然剛建的資料夾存進去了卻看不到,Wei 11-02);有沒有策略只影響要不要畫「未分類」
+const sgOn = (sc) => sc.groups().folders.length > 0;
 function sgEl(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
 function sgBtn(cls, label) { const b = sgEl("button", cls); b.type = "button"; if (label) b.setAttribute("aria-label", label); return b; }
 // lucide folder / folder-plus / inbox / ellipsis(寫死的常數);chevron 是 Accordion 的純 CSS(.sg-chev)
@@ -65,12 +67,12 @@ function sgLayout(box, sc, list) {
   const keep = keepHead ? { gid: keepHead.dataset.gid, cls: ae.classList.contains("sg-more") ? ".sg-more" : ".sg-tog" } : null;
   box.querySelectorAll(":scope > .sg-head, :scope > .sg-auto").forEach((n) => n.remove());
   const wraps = [...box.querySelectorAll(":scope > .strat-wrap")];
-  const on = sgOn(sc, list);
+  const on = sgOn(sc);
   box.classList.toggle("has-groups", on);
   if (!on) wraps.forEach((w) => { w.hidden = false; });
   else {
     const byName = new Map(wraps.map((w) => [w.dataset.name, w])), coll = new Set(SF.coll[sc.env]);
-    sgBuild(list, sc.groups()).forEach((g, i) => {
+    sgBuild(list, sc.groups()).filter((g) => list.length > 0 || g.id !== "_u").forEach((g, i) => {
       const shut = coll.has(g.id);
       box.appendChild(sgHeadEl(g, sc, shut, i === 0));
       g.items.forEach((x) => { const w = byName.get(x.name); if (w) { w.hidden = shut; box.appendChild(w); } });
@@ -157,7 +159,7 @@ function sgReveal(env, name) {
 
 /* ── 「策略」標題列的新增資料夾鈕與上限訊息(#strat-head 在清單外、兩個視角共用,條件依目前視角算;切視角時 envPaint 重判) ── */
 function sgHeadPaint() {
-  const sc = sgStore(), list = sc.last || [], n = sc.groups().folders.length;
+  const sc = sgStore(), n = sc.groups().folders.length;
   let add = $("sg-add"), lim = $("sg-limit");
   if (!add) {
     add = sgBtn("strat-add sg-add"); add.id = "sg-add"; add.appendChild(sgSvg("folder-plus"));
@@ -169,14 +171,13 @@ function sgHeadPaint() {
   // 每次 envPaint 都會進來:值有變才寫,role=status 的節點被重寫一次有些讀屏就重念一次
   const set = (el, k, v) => { if (el[k] !== v) el[k] = v; };
   if (add.getAttribute("aria-label") !== t("sg.add")) { add.setAttribute("aria-label", t("sg.add")); add.title = t("sg.add"); }
-  set(add, "hidden", !(n > 0 || list.length >= SG_MIN_LIST));
   set(add, "disabled", n >= SG_MAX);   // 真 disabled:不進 Tab 序,達上限的話寫在下面看得見的訊息槽
   const full = !add.hidden && add.disabled && !$("strat-head").hidden;
   set(lim, "hidden", !full); set(lim, "textContent", full ? t("sg.max") : "");
 }
 // 「建市場資料夾」:沒有資料夾、≥8 支、已知市場 ≥2 種才出,不符就不出現(不留停用鈕)。本機的市場要等常駐程式回報,所以狀態每輪回來也重判
 function sgAutoPlan(sc, list) {
-  if (sc.groups().folders.length || list.length < SG_MIN_LIST) return null;
+  if (sc.groups().folders.length || list.length < SG_AUTO_MIN) return null;
   const order = [], by = {};
   list.forEach((x) => { const m = sc.market(x); if (!SG_MARKETS[m]) return; if (!by[m]) { by[m] = []; order.push(m); } by[m].push(x.name); });
   return order.length >= 2 ? { order, by } : null;

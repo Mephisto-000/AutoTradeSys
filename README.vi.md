@@ -11,11 +11,11 @@ Xây dựng chiến lược, backtest và giao dịch thật với Claude Code h
 
 [English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md) | [Português](README.pt.md) | **Tiếng Việt**
 
-<a href="https://download.blave.org/desktop/mac/Blave-universal.dmg"><img src="docs/readme-dl-mac.vi.png" alt="Tải cho Mac" width="177"></a>&nbsp;&nbsp; <a href="https://download.blave.org/desktop/win/Blave-Setup.exe"><img src="docs/readme-dl-win.vi.png" alt="Tải cho Windows" width="177"></a>
+<a href="https://download.blave.org/desktop/mac/Blave-universal.dmg?src=gh_readme_vi"><img src="docs/readme-dl-mac.vi.png" alt="Tải cho Mac" width="177"></a>&nbsp;&nbsp; <a href="https://download.blave.org/desktop/win/Blave-Setup.exe?src=gh_readme_vi"><img src="docs/readme-dl-win.vi.png" alt="Tải cho Windows" width="177"></a>
 
 </div>
 
-> Bản dịch từ README tiếng Anh tại commit [`593f8b3`](https://github.com/Blave-TW/blave-agent/blob/593f8b3/README.md). Nếu có chỗ khác nhau, bản gốc tiếng Anh là chuẩn.
+> Bản dịch từ README tiếng Anh tại commit [`3550319`](https://github.com/Blave-TW/blave-agent/blob/3550319/README.md). Nếu có chỗ khác nhau, bản gốc tiếng Anh là chuẩn.
 
 https://github.com/user-attachments/assets/7b33edb7-9c65-4e19-854a-40295c6e8b74
 
@@ -39,7 +39,7 @@ https://github.com/user-attachments/assets/7b33edb7-9c65-4e19-854a-40295c6e8b74
 
 ## Bắt đầu nhanh
 
-1. Tải bản cho [macOS](https://download.blave.org/desktop/mac/Blave-universal.dmg) hoặc [Windows](https://download.blave.org/desktop/win/Blave-Setup.exe) rồi mở ra.
+1. Tải bản cho [macOS](https://download.blave.org/desktop/mac/Blave-universal.dmg?src=gh_readme_vi) hoặc [Windows](https://download.blave.org/desktop/win/Blave-Setup.exe?src=gh_readme_vi) rồi mở ra.
 2. Chọn AI.
 3. Mô tả một ý tưởng:
 
