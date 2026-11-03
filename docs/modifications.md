@@ -55,5 +55,11 @@
   - `shell/renderer/portfolio.js` 的 `#po-live` 記號改用上游的 `trCfPaperOnly()`（fork 先前已讓它把永豐模擬環境算成模擬），行為不變
   - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 VERSION `2026-11-01-b`，
     再執行 `tools/sinopac_deploy.py --apply`
+- 2026-11-03：同步上游 `main` 至 `424a352f`（電腦版 0.1.44）
+  - `shell/renderer/trade.js`：上游把 `envMoney` 簡化成只認 Blave 模擬帳戶，保留 fork 版（永豐模擬環境也算模擬），上游新增的
+    `envCloudGated`、`envInputGate` 照收
+  - `README.md`：上游只改了 fork 已移除段落裡的下載連結，保留 fork 版
+  - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 VERSION `2026-11-03-c`，
+    再執行 `tools/sinopac_deploy.py --apply`
 
 詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
