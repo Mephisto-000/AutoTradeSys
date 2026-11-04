@@ -69,5 +69,19 @@ with open(ENV_PATH, "w") as f:
 check(pr.venues() == {"binance": {"credentials": True, "pair": True, "order": True, "account": True}},
       "other venues: the entry is exactly as before (no simulation key)")
 
+# The agent's reply rule (runtime/agent_turn._STYLE_RULES, 2026-11-04): venues by name, never the bare id.
+# 永豐金 is listed with the shell's sino.venue msgstr, so a reply about it says 永豐金證券, not "sinopac".
+os.environ.setdefault("BLAVE_AGENT_DB", os.path.join(WS, "session.db"))
+sys.modules.setdefault("claude_agent_sdk", __import__("types").ModuleType("claude_agent_sdk"))
+import agent_turn as at  # noqa: E402
+
+check(at._VENUE_NAMES.get("sinopac") == ("永豐金證券", "SinoPac Securities"),
+      "the reply rule's venue names list sinopac as 永豐金證券 / SinoPac Securities")
+check("sinopac 寫永豐金證券(英文 SinoPac Securities)" in at._STYLE_RULES,
+      "…and the shared style rules carry that line")
+po = {lang: open(os.path.join(ROOT, "shell", "i18n", lang + ".po"), encoding="utf-8").read() for lang in ("zh", "en")}
+check('msgid "sino.venue"\nmsgstr "永豐金證券"' in po["zh"] and 'msgid "sino.venue"\nmsgstr "SinoPac Securities"' in po["en"],
+      "…the same words as the shell's sino.venue")
+
 print("\n" + ("all ok" if not fails else f"{fails} FAILED"))
 sys.exit(1 if fails else 0)

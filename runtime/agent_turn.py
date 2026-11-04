@@ -1,3 +1,7 @@
+# Modified by Mephisto-000 on 2026-11-04: the reply rule's venue names (_VENUE_NAMES) also list
+#   sinopac as 永豐金證券 / SinoPac Securities, so replies never write the bare id.
+# Original work: Copyright 2025-2026 WuChi Technology Company Limited
+# Licensed under the Apache License, Version 2.0
 """
 Agent loop, spec item 1: one process per turn ("每輪 spawn"), no persistent
 agent process.
@@ -2232,6 +2236,8 @@ _VENUE_NAMES = {
     venue_traits.PRESIDENT: ("統一期貨", "President Futures"),
     venue_traits.CAPITAL: ("群益期貨", "Capital Futures"),
     "paper": ("模擬交易", "Paper trading"),
+    # 永豐金(AutoTradeSys fork):同外殼 sino.venue 的 msgstr;tests/check_sinopac_reporter.py 也釘住
+    venue_traits.SINOPAC: ("永豐金證券", "SinoPac Securities"),
 }
 
 # Telegram uses LEGACY Markdown (single-asterisk bold) and cannot render
