@@ -61,5 +61,11 @@
   - `README.md`：上游只改了 fork 已移除段落裡的下載連結，保留 fork 版
   - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 VERSION `2026-11-03-c`，
     再執行 `tools/sinopac_deploy.py --apply`
+- 2026-11-04：同步上游 `main` 至 `4bf109cb`（電腦版 0.1.44，runtime 1.1.155），沒有文字衝突
+  - 修改（檔頭已註明）：`runtime/agent_turn.py` 的 `_VENUE_NAMES`（上游新增「回覆裡交易所寫名稱、不寫 id」）補上永豐金證券，
+    以及配合的 `tests/check_sinopac_reporter.py`
+  - 上游的啟動下單框把模擬與真錢的說明併成同一句，fork 的「永豐模擬環境標模擬」判斷不受影響
+  - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 VERSION `2026-11-04-c`，
+    再執行 `tools/sinopac_deploy.py --apply`
 
 詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
