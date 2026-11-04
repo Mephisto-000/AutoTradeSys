@@ -1257,7 +1257,7 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
       /const recomputing = trRecomputing\(r\), rkS = trRestartKind\(r\);/.test(start)
       && /disabled: recomputing, why: t\("tr\.cloud\.recomputing"\), ok: t\("tr\.startCatchUp"\), onOk: catchUp \},/.test(start)
       && /const catchUp = \(\) => \{ if \(!trRecomputing\(trReport\(\)\)\) go\("resume"\); \};/.test(start)
-      && /desc: t\("tr\.opt\.waitDesc" \+ money\), warn: stranded \? t\("tr\.opt\.waitStranded", \{ n: stranded \}\) : null,\n\s*ok: t\("tr\.startWait"\), onOk: \(\) => go\("resume_wait"\) \},/.test(start)
+      && /desc: t\("tr\.opt\.waitDesc"\), warn: stranded \? t\("tr\.opt\.waitStranded", \{ n: stranded \}\) : null,\n\s*ok: t\("tr\.startWait"\), onOk: \(\) => go\("resume_wait"\) \},/.test(start)
       && /ok: t\("tr\.startCatchUp"\), okDisabled: recomputing, okWhy: recomputing \? t\("tr\.cloud\.recomputing"\) : null, onOk: catchUp,/.test(start));
     const po = (l) => fs.readFileSync(path.join(__dirname, "..", "shell", "i18n", l + ".po"), "utf8");
     ok("recomputed 文字(zh / en)", /msgid "tr\.cloud\.recomputing"\nmsgstr "策略正在用開機後的資料重算，算完才能補齊部位；算完後關掉這個框再開一次。"/.test(po("zh"))
@@ -1866,6 +1866,11 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
       ok("雲端:累積損益只從資金異動之後那一段起算(3 筆,不把入金算成獲利);損益 mode 不出資金異動那一句", !!cv && /^tr\.ov\.curveAriaPnl\|/.test(cv.attrs["aria-label"]) && /"n":3/.test(cv.attrs["aria-label"]) && /"a":"0\.00 USDT"/.test(cv.attrs["aria-label"]) && foots(all).length === 0); }
     { const all = paint(bag("local", { curve: LOCAL })), cv = canvasOf(all), day = dayCell(all);
       ok("這台電腦不變:同一條路畫,口徑換過那一句照舊(不是資金異動)、當日損益照算", !!cv && /"n":5/.test(cv.attrs["aria-label"]) && !!day && day.textContent.startsWith("+12.50") && foots(all).includes("tr.ov.basisNote") && !foots(all).some((x) => x.startsWith("tr.ov.flowNote"))); }
+    { // cx.perfNote 從總覽區腳搬進總權益氣泡:模擬才接、zh 不加空白、真錢氣泡不變
+      const tipOf = (lang, venue) => { ctx.LANG = lang; const b = bag("local", { curve: LOCAL }); b.st = { report: { venues: { [venue]: { credentials: true, pair: true, order: true, account: true } }, account: { venues: { [venue]: { ok: true, equity: 1000, currency: "USDT" } } }, config: { amounts: { s1: 100 } } } };
+        const all = paint(b); ctx.LANG = "en"; return { tip: cls(all, "tip")[0].textContent, foots: foots(all) }; };
+      const pz = tipOf("zh", "paper"), pe = tipOf("en", "paper"), rz = tipOf("zh", "binance");
+      ok("模擬:總權益氣泡接 cx.perfNote(zh 不加空白、en 一個空白),區腳不再出;真錢氣泡只有第一句", pz.tip === "tr.ov.equityTipcx.perfNote" && pe.tip === "tr.ov.equityTip cx.perfNote" && rz.tip === "tr.ov.equityTip" && ![pz, pe, rz].some((x) => x.foots.some((f) => f.includes("cx.perfNote"))), JSON.stringify({ pz, pe, rz })); }
     { // 設計稽核 desktop-10-08 #1:TWD 帳戶(統一)總權益與當日損益整數、負值 U+2212(同資產分頁的淨值 trTwd);USDT 照舊兩位
       const TWD = { venues: { president: { credentials: true, pair: true, order: true, account: true } }, account: { venues: { president: { ok: true, equity: 12145031.5, currency: "TWD" } } } };
       const twd = (pnl) => { const bg = bag("local", { curve: { ...LOCAL, currency: "TWD", today: { pnl, start_equity: 12141581.5 } } }); bg.st = { report: TWD }; const all = paint(bg), c = cls(all, "stat"); return { eq: cls(flat(c[0]), "sv")[0], day: cls(flat(c[1]), "sv")[0] }; };
@@ -2626,9 +2631,9 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
       const gc = diffOf(g), go = diffOf(gOpen), gs = diffOf(gStale);
       const bg = JSON.parse(JSON.stringify(BTCREP)); bg.last_reconcile.target.BTCUSDT.gated = true;
       const brow = paintP(bg).find((n) => n.tag === "tr" && n.kids.length === 4 && n.kids[0].tag === "td" && n.kids[0].textContent.startsWith("BTCUSDT")), bd = brow && brow.kids[3];
-      ok("F7 gated 的列:差額灰(hold)不上買色,title 是 tr.opt.waitDesc(模擬)／waitDescReal(真錢);gated＋休市講等新訊號不講開盤;快照過舊照常上色",
+      ok("F7 gated 的列:差額灰(hold)不上買色,title 是 tr.opt.waitDesc(模擬／真錢同一句);gated＋休市講等新訊號不講開盤;快照過舊照常上色",
         !!gc && gc.className === "n hold" && gc.title === "tr.opt.waitDesc" && !!go && go.className === "n hold" && go.title === "tr.opt.waitDesc"
-        && !!bd && bd.className === "n hold" && bd.title === "tr.opt.waitDescReal" && !!gs && gs.className === "n buy",
+        && !!bd && bd.className === "n hold" && bd.title === "tr.opt.waitDesc" && !!gs && gs.className === "n buy",
         [gc && [gc.className, gc.title], go && [go.className, go.title], bd && [bd.className, bd.title], gs && gs.className]); }
     { const r = JSON.parse(JSON.stringify(BTCREP)); r.config.amounts = { b: 300, tw: 300000, sol: 100 };
       r.states = { b: { symbol: "BTCUSDT", market: "swap", position: 1 }, tw: { weights: { 2330: 0.5, 2454: 0 }, market: "spot" }, sol: { symbol: "SOLUSDC", market: "spot", position: 1 } };

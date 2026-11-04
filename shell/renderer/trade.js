@@ -2802,6 +2802,8 @@ function trAskStop(opener) {
 }
 // 中文句子裡夾英文名(Binance)前後要空一格;英文句子本來就有空格
 function trPadLatin(name) { return LANG === "zh" && /^[\x20-\x7e]+$/.test(name) ? " " + name + " " : name; }
+// 英文名兩邊都墊了空格,但句子裡緊鄰全形標點那一側不該有(「，Binance 上」不是「， Binance 上」)
+function trTidyZh(s) { return LANG === "zh" ? s.replace(/([，。、：；「」（）]) | ([，。、：；「」（）])/g, "$1$2") : s; }
 /* Blave 的帳本基準寫了沒(回報裡的對帳快照 last_reconcile,lib/portfolio._write_reconcile_snapshot):
    "built" = 快照帶 ledger(對帳器已經拿自己的帳本在比)→ 之後啟動不會再把帳戶上的部位算成 Blave 的;
    "none"  = 快照帶 needs_baseline(基準還沒寫)→ 第一次對帳會照 1.5 倍規則收編同方向的現有部位(_auto_baseline,一次定案);
@@ -2815,9 +2817,10 @@ function trBookBaseline(r) {
   return nb && typeof nb === "object" && nb.reason !== "unconfigured" ? "none" : "unknown";
 }
 /* 啟動框的句子分兩層(Wei 0928 第 3 點 A 案的逐句分類):keep = 每次都要看的常駐句,details = 看懂一次就好的、收在「細節」裡。
-   回 { keep: [句], details: [{ label, items | text }] },純函式(tests/check_shell_start_box.js 切出來跑)。
-   這台電腦:常駐只有 venue 通用的「只調整 Blave 自己那一份」;電腦醒著才跑 / 睡眠關機不平倉 / 重開要再按啟動 / 交易所端停損單(真錢;
-   模擬帳戶沒有交易所端的停損單,那句在那裡是假的)四點全在「細節」——同一件事不在常駐與細節各講一次(設計稽核 desktop-10-08 #3)。
+   回 { keep: [句], note: 一行說明 | null, details: [{ label?, items | text }] },純函式(tests/check_shell_start_box.js 切出來跑)。
+   這台電腦(mockup 03 A 版):常駐只有 venue 通用的「只動 Blave 自己那一份」;電腦會停的事縮成一行(note),電腦醒著才跑 / 睡眠關機不平倉 /
+   重開要再按啟動 / 交易所端停損單(真錢;模擬帳戶沒有交易所端的停損單,那句在那裡是假的)進點開的小卡,每條 ≤25 字、沒有小標。
+   雲端沒有 note:照舊收合的「細節」。同一件事不在常駐與細節各講一次(設計稽核 desktop-10-08 #3)。
    雲端:常駐換成主機費與停機門檻(金額來自方案頁同一個來源;拿不到數字就整句不出——不寫死、也不生一句沒有數字的半套說法)。
    own = 回報證明機器只碰帳本裡的部位(self_ledger);那一句只給真錢(模擬帳戶沒有用戶手動開的部位),而且跟著帳本基準分三種說法(book):
    還沒建 → 「同方向的部位第一次對帳會算進來」＋細節裡 1.5 倍那一段;已建 → 只講「你自己開的不算 Blave 的」(那時沒有東西會被算進來,
@@ -2838,12 +2841,12 @@ function trStartNotes(o) {
   } else {
     // awake = 設定 › 一般「自動下單時不讓電腦睡」開著:閒置不會睡,停的只剩闔蓋、沒電、手動睡眠、關機、結束 Blave;關著照舊版
     const a = o.awake ? "a" : "";
-    items.push(t(o.awake && o.win ? "tr.means.1aWin" : "tr.means.1" + a), o.paper ? t("tr.means.2p" + a) : t("tr.means.2" + a, { venue: o.venue }), t("tr.means.3"));
+    items.push(t(o.awake && o.win ? "tr.means.1aWin" : "tr.means.1" + a), o.paper ? t("tr.means.2p" + a) : trTidyZh(t("tr.means.2" + a, { venue: o.venue })), t("tr.means.3"));
     // 台灣期貨券商(群益／統一)沒有券商端停損單型(lib/order_president place_stop_order 是 NotImplementedError):「建議掛上」那句在那裡是假的
-    if (o.real) items.push(o.tw ? t("tr.means.twStop", { venue: o.venue }) : t("tr.means.4"));
+    if (o.real) items.push(o.tw ? trTidyZh(t("tr.means.twStop", { venue: o.venue })) : t("tr.means.4"));
     if (o.pres) items.push(t("tr.means.presNight"));   // 台指期夜盤也會下單、電腦要一直開著
   }
-  return { keep, details: details.concat([{ label: t(o.cloud ? "tr.det.cloud" : "tr.det.local"), items }]) };
+  return { keep, note: o.cloud ? null : t("tr.stopLine"), details: details.concat([o.cloud ? { label: t("tr.det.cloud"), items } : { items }]) };
 }
 // 兩邊都在用真錢:只知道「都是真錢」,不知道是不是同一個帳戶 → 灰記號的提醒(規格 §3),不是封鎖
 function trBothReal() {
@@ -2873,7 +2876,6 @@ function trAskStart(opener, presOk) {
   const notes = trStartNotes({ awake: typeof AWAKE === "undefined" || AWAKE !== false, cloud, paper, real, own: r.self_ledger === true, book: trBookBaseline(r), v: cloud ? planVars() : null, mo: cloud && planMo(), venue: paper ? "" : trPadLatin(trVenueLabel(trVenueId(), true)), tw: trTwBroker(trVenueId()), pres: !cloud && trVenueId() === "president", win: window.blave.platform === "win32" });
   if (!cloud) notes.details[notes.details.length - 1].items.push(trAwakeCloudGo());   // 要 24 小時跑:去雲端那一袋(K4)
   const catchUp = () => { if (!trRecomputing(trReport())) go("resume"); };   // 框開著的時候不會跟著回報翻:要等重算完,關掉重開一次
-  const money = real ? "Real" : "";
   // 補齊會送出的單(post-connect-flow 第 8 列):口數或金額取自部位表的差額,最多三檔,其餘「等 N 檔」
   const will = trCatchWill(r);
   const stranded = trWaitStranded(r);
@@ -2883,17 +2885,18 @@ function trAskStart(opener, presOk) {
     // 券商自己的模擬環境(永豐金沒開實盤;envMoney 回 paper,AutoTradeSys fork):不是 Blave 模擬交易,但一樣不動真錢,記號照模擬
     title: t("tr.start"), mark: paper || envMoney(TR.st) === "paper" ? t("tr.mode.paper") : real ? t("tr.mode.real") : null, markKind: real ? "real" : "paper", opener,
     lead: trBothReal(),
-    keep: notes.keep, details: notes.details,   // 細節一律收合:展開時整框在 1366 寬就出捲軸(設計稽核 desktop-10-08 #3)
+    keep: notes.keep, details: notes.details, note: notes.note,   // 本機:一行＋點開的小卡;雲端:細節一律收合(展開時整框在 1366 寬就出捲軸,設計稽核 desktop-10-08 #3)
   }, canWait ? {
     // 重開過(主機 / Blave):到現在都沒有下單,部位可能跟訊號對不上——最上面的狀態句,在選「補齊 / 等新訊號」之前講
     lines: plan.concat(rkS === "machine" ? [t("tr.cloud.restartStartLine")] : rkS === "app" ? [t("tr.restartStartLineLocal")] : []).concat(dcl),
     choicesLabel: t("tr.opt.legend"),
+    // 預選「等新訊號」(mockup 03 A 版):它不會立刻動錢,當預設沒有風險;補齊會立刻送市價單,留給用戶主動選。主鈕跟著預選換字、不停用
     choices: [
-      // Blave 重開(本機):關著的時候策略沒跑,現在補齊用的可能是舊訊號——掛在它影響的那個選項裡。主機重開(B)由重算那一句與閘門講
-      { id: "catch", title: t("tr.opt.catch"), desc: t("tr.opt.catchDesc" + money, { how: trCatchHow(r, real) }) + (will ? " " + will : ""), warn: rkS === "app" ? t("tr.opt.catchStale") : null,
-        disabled: recomputing, why: t("tr.cloud.recomputing"), ok: t("tr.startCatchUp"), onOk: catchUp },
-      { id: "wait", title: t("tr.opt.wait"), desc: t("tr.opt.waitDesc" + money), warn: stranded ? t("tr.opt.waitStranded", { n: stranded }) : null,
+      { id: "wait", title: t("tr.opt.wait"), checked: true, desc: t("tr.opt.waitDesc"), warn: stranded ? t("tr.opt.waitStranded", { n: stranded }) : null,
         ok: t("tr.startWait"), onOk: () => go("resume_wait") },
+      // Blave 重開(本機):關著的時候策略沒跑,現在補齊用的可能是舊訊號——掛在它影響的那個選項裡。主機重開(B)由重算那一句與閘門講
+      { id: "catch", title: t("tr.opt.catch"), desc: t("tr.opt.catchDesc", { how: trCatchHow(r) }) + (will ? " " + will : ""), warn: rkS === "app" ? t("tr.opt.catchStale") : null,
+        disabled: recomputing, why: t("tr.cloud.recomputing"), ok: t("tr.startCatchUp"), onOk: catchUp },
     ],
     ok: t("tr.start"),
   } : {
@@ -2920,7 +2923,7 @@ function trAwakeCloudGo() {
   const span = document.createElement("span"), b = document.createElement("button");
   b.type = "button"; b.className = "btn-quiet"; b.textContent = t("tr.means.cloudGo");
   b.addEventListener("click", () => { trackFeature("awake_cloud_go"); delClose(false); envSwitchGuarded("cloud"); });
-  span.append(t("tr.means.cloud") + " ", b);
+  span.append(t("tr.means.cloud") + (LANG === "zh" ? "" : " "), b);
   return span;
 }
 /* 補齊部位那一刻會送出的單:部位表同一套(目標 − 帳上 Blave 那份;口數列取整;金額列過平台門檻或機器回報的 gates;交易所不交易的不算)。
@@ -4499,7 +4502,7 @@ function poSigTable(r, stored, states, mode) {
         const dc = trEl("td", "n " + (acts && running ? (d > 0 ? "buy" : "sell") : acts || held ? "hold" : "na"), numText(lot, d));
         // 灰色差額 = 低於下單門檻、這輪不下單:「這輪不下單:」+ 原因放這一格的 tooltip(門檻腳注不再佔合計列);減倉／平倉門檻等於平坦的 10 時沒有要解釋的(同網頁)
         const short = sym.replace(/@spot$/i, "").replace(/(USDT|USDC|BUSD|FDUSD|USD)$/i, "") || sym;
-        const why = !held ? null : gated ? t(trIsPaper() ? "tr.opt.waitDesc" : "tr.opt.waitDescReal")
+        const why = !held ? null : gated ? t("tr.opt.waitDesc")
           : awaiting ? t("tr.cf.held", { syms: short, names: aw.names.map(trDisplay).join(LANG === "zh" ? "、" : ", ") }) : closed ? (willTrade ? t("po.twClosedHold") : null) : lot ? t("tr.gateFootReduce", { sym: short })
           : gs && !((gs.reduce || gs.close) && gs.usd <= 10) ? (gs.band ? t("tr.gateFootBand", { sym: short, m: trFmt(gs.usd) }) : gs.reduce ? t("tr.gateFootReduce", { sym: short }) : t("tr.gateFootEntry", { sym: short, m: trFmt(gs.usd) })) : null;
         if (why) dc.title = closed || gated || awaiting ? why : t("tr.gateFootLead") + why;
@@ -4929,13 +4932,13 @@ function trExecStored(r) {
 }
 // 現在生效的下單方式:台灣期貨券商一律市價;其餘是送出中的那個 → 報告的(讀不到設定時當市價,同網頁 execCurrent)
 function trExecCurrent(r, id) { return trTwBroker(id) ? "market" : TR.exec.edit != null ? TR.exec.edit : trExecStored(r) || "market"; }
-// 啟動框「補齊部位」說明的「怎麼下」(spec portfolio-help-icon §4):跟設定分頁同一個值。real = 連的是真的交易所(同 tr.opt.catchDesc 的 Real 後綴)
-function trCatchHow(r, real) {
-  const k = trExecCurrent(r, trVenueId()), sfx = real ? "Real" : "";
-  if (k.indexOf("twap:") === 0) return t("tr.opt.catchHow.twap" + sfx, { min: k.slice(5) });
-  if (k === "chase") return t("tr.opt.catchHow.chase" + sfx);
-  if (k.indexOf("custom:") === 0) return t("tr.opt.catchHow.custom" + sfx, { module: k.slice(7) });
-  return t("tr.opt.catchHow.market" + sfx);
+// 啟動框「補齊部位」說明的「怎麼下」(spec portfolio-help-icon §4):跟設定分頁同一個值
+function trCatchHow(r) {
+  const k = trExecCurrent(r, trVenueId());
+  if (k.indexOf("twap:") === 0) return t("tr.opt.catchHow.twap", { min: k.slice(5) });
+  if (k === "chase") return t("tr.opt.catchHow.chase");
+  if (k.indexOf("custom:") === 0) return t("tr.opt.catchHow.custom", { module: k.slice(7) });
+  return t("tr.opt.catchHow.market");
 }
 function trExecSection(box, r, id) {
   const S = TR, stored = trExecStored(r);
@@ -5086,7 +5089,6 @@ function trPaintOver() {
   box.appendChild(trOvCurve(z));
   box.appendChild(trOvEvents(r, z));
   trEvListFocus(box);
-  if (trIsPaper()) box.appendChild(trEl("div", "pf-foot", t("cx.perfNote")));
 }
 function trStatCell(label, value, cls, sub, tip) {
   const c = trEl("div", "stat" + (cls.hero ? " hero" : " wide"));
@@ -5108,7 +5110,7 @@ function trStatCell(label, value, cls, sub, tip) {
 function trPct(p) { const r = Math.round(p * 100) / 100; return (r > 0 ? "+" : r < 0 ? "-" : "") + Math.abs(r).toFixed(2) + "%"; }
 function trOvStats() {
   const grid = trEl("div", "bt-stats ov-stats"), cv = TR.ov.curve || {};
-  grid.appendChild(trStatCell(t("tr.ov.equity"), trEquity(), { hero: true }, null, t("tr.ov.equityTip")));
+  grid.appendChild(trStatCell(t("tr.ov.equity"), trEquity(), { hero: true }, null, t("tr.ov.equityTip") + (trIsPaper() ? (LANG === "zh" ? "" : " ") + t("cx.perfNote") : "")));
   // today = null:沒有夠新的基準(app 好幾天沒開;雲端今天不到兩筆快照、或跨過資金異動)→「—」,不拿好幾天前的點冒充「當日」;讀不到也是「—」,不是 0
   const today = cv.today && typeof cv.today === "object" ? cv.today : {};
   const dp = typeof today.pnl === "number" && isFinite(today.pnl) ? today.pnl : null;
