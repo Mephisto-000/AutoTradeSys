@@ -4,6 +4,7 @@
 //   ② renderer 交給主行程的字(tradeLabels)多 venueSinopac,主行程的預設表也有這一格;更新確認框的模擬記號
 //   ③ 純邏輯(trade.js 原文切出來跑):envMoney 把券商模擬環境(報告 venues.sinopac.simulation)當模擬;
 //      頂列記號 / 視窗標題寫「永豐金證券（模擬）」;存金額框的記號照模擬(trCfPaperOnly)
+//      解除綁定框(上游 0.1.45 的平倉後解除)的記號也照模擬(trUbMark)
 //   ④ 真的開畫面(隨包 Electron + 真的 index.html,window.blave 換成假的):資產分頁價值寫 TWD、整數、現股／交割戶;
 //      設定分頁模擬不標「真錢」、實盤標「真錢」;頂列記號;下單方式不列限價追價、多一行說明;啟動確認框的記號
 //   ⑤ 手機對話的上傳前遮蔽(redact.js 第 1 條):永豐的金鑰、CA 密碼、身分證字號都遮
@@ -63,6 +64,13 @@ if (!process.versions.electron) (() => {
   ctx.LANG = "zh";
   const cfp = (r) => { ctx.TR = { st: { report: r } }; return vm.runInContext("trCfPaperOnly()", ctx); };
   ok("③ 存金額框的記號(trCfPaperOnly):永豐模擬 → 模擬;實盤 → 實盤;Blave 模擬交易照舊", cfp(rep(true)) === true && cfp(rep(false)) === false && cfp(rep()) === false && cfp({ venues: { paper: V } }) === true);
+  // 解除綁定框(上游 0.1.45 close_then_unbind 那一套):每一態都帶記號,永豐模擬環境不能標「真錢」
+  vm.runInContext(["trVenueId", "trIsPaper", "trUbMark"].map(cut).join("\n") + "\nvar trCloudBox = (o) => o;", ctx);
+  const ubm = (r) => { ctx.TR = { st: { report: r } }; return vm.runInContext("trUbMark({})", ctx); };
+  const um = [ubm(rep(true)), ubm(rep(false)), ubm(rep()), ubm({ venues: { paper: V } }), ubm({ venues: { binance: V } })];
+  ok("③ 解除綁定框的記號(trUbMark):永豐模擬 → 模擬;實盤、沒帶旗標 → 真錢;Blave 模擬交易照舊模擬、Binance 照舊真錢",
+    um[0].markKind === "paper" && um[0].mark === "模擬" && um[1].markKind === "real" && um[1].mark === "真錢" && um[2].markKind === "real"
+    && um[3].markKind === "paper" && um[4].markKind === "real", um.map((x) => x.mark));
 
   // ── ⑤ 手機對話的遮蔽(純邏輯,排在 Electron 之前)──
   const RD = require(path.join(SHELL, "redact.js"));

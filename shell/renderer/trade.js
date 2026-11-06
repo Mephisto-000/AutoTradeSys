@@ -1,4 +1,5 @@
 // Modified by Mephisto-000 on 2026-10-25/26: SinoPac (永豐金) spot venue — TR_VENUE_CCY_OTHER (TWD); listed in this computer's connect dialog under 台股 (API Key + Secret Key, simulation first); label; unbind names; holdings valued in TWD with 現股／交割戶 labels; SinoPac's simulation environment marked 模擬 (not 真錢); 下單方式 note (no chase); tray label.
+//   (2026-11-07) the unbind dialog (upstream 0.1.45 close-then-unbind) marks SinoPac's simulation environment 模擬 too.
 // Original work: Copyright 2025-2026 WuChi Technology Company Limited
 // Licensed under the Apache License, Version 2.0
 /* 自動下單頁、連接交易所的框、頂列切換器與狀態句(模擬交易版)。
@@ -5188,7 +5189,8 @@ function trUbRowsEl(rows, at, st) {
 }
 function trUbTitle(base, n) { return n == null ? t(base + "N") : n === 1 ? t(base + "1") : t(base, { n }); }
 // 每一態都帶帳戶記號(真錢／模擬,同 web 與雲端),標題長的換行不截(設計稽核 M3、M4)
-function trUbMark(o) { const paper = trIsPaper(); o.mark = t(paper ? "tr.mode.paper" : "tr.mode.real"); o.markKind = paper ? "paper" : "real"; o.wrapTitle = true; return trCloudBox(o); }
+// 券商自己的模擬環境(永豐金沒開實盤,報告 venues.<id>.simulation;同 envMoney,AutoTradeSys fork)不動真錢:解除綁定框的記號也照模擬
+function trUbMark(o) { const r = trReport() || {}, id = trVenueId(), v = id && r.venues ? r.venues[id] : null, paper = trIsPaper() || (!!v && v.simulation === true); o.mark = t(paper ? "tr.mode.paper" : "tr.mode.real"); o.markKind = paper ? "paper" : "real"; o.wrapTitle = true; return trCloudBox(o); }
 /* 關框後焦點回頁面上的〔解除綁定〕(④ 期間它是「平倉中…」、aria-disabled 仍可聚焦);那顆鈕會隨回報重畫,所以關框那一刻才找。
    找不到(分頁換了)退回設定分頁鈕(設計稽核 M6) */
 const TR_UB_OPENER = { isConnected: true, focus() { const b = $("tr-unbind") || $("tr-tab-set"); if (b) b.focus(); } };
