@@ -38,7 +38,6 @@ chat transport and strategy_reporter: the token resolves to this user only.
 """
 import ast
 import ctypes
-import hashlib
 import json
 import math
 import os
@@ -469,9 +468,11 @@ def tw_lots(cfg, states, vens=None):
     return out
 
 
-def _code_hash(src_bytes):
-    """= workspace lib/strategy.code_hash (the runtime cannot import the workspace lib)."""
-    return hashlib.sha256(src_bytes).hexdigest()[:16]
+def _same_code(src_bytes, stored):
+    """= workspace lib/strategy.hash_matches (the runtime cannot import the workspace lib): the
+    DISPLAY_NAME line does not count, and a stamp from an older lib is the raw hash."""
+    import strategy_reporter as sr
+    return sr.hash_matches(src_bytes, stored)
 
 
 def _price_markets(src_bytes):
@@ -579,7 +580,7 @@ def typec_previews(cfg, states, now=None):
             continue
         markets = _price_markets(src)
         # US-stock prices: no live portfolio (Type C) on them, so no preview of one
-        if _code_hash(src) != data["code_hash"] or "us_stock" in markets:
+        if not _same_code(src, data["code_hash"]) or "us_stock" in markets:
             continue
         weights = _portfolio_weights(data.get("weights"))
         try:
@@ -664,7 +665,7 @@ def backtest_previews(cfg, states, now=None):
         except OSError:
             continue
         markets = _price_markets(src)
-        if _code_hash(src) != data["code_hash"]:
+        if not _same_code(src, data["code_hash"]):
             continue
         try:
             bar_at = int(data.get("bar_at"))
@@ -1137,6 +1138,47 @@ def _capital_order_identity_ok():
         return False
 
 
+# Cloud 群益 closes started as Administrator (command_listener._launch_flatten): the bridge runs as
+# LocalSystem, and SKCOM only logs in under the password-logon Administrator the certificate was
+# issued to. Off until a real 1-lot TMF close on a Windows test box has shown the order fills, that
+# dropping the task does not end the flatten, that the worker beside it is not logged out, and that
+# the password reaches no log (unbind-consistency-2026-11-05 §2 做法 A).
+CAPITAL_ADMIN_FLATTEN_ON = False
+
+
+def _capital_admin_password_on_file():
+    """= command_listener._capital_admin_password's two sources hold a value. Only whether."""
+    try:
+        if os.path.getsize(os.path.join(os.path.dirname(WORKSPACE), "credentials", "rdp_password.txt")) > 0:
+            return True
+    except OSError:
+        pass
+    try:
+        with open(os.path.join(WORKSPACE, ".env"), encoding="utf-8") as f:
+            for line in f.read().splitlines():
+                k, _, v = line.partition("=")
+                if k.strip().casefold() == "admin_password" and v.strip():
+                    return True
+    except (OSError, ValueError):
+        pass
+    return False
+
+
+def _cloud_windows():
+    return os.name == "nt" and os.environ.get("BLAVE_AGENT_LOCAL") != "1"
+
+
+def capital_admin_switch():
+    """A cloud Windows bridge that can't send 群益 orders itself, but can start the flatten as
+    Administrator. Desktop never: there the signed-in user is the identity."""
+    return (CAPITAL_ADMIN_FLATTEN_ON and _cloud_windows() and not _capital_order_identity_ok()
+            and _capital_admin_password_on_file())
+
+
+def _capital_closable():
+    return _capital_order_identity_ok() or capital_admin_switch()
+
+
 def can_flatten(vens):
     """flatten.py present, and not a machine whose only closable venue is 群益
     under an identity that can't send 群益 orders — there the button would halt
@@ -1148,7 +1190,63 @@ def can_flatten(vens):
     closable = {vid for vid, v in (vens or {}).items() if v.get("account") and v.get("order")}
     only_identity_gated = bool(closable) and all(venue_traits.has(v, "windows_identity")
                                                  for v in closable)
-    return not (only_identity_gated and not _capital_order_identity_ok())
+    return not (only_identity_gated and not _capital_closable())
+
+
+def can_close_unbind(vens):
+    """= command_listener._flatten_supports_unbind, and can_flatten."""
+    try:
+        with open(os.path.join(WORKSPACE, "manager", "flatten.py"), encoding="utf-8") as f:
+            src = f.read()
+    except OSError:
+        return False
+    return ("last_flatten.json" in src and '"--request-id"' in src and '"--venues"' in src
+            and can_flatten(vens))
+
+
+def manual_close_venues(vens):
+    """Bound venues a flatten here skips for identity (= command_listener._manual_venues)."""
+    gated = sorted(v for v in (vens or {}) if venue_traits.has(v, "windows_identity"))
+    return [] if not gated or _capital_closable() else gated
+
+
+def _small_json(path, limit=64 * 1024):
+    """A dict from a state file the machine writes, or None (absent, unreadable, oversized)."""
+    try:
+        if os.path.getsize(path) > limit:
+            return None
+        d = atomic_file.load_json(path)
+    except (OSError, ValueError):
+        return None
+    return d if isinstance(d, dict) else None
+
+
+def unbind_after_close_view():
+    m = _small_json(os.path.join(WORKSPACE_STATE, "unbind_after_close.json"))
+    if not m:
+        return None
+    return {k: m.get(k) for k in ("venues", "closing", "manual", "at", "request_id", "held", "why", "held_at")}
+
+
+def txf_session(now=None):
+    """Loaded by path into a private module, its skew file pointed at this workspace: the
+    reporter never imports lib (cwd is not the workspace here, and tw_clock reads a relative path)."""
+    import importlib.util
+    path = os.path.join(WORKSPACE, "lib", "tw_clock.py")
+    if not os.path.isfile(path):
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location("_report_tw_clock", path)
+        tc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tc)
+        tc.SKEW_PATH = os.path.join(WORKSPACE_STATE, "clock_skew.json")
+        now = time.time() if now is None else now
+        s = tc.skew(now) or 0
+        real = now - s
+        is_open = tc.in_session(real)
+        return {"open": bool(is_open), "next_open": None if is_open else int(tc.next_open(real) + s)}
+    except Exception:
+        return None
 
 
 def _fresh(ts, window=HEARTBEAT_STALE_S):
@@ -2333,6 +2431,21 @@ def build_report(reporter=None):
         "runtime_version": RUNTIME_VERSION,
         "workspace_version": atomic_file.read_version(os.path.join(WORKSPACE, "VERSION")),
         "can_flatten": can_flatten(vens),
+        # 平倉後解除綁定 (command_listener close_then_unbind): offered only when the workspace's
+        # flatten.py can be scoped to the venue and reports its result — keyed on the artifact,
+        # like can_flatten. Absent (old runtime) = the pages offer keep-and-unbind only.
+        "can_close_unbind": can_close_unbind(vens),
+        # bound venues this machine can't close (群益 under a non-Administrator identity):
+        # close_then_unbind keeps their positions and unbinds them with the rest
+        "close_unbind_manual": manual_close_venues(vens),
+        # the last close-all's result as flatten.py wrote it: done_at null = still running;
+        # unclosed [{key, venue, why, msg}] / unconfirmed [key] = what stopped the unbind
+        "last_flatten": _small_json(os.path.join(WORKSPACE_STATE, "last_flatten.json")),
+        # a close_then_unbind waiting ({held: false}) or stopped ({held: true, why}); None = none
+        "unbind_after_close": unbind_after_close_view(),
+        # TAIFEX regular session on the machine's corrected clock (lib/tw_clock; holidays not
+        # known): {open, next_open (epoch s)}. None = this workspace has no tw_clock
+        "txf_session": txf_session(),
         # self_ledger: whether this machine diffs against the bot's own book —
         # the web's stop dialog phrases what 「關閉 bot 部位」actually closes
         # from this (bot's book only vs the whole account), the desktop's

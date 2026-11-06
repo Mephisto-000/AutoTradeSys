@@ -130,16 +130,14 @@ if (!process.versions.electron) {
   const body = (s) => ({ status: 200, body: { strategy: { name: "m", code: "", ...s } } });
   ok("③ cloud.js interpretStrategy 留 scan(物件才給,否則 null)", interpretStrategy(body({ scan: SCAN }), "m").strategy.scan.row_param === "A" && interpretStrategy(body({ scan: [1] }), "m").strategy.scan === null && interpretStrategy(body({}), "m").strategy.scan === null);
   const app = fs.readFileSync(path.join(SHELL, "renderer", "app.js"), "utf8"), html = fs.readFileSync(path.join(SHELL, "renderer", "index.html"), "utf8");
-  ok("③ 「怎麼看」:只有回測、參數掃描、樣本外三頁;對照表一頁一篇、網址帶 src=desktop_learn、點了 preventDefault 外開並記 RP_HELP_FEATURE;回測接在 perfPaint 之前(排在 .upd 前面);成交測試的環境不帶 help;buildMeta 本身不畫",
-    /const RP_HELP_SLUG = \{ bt: "backtest_metrics", rob: "avoid_overfitting", wf: "walk_forward" \};/.test(app) && /link\.href = docsUrl\(slug\) \+ "\?src=desktop_learn";/.test(app)
-    && /e\.preventDefault\(\); window\.blave\.openExternal\(link\.href\); trackFeature\(RP_HELP_FEATURE\[tab\]\);/.test(app)
-    && app.indexOf('help: () => rpHelpLink("bt")') > 0 && app.indexOf('help: () => rpHelpLink("bt")') < app.indexOf('if (tab === "bt" && typeof perfPaint')
-    && !/help:/.test(app.slice(app.indexOf("function rpXtOpts("), app.indexOf("function rpXtSync("))) && !/help/i.test(fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "report-backtest.js"), "utf8").split("function buildMeta(stats) {")[1].split("// ---")[0]));
-  ok("③ 「怎麼看」時光機不畫:versions.js 畫舊版回測不帶 help", /renderBacktest\(\$\("rp-bt"\), verStats\(S\.blob\)\);/.test(fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "versions.js"), "utf8")));
+  { const hits = [];   // 「怎麼看」0.1.47 拿掉(web 同步):renderer 與 .po 不留連結、對照表、字串、src
+    for (const dir of [SHELL, path.join(SHELL, "renderer"), path.join(SHELL, "i18n")])
+      for (const f of fs.readdirSync(dir)) if (/\.(js|css|html|po)$/.test(f) && fs.statSync(path.join(dir, f)).isFile() && /rp-help|rpHelpLink|RP_HELP_|desktop_learn|"rp\.help[".]|opts\.help\b/.test(fs.readFileSync(path.join(dir, f), "utf8"))) hits.push(f);
+    ok("③ 「怎麼看」已拿掉:主行程／renderer／i18n 沒有 rp-help、rpHelpLink、RP_HELP_*、desktop_learn、rp.help、opts.help", hits.length === 0, hits.join()); }
   ok("③ 已送出是真 disabled:拿著焦點的鈕先交給分頁鈕,才設 disabled(順序反了焦點掉到 body)", /if \(v\.disabled && !st\.btn\.disabled && document\.activeElement === st\.btn && typeof opts\.refocus === "function"\) opts\.refocus\(\);\n\s*st\.btn\.disabled = v\.disabled;/.test(fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "report-robust.js"), "utf8")));
   ok("③ app.js:rpShowTab / rpBodyPaint 的分頁清單含 rob,rob 交給 renderRobust(t / busy / onScan / buildMeta 都從外面交進去);index.html 有分頁鈕、面板、css、js", (app.match(/\["bt", "tr", "rob", "wf", "xt", "code"\]/g) || []).length === 2
     && /R\.renderRobust\(\$\("rp-rob"\), \{ stats: B\.data\.stats, scan: B\.data\.scan \|\| null, code: B\.data\.code, name: B\.name \}, rpRobOpts\(\)\)/.test(app)
-    && /return \{ t, live: \(s\) => csTurnLive\(s\.sid, s\.turn\), scope: rpBag\(\) === RPC \? "cloud" : "local", onScan: rpRobAsk, buildMeta: R\.buildMeta, help: \(\) => rpHelpLink\("rob"\), resync: rpRobSync, refocus: rpRobRefocus \};/.test(app)
+    && /return \{ t, live: \(s\) => csTurnLive\(s\.sid, s\.turn\), scope: rpBag\(\) === RPC \? "cloud" : "local", onScan: rpRobAsk, buildMeta: R\.buildMeta, resync: rpRobSync, refocus: rpRobRefocus \};/.test(app)
     && /data-tab="rob" data-i18n="rp\.tab\.rob"/.test(html) && /id="rp-rob" role="tabpanel" hidden/.test(html) && /report-robust\.css/.test(html) && /<script src="report-robust\.js"><\/script>\s*(?:<script src="(?:report-wf|report-xt|md|report-blocks|reports|report-share|report-sharelist|report-pdf|newstrategy)\.js"><\/script>\s*)*<script src="trade\.js">/.test(html));
   ok("③ app.js:掃描鈕走確認框 → csSendAway(從別處送一句話;不覆寫 viewing:chatViewing 在雲端視角本來就回 env:cloud + strategy)、resolve 回合序號;回合開始 / 結束三處都叫 turnUiSync(裡面 rpRobSync 就地改鈕,不重畫);每輪 turnSeq++",
     /onOk: \(\) => \{ if \(typeof begin === "function"\) begin\(\); const p = csSendAway\(msg\), at = CS\.away; p\.then\(\(ok\) => \{ if \(ok\) trackFeature\("scan_requested"\); resolve\(ok \? at : false\); \}, \(\) => resolve\(false\)\); \}/.test(app) && !/viewing/.test(app.slice(app.indexOf("function rpRobAsk"), app.indexOf("function rpRobSync"))) && (app.match(/turnUiSync\(\)/g) || []).length >= 3 && /rpRobSync\(\); rpWfSync\(\);/.test(fs.readFileSync(path.join(SHELL, "renderer", "chattabs.js"), "utf8"))
@@ -166,7 +164,7 @@ if (!process.versions.electron) {
       actx.rpRobAsk("s1", null, () => {}, info);
       const o = actx.calls[0], rows = rowsOf(o), note = o.extra.kids.find((k) => k.className === "cf-note");
       o.onOk();   // 只比送出的訊息本身(trackFeature 在 submitMessage 的微任務裡)
-      const want = T("rob.msgRescan", { name: "s1", start: "2015-01-01", end: "2025-06-01", fee: "0.05", rp: "A", r0: "10", r1: "30", cp: "B", c0: "0.5", c1: "0.9" });
+      const want = T("rob.msgRescan", { display_name: "s1", name: "s1", start: "2015-01-01", end: "2025-06-01", fee: "0.05", rp: "A", r0: "10", r1: "30", cp: "B", c0: "0.5", c1: "0.9" });
       ok("③ (" + L + ") 重新掃描確認框:標題「" + T("rob.btnRescan") + "」、lead、期間 / 手續費 / 網格三列(值包 .mono,dl 是 cf-rows kv)、cf-note;送出的訊息寫明期間、費率與上次兩軸",
         o.title === T("rob.btnRescan") && o.lines.length === 1 && o.lines[0] === T("rob.cfLead") && o.ok === T("rob.cfOk") && o.extra.kids[0].className === "cf-rows kv"
         && JSON.stringify(rows) === JSON.stringify([[T("rob.cfPeriod"), "2015-01-01 → 2025-06-01", "mono"], [T("rob.cfFee"), "0.05%", "mono"], [T("rob.cfGrid"), T("rob.cfGridVal", { rp: "A", r0: "10", r1: "30", cp: "B", c0: "0.5", c1: "0.9", R: "3", C: "3" }), 8]])
@@ -175,7 +173,7 @@ if (!process.versions.electron) {
       actx.rpRobAsk("s1", null, () => {}, R.scanInfo(BT, R.sanitizeScan({ ...SCAN, row_vals: [-1, -2.5, -3] }, BT, "")));
       { const o2 = actx.calls[0]; o2.onOk(); const gridTxt = rowsOf(o2)[2][1];
         ok("③ (" + L + ") 負數遞減軸:確認框的網格列顯示 −3.0–−1.0(pv),送給 agent 的訊息寫 A(-3–-1)原值、ASCII 負號、小的在前",
-          gridTxt.indexOf("A −3.0–−1.0") === 0 && actx.sent[0] === T("rob.msgRescan", { name: "s1", start: "2025-01-01", end: "2025-06-01", fee: "0.05", rp: "A", r0: "-3", r1: "-1", cp: "B", c0: "0.5", c1: "0.9" }) && !/\u2212/.test(actx.sent[0]), gridTxt + " | " + actx.sent[0]); }
+          gridTxt.indexOf("A −3.0–−1.0") === 0 && actx.sent[0] === T("rob.msgRescan", { display_name: "s1", name: "s1", start: "2025-01-01", end: "2025-06-01", fee: "0.05", rp: "A", r0: "-3", r1: "-1", cp: "B", c0: "0.5", c1: "0.9" }) && !/\u2212/.test(actx.sent[0]), gridTxt + " | " + actx.sent[0]); }
       const fm = vm.runInContext("fixedMatch", actx)(want, vm.runInContext("STRINGS", actx));
       ok("③ (" + L + ") 重新掃描的訊息在對話裡顯示成一行摘要(FIXED_PROMPTS 認得,名稱抓對)", fm && fm.label === "rob.msgRescanLabel" && fm.title === "rob.msgScanTitle" && fm.vars.name === "s1" && fm.vars.r1 === "30");
       actx.calls.length = 0; actx.sent.length = 0;
@@ -183,10 +181,10 @@ if (!process.versions.electron) {
       const e = actx.calls[0]; e.onOk();
       ok("③ (" + L + ") 空狀態「開始掃描」確認框:emptyCap + 期間 / 手續費兩列、沒有網格與 cf-note;訊息仍是 rob.msgScan 原句(觸發句不動)",
         e.title === T("rob.btnScan") && e.lines[0] === T("rob.emptyCap") && JSON.stringify(rowsOf(e)) === JSON.stringify([[T("rob.cfPeriod"), "2025-01-01 → 2025-06-01", "mono"], [T("rob.cfFee"), "0.05%", "mono"]])
-        && !e.extra.kids.some((k) => k.className === "cf-note") && actx.sent[0] === T("rob.msgScan", { name: "s1" }));
+        && !e.extra.kids.some((k) => k.className === "cf-note") && actx.sent[0] === T("rob.msgScan", { display_name: "s1", name: "s1" }));
       actx.calls.length = 0; actx.sent.length = 0;
       actx.rpRobAsk("s1", null, () => {}, R.scanInfo(BT, R.sanitizeScan(SINGLE, BT, "N = 20\n")));
-      { const o1 = actx.calls[0]; o1.onOk(); const rows1 = rowsOf(o1), want1 = T("rob.msgRescan1", { name: "s1", start: "2025-01-01", end: "2025-06-01", fee: "0.05", rp: "N", r0: "10", r1: "60" });
+      { const o1 = actx.calls[0]; o1.onOk(); const rows1 = rowsOf(o1), want1 = T("rob.msgRescan1", { display_name: "s1", name: "s1", start: "2025-01-01", end: "2025-06-01", fee: "0.05", rp: "N", r0: "10", r1: "60" });
         const fm1 = vm.runInContext("fixedMatch", actx)(want1, vm.runInContext("STRINGS", actx));
         ok("③ (" + L + ") 單參數重新掃描:lead 換 cfLead1、第三列是「範圍」N 10–60(6 格)、cf-note 照舊;送 rob.msgRescan1(二維句不動)、句裡沒有 _（ / 0–0;對話摘要認得(label 沿用)",
           o1.lines[0] === T("rob.cfLead1") && JSON.stringify(rows1[2]) === JSON.stringify([T("rob.cfRange"), T("rob.cfRangeVal", { rp: "N", r0: "10", r1: "60", R: "6" }), 4]) && rows1.length === 3 && o1.extra.kids.some((k) => k.className === "cf-note")
@@ -205,7 +203,7 @@ if (!process.versions.electron) {
     ok("③ lib.md 的 write_scan:start / end 傳回測 stats.json 記的那組;Type A = s.START;Type C 是 WARMUP 之後第一根(不是 s.START);資料比回測新建議切到回測的 end(只是建議:掃描較新時訖日較晚不判過時);Rescan 觸發句有寫怎麼做",
       /`start` \/ `end` = \*\*the backtest's own range, as recorded in `strategies\/<name>\/stats\.json`/.test(ws) && /Type A: stats `start` is `s\.START` verbatim/.test(ws)
       && /Type C: stats `start` is the first bar the runner keeps after `WARMUP` \(`price_df\.iloc\[WARMUP:\]`\), \*\*not\*\* `s\.START`/.test(ws) && /Recommended: scan the same bars the backtest saw[^;]*df = df\.loc\[:end\]/.test(ws) && /fresher bars are not flagged/.test(ws)
-      && /- \*\*Rescan\*\* — zh「請重新掃描策略 \{name\} 的參數/.test(lm) && /four fixed prompts/.test(lm), ws.slice(0, 200));
+      && /- \*\*Rescan\*\* — zh「請重新掃描策略「\{display_name\}」\(\{name\}\) 的參數/.test(lm) && /four fixed prompts/.test(lm), ws.slice(0, 200));
     ok("③ 上面那句跟 runner 對得上:Type A stats start = config START、Type C = WARMUP 裁掉之後 close_df 的第一根",
       /'start': config\.get\('START'\), 'end': df\.index\[-1\]/.test(runner) && /price_df += price_df\.iloc\[warmup:\]/.test(runner) && /'start': close_df\.index\[0\]\.strftime\('%Y-%m-%d'\)/.test(runner));
   }

@@ -23,7 +23,7 @@ t("P2 不發,水位線照推", o.show.length === 0 && o.mark === 32);
 o = p1Pick([ev(40, "machine_restart_stopped", {}, 3600), ev(41, "machine_restart_stopped", {}, 60)], 32, NOW);
 t("超過 15 分鐘的舊事件不發", types(o) === "machine_restart_stopped:41" && o.mark === 41);
 t("舊型別 downtime_paused 不再發(被 machine_restart_stopped 取代),水位線照推", (() => { const x = p1Pick([ev(45, "downtime_paused", {})], 41, NOW); return x.show.length === 0 && x.mark === 45; })());
-t("events 裡的四個 P1 型別都認得", ["execution_interrupted", "execution_fallback_market", "execution_stuck", "machine_restart_stopped"]
+t("events 裡的 P1 型別都認得", ["execution_interrupted", "execution_fallback_market", "execution_stuck", "machine_restart_stopped", "venue_login_blocked"]
   .every((ty, i) => p1Pick([ev(100 + i, ty, {})], 50, NOW).show.length === 1));
 o = p1Pick([null, 7, { id: "x", type: "halt" }, { id: 60, type: 3 }, ev(61, "execution_stuck", null)], 50, NOW);
 t("壞資料不炸、好的照發", types(o) === "execution_stuck:61" && o.mark === 61);
@@ -71,6 +71,13 @@ t("order_unconfirmed 是 P1 型別、但不從 events 來", P1_TYPES.includes("o
 var tmLabels = {}; tmLabels.stratOne = "策略 {name}"; tmLabels.stratTwo = "策略 {a}、{b}"; tmLabels.stratMany = "{name} 等 {n} 支策略"; tmLabels.withStrat = "{strat}：{note}";
 t("通知內文:一支、兩支、三支以上、沒有策略", p1WithStrat(["a"], "N") === "策略 a：N" && p1WithStrat(["a", "b"], "N") === "策略 a、b：N"
   && p1WithStrat(["a", "b", "c"], "N") === "a 等 3 支策略：N" && p1WithStrat([], "N") === "N" && p1WithStrat(undefined, "N") === "N");
+// 0.1.46:策略寫名稱(呼叫端給 label,同一份規則讀不到就是代號);zh 範本包「」
+tmLabels.stratOne = "策略「{name}」"; tmLabels.stratTwo = "策略「{a}」、「{b}」"; tmLabels.stratMany = "「{name}」等 {n} 支策略";
+const lbl = (c) => ({ a: "台指期 籌碼", b: "b" }[c] || c);
+t("通知內文:策略名經 label 換成名稱、zh 包「」;沒 label 照舊代號", p1WithStrat(["a"], "N", lbl) === "策略「台指期 籌碼」：N"
+  && p1WithStrat(["a", "b"], "N", lbl) === "策略「台指期 籌碼」、「b」：N" && p1WithStrat(["a"], "N") === "策略「a」：N");
+t("系統通知:market_hold 這種只帶單一 strategy 的也帶策略,名稱照 p1StratLabel",
+  /body: p1WithStrat\(e\.payload && \(Array\.isArray\(e\.payload\.strategies\) \? e\.payload\.strategies : typeof e\.payload\.strategy === "string" \? \[e\.payload\.strategy\] : null\), note, p1StratLabel\)/.test(src));
 t("stuck 那則有自己的標題與內文", src.includes("ev_order_unconfirmed_stuck:") && src.includes("ev_order_unconfirmed_stuck_n:"));
 { const x = p1FromState(R({ halted: true, at: NOW - 5, source: "reconciler", reason: "[order_unconfirmed_unparked] BTCUSDT: unknown" }), { halt: 0, err: 0 }, NOW);
   t("追蹤不了而整台暫停:halt 那則帶 unconfirmed,內文用專屬那句(有英文退路)", x.show.length === 1 && x.show[0].payload.unconfirmed === true
@@ -82,4 +89,21 @@ t("stuck 那則有自己的標題與內文", src.includes("ev_order_unconfirmed_
   { ts: NOW - 8, symbol: "ETHUSDT", kind: "order_unconfirmed", stuck: true, close_all: true, inflight_id: "ETHUSDT_market" }]), { halt: 0, err: 0 }, NOW);
   t("manual 停車第一列不叫(HALT 已叫);全部平倉沒平到那列帶 close_all", x.show.length === 1 && x.show[0].payload.close_all === true
     && src.includes("ev_order_unconfirmed_close_all:") && src.includes("ev_order_unconfirmed_close_all_n:")); }
+// 全部平倉刻意沒送單那列(manager/flatten manual_close_required):不再當「下單失敗」叫;同 api 的分流與 reason
+{ const MC = (extra) => Object.assign({ ts: NOW - 5, symbol: "TMF", kind: "manual_close_required", exchange: "capital", symbols: "TMF" }, extra);
+  const pick = (row) => p1FromState(R({ halted: false }, [row]), { halt: 0, err: 0 }, NOW).show[0];
+  const q = pick(MC({ reason: "queued", until: 1793899200 })), id = pick(MC({})), lag = pick(MC({ reason: "snapshot_lag", exchange: "president" }));
+  t("manual_close_required:群益 queued／identity(或沒帶)、統一 snapshot_lag 都叫自己的型別,payload 帶 reason 與 until",
+    q.type === "manual_close_required" && q.payload.reason === "queued" && q.payload.until === 1793899200
+    && id.type === "manual_close_required" && id.payload.reason === "identity" && lag.payload.reason === "snapshot_lag");
+  t("manual_close_required:認不得的組合照舊當拒單(統一沒有身分問題、新 reason)",
+    pick(MC({ exchange: "president", reason: "identity" })).type === "order_error" && pick(MC({ reason: "new_one" })).type === "order_error");
+  t("本機通知的標題與內文按 reason 換,queued 講幾點後再按(台灣時間)",
+    /mcr === "snapshot_lag" \? "_lag" : mcr === "queued" \? "_queued"/.test(src) && /replace\("\{at\}", p1TwClock\(e\.payload\.until\)\)/.test(src)
+    && p1TwClock(1793899200) === "01:20" && /ev_manual_close_required_queued_n: "[^"]*\{at\}/.test(src)
+    && !/Order failed|rejected/.test((src.match(/ev_manual_close_required[^\n]*/g) || []).join(" "))); }
+{ const tr = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "trade.js"), "utf8");
+  t("畫面交給主行程的字:manual_close_required 三種標題與內文都有",
+    ["ev_manual_close_required:", "ev_manual_close_required_n:", "ev_manual_close_required_lag:", "ev_manual_close_required_lag_n:",
+     "ev_manual_close_required_queued:", "ev_manual_close_required_queued_n:", "ev_manual_close_required_queued_soon_n:"].every((k) => tr.includes(k) && src.includes(k))); }
 console.log(red ? red + " 紅" : "ALL PASS"); process.exit(red ? 1 : 0);

@@ -187,13 +187,13 @@ ok("報告的 workspace_update 是不可信輸入:state 不認得 / 不是物件
     ".official-backup/a\"-20260924T051200Z", "lib/2026-09-22-p-20260924T051200Z", ".official-backup/2026-09-22-p", ".official-backup/" + "x".repeat(41) + "-20260924T051200Z", "d/", "", "ls -la; rm -rf ~"].every((d) => dir(d) === null)); }
 (async () => {
   calls.length = 0; modals.length = 0; featured.length = 0; paint({ ...C, phase: "ready" }, cloud()); await $("up-pill").onclick(); await new Promise((r) => setImmediate(r));
-  ok("(b) 按膠囊(沒在下單):畫面開 §4.1(plain,帶已暫存的版號),先不裝;記 upd_go_pill", calls.length === 0 && modals.length === 1 && modals[0].kind === "plain" && modals[0].data.v === "0.0.8" && featured.join() === "upd_go_pill" && sent.length === 0);
+  ok("(b) 按膠囊(沒在下單):畫面開 §4.1(plain,帶已暫存的版號),先不裝;記 upd_go_pill", calls.length === 0 && modals.length === 1 && modals[0].kind === "plain" && modals[0].data.v === "0.0.8" && featured.filter((n) => n !== "slot_up_show").join() === "upd_go_pill,slot_up_open" && sent.length === 0);
   modals[0].done(true); await new Promise((r) => setImmediate(r));
   ok("…§4.1 按重新啟動 = updateInstall({ confirmed: true }),不送任何雲端指令", calls.join() === "install" && JSON.stringify(lastInstall) === '{"confirmed":true}' && sent.length === 0);
   calls.length = 0; modals.length = 0; modals.length = 0; paint({ ...C, phase: "ready" }, cloud()); await $("up-pill").onclick(); modals[0].done(false); await new Promise((r) => setImmediate(r));
   ok("…§4.1 按取消:不裝", calls.length === 0);
   calls.length = 0; modals.length = 0; featured.length = 0; paint({ ...C, phase: "blocked" }, cloud()); await $("up-rail").onclick(); await new Promise((r) => setImmediate(r));
-  ok("(b) 下單中按細軌圓鈕:直接叫主行程(updateInstall 不帶 confirmed),畫面不先開 §4.1;同樣記 upd_go_pill", calls.join() === "install" && modals.length === 0 && JSON.stringify(lastInstall) === '{}' && featured.join() === "upd_go_pill");
+  ok("(b) 下單中按細軌圓鈕:直接叫主行程(updateInstall 不帶 confirmed),畫面不先開 §4.1;同樣記 upd_go_pill", calls.join() === "install" && modals.length === 0 && JSON.stringify(lastInstall) === '{}' && featured.filter((n) => n !== "slot_up_show").join() === "upd_go_pill");
   calls.length = 0; modals.length = 0; paint({ ...C, phase: "ready" }, cloud()); await $("set-up-btn").onclick(); await new Promise((r) => setImmediate(r));
   ok("關於列的「重新啟動以完成更新」同一套:沒在下單開 §4.1", calls.length === 0 && modals.length === 1 && modals[0].kind === "plain");
   calls.length = 0; modals.length = 0; paint({ ...C, phase: "blocked" }, cloud()); await $("set-up-btn").onclick(); await new Promise((r) => setImmediate(r));
@@ -575,10 +575,11 @@ ok("訊息格只由 planPaint 寫:index.html 沒有那個節點、程式裡只�
   && /\n  mdlPaint\(\);\n  acctPaintAcct\(\);\n/.test(fnSrc("setHint")) && /if \(!\$\("set-scrim"\)\.hidden && !\$\("set-plan"\)\.hidden\) planPaint\(\);/.test(fnSrc("acctPaintAcct")) && !/acctPaintAcct\(\)/.test(fnSrc("planPaint")));
 ok("登出沒撤成那句到得了這一頁", /setHint\(\{ text: t\("cn\.blave\.signOutLocalOnly"\) \}\)/.test(src));
 ok("字串:合併後的頁名、確認框、刪掉的五個 key(zh / en)", /msgid "set\.cat\.plan"\nmsgstr "帳號與方案"/.test(PO2[0]) && /msgid "set\.cat\.plan"\nmsgstr "Account & plan"/.test(PO2[1]) && /msgid "pv\.e\.btn"\nmsgstr "Account & Plan"/.test(PO2[1])
-  && /msgid "acct\.cf\.title"\nmsgstr "登出 Blave？"/.test(PO2[0]) && /msgid "acct\.cf\.ok"\nmsgstr "Sign Out"/.test(PO2[1]) && /msgid "acct\.out\.4"\nmsgstr "登出不會停用雲端主機，主機費照扣。"/.test(PO2[0])
+  && /msgid "acct\.cf\.title"\nmsgstr "登出 Blave？"/.test(PO2[0]) && /msgid "acct\.cf\.ok"\nmsgstr "Sign Out"/.test(PO2[1]) && /msgid "acct\.out\.4"\nmsgstr "雲端主機照跑，主機費照扣。"/.test(PO2[0])
   && PO2.every((p) => !/msgid "lib\.gate\.unknown"/.test(p)) && PO2.every((p) => !/msgid "(set\.cat\.acct|acct\.toPlan|acct\.toPlanBtn|acct\.in\.1|acct\.in\.2)"/.test(p) && !/資料與雲端方案|Data & [Cc]loud [Pp]lan/.test(p)));
 ok("agent 文件裡的頁名跟著改", /Settings › 帳號與方案 \(en: Account & plan\)/.test(fs.readFileSync(path.join(__dirname, "..", "references", "billing.md"), "utf8")) && /Sign in from Settings › Account & plan/.test(fs.readFileSync(path.join(__dirname, "..", "references", "cloud-handoff.md"), "utf8")));
-ok("字串:acct.out.3 照定稿(不跟 acct.out.2「對話留在這台電腦」打架)", /msgid "acct\.out\.3"\nmsgstr "你現在用的是 Blave AI，登出會回到選 AI 的畫面，要先選一個才能繼續用。"/.test(PO2[0]));
+ok("字串:登出框 A 案短句與兩組小標(zh / en,mockup signout-dialog-2026-11-05)", [["acct.out.3", "Blave AI 停用，要重選一個 AI。", "Blave AI turns off. Pick another AI to continue."], ["acct.out.2", "對話與策略都留著。", "Chats and strategies stay."],
+  ["acct.out.busy", "進行中的回覆會先停止。", "The reply in progress stops first."], ["acct.out.gStop", "會停止", "Stops"], ["acct.out.gKeep", "不變", "Unchanged"]].every(([k, z, e]) => PO2[0].includes(`msgid "${k}"\nmsgstr "${z}"`) && PO2[1].includes(`msgid "${k}"\nmsgstr "${e}"`)));
 // 聊天欄捲動邊界:靜止沒有線,捲起來才浮一條
 // 分頁列定稿(chat-tabs §13):列與對話靠底色分,捲起來也不浮線
 ok("聊天欄頂列沒有線:靜止沒有、捲起來也不浮(is-scrolled／chatEdge 拿掉)", !/is-scrolled/.test(css + src) && !/chatEdge/.test(src) && !/\.chat-head \{[^}]*box-shadow/.test(css));
@@ -609,11 +610,11 @@ ok("帳號與方案跟其他分類一樣由 .set-content 捲:不再接手內距�
 const PO = ["zh", "en"].map((l) => fs.readFileSync(path.join(__dirname, "..", "shell", "i18n", l + ".po"), "utf8"));
 ok("隱私:分類排最後、開關是 role=switch + aria-checked、即時生效(切換後以主行程回的為準)", /data-set-cat="plan"[^>]*><\/button>\s*\n\s*(<!--[\s\S]*?-->\s*\n\s*)?<button[^>]*data-set-cat="priv"[^>]*><\/button>\s*\n\s*<\/nav>/.test(html)
   && /setAttribute\("role", "switch"\)/.test(fnSrc("privPaint")) && /aria-checked/.test(fnSrc("privPaint")) && /PRIV = \(await window\.blave\.telemetrySet\(want\)\) === true/.test(src));
-{ // 原本隱私頁的三顆開關跟一般三列同一種:開關文字是 label[for],點字會切換;名稱只來自 label,不再另掛 aria-label(0.1.32 起分住連結 / 隱私 / Agent 三頁)
+{ // 原本隱私頁的三顆開關跟一般三列同一種:開關文字是 label[for],點字會切換(連結頁 mv-sw 例外:0.1.46 起 label 不掛 for);名稱只來自 label,不再另掛 aria-label(0.1.32 起分住連結 / 隱私 / Agent 三頁)
   const br = fs.readFileSync(path.join(R, "browser.js"), "utf8"), i = br.indexOf("async function brSetPaint("), brFn = br.slice(i, br.indexOf("\n}", i) + 2);
   const rules = fs.readFileSync(path.join(R, "rules.js"), "utf8"), ri = rules.indexOf("function rulesPaint("), rulesFn = rules.slice(ri, rules.indexOf("\n}", ri) + 2);
-  ok("三顆開關(mv-sw / priv-sw / br-sw)的字是 label[for] 指向開關、沒有 aria-label;清除瀏覽資料與隱私權政策不在 label 裡",
-    /lbl = mk\("label", "sw-l", t\("mv\.switch"\)\); lbl\.htmlFor = "mv-sw"; row\.append\(lbl\);/.test(fnSrc("mvBlock"))
+  ok("priv-sw / br-sw 的字是 label[for] 指向開關;mv-sw 的 label 不掛 for(0.1.46:點字會切掉、關掉就刪伺服器資料,見 check_shell_connect_tip);都沒有 aria-label;清除瀏覽資料與隱私權政策不在 label 裡",
+    /lbl = mk\("label", "sw-l"\);/.test(fnSrc("mvBlock")) && !/htmlFor/.test(fnSrc("mvBlock")) && /tl = mk\("span", "set-tipl", t\("mv\.switch"\)\)/.test(fnSrc("mvBlock")) && /lbl\.append\(tl, tip\); row\.append\(lbl\);/.test(fnSrc("mvBlock"))
     && /lbl = mk\("label", "sw-l", t\("priv\.switch"\)\); lbl\.htmlFor = "priv-sw"; row\.append\(lbl\);/.test(fnSrc("privPaint"))
     && /lbl = brEl\("label", "sw-l"\); lbl\.htmlFor = "br-sw";/.test(brFn) && /lbl\.append\(name, tip\); row\.append\(lbl\);/.test(brFn)
     && ![fnSrc("mvBlock"), fnSrc("privPaint"), brFn].some((f) => /"span", "sw-l"|aria-label(?!ledby)/.test(f))
@@ -629,14 +630,14 @@ ok("隱私:分類排最後、開關是 role=switch + aria-checked、即時生效
 // 會收的組(0.1.39):PRIV_COLLECT 從原文 eval 出來,組 id、句數、順序逐一對;舊的 priv.collect.<n> 一條都不能留
 const PRIV_COLLECT_V = eval(src.match(/const PRIV_COLLECT = [^\n]*;/)[0].replace(/^const PRIV_COLLECT = /, "(").replace(/;$/, ")"));
 const POS = (L, k) => { const m = PO[L].match(new RegExp('msgid "' + k.replace(/\./g, "\\.") + '"\nmsgstr "([^"]*)"')); return m ? m[1] : null; };
-const PRIV_SHAPE = [["step", 4], ["strat", 5], ["feat", 6], ["stuck", 7], ["auth", 5], ["meta", 5], ["lib", 3], ["acct", 2]];
+const PRIV_SHAPE = [["step", 4], ["strat", 5], ["feat", 6], ["stuck", 7], ["auth", 5], ["meta", 5], ["acct", 2]];
 const PRIV_GROUPS_OK = JSON.stringify(PRIV_COLLECT_V) === JSON.stringify(PRIV_SHAPE.map(([g, n]) => ["priv.c." + g + ".h", Array.from({ length: n }, (_, i) => "priv.c." + g + "." + (i + 1))]))
   && PRIV_COLLECT_V.every(([h, ks]) => [h, ...ks].every((k) => POS(0, k) && POS(1, k)))
   && PO.every((x) => !/msgid "priv\.collect\.\d+"/.test(x)) && !/priv\.collect\.\d/.test(src)
   && /if \(!off\) box\.append\(mk\("p", "priv-lead", t\("priv\.lead"\)\)\);/.test(src) && PO.every((x) => !/msgid "(priv|mv|br\.set)\.leadOff"/.test(x)) && /PRIV_NEVER = \[("priv\.never\.[1-6]",? ?){6}\]/.test(src)
   && /msgid "priv\.never\.6"\nmsgstr "事件紀錄不含 IP 位址"/.test(PO[0]) && /msgid "priv\.never\.6"\nmsgstr "Event records contain no IP address"/.test(PO[1])
   && /off \? t\("priv\.collect\.hOff"\) : t\("priv\.collect\.h"\)/.test(src) && /off \? t\("priv\.kept"\) : t\("priv\.fine"\)/.test(src);
-ok("隱私:會收分 8 組(0.1.39 設計稽核 §C,Wei 核准):組的順序照原本 11 條的順序拆;關掉時仍送「已關閉」寫在關閉態那行 priv.kept)、不收 6 條(含「事件紀錄不含 IP 位址」原話);關掉後清單留著、標題與尾句換掉、不畫說明行", PRIV_GROUPS_OK
+ok("隱私:會收分 7 組(0.1.39 設計稽核 §C,Wei 核准;0.1.45 拿掉策略庫下載那組):組的順序照原本 11 條的順序拆;關掉時仍送「已關閉」寫在關閉態那行 priv.kept)、不收 6 條(含「事件紀錄不含 IP 位址」原話);關掉後清單留著、標題與尾句換掉、不畫說明行", PRIV_GROUPS_OK
   && /if \(!off\) box\.append\(mk\("p", "priv-lead", t\("priv\.lead"\)\)\);/.test(src) && PO.every((x) => !/msgid "(priv|mv|br\.set)\.leadOff"/.test(x)) && /PRIV_NEVER = \[("priv\.never\.[1-6]",? ?){6}\]/.test(src)
   && /msgid "priv\.never\.6"\nmsgstr "事件紀錄不含 IP 位址"/.test(PO[0]) && /msgid "priv\.never\.6"\nmsgstr "Event records contain no IP address"/.test(PO[1])
   && /off \? t\("priv\.collect\.hOff"\) : t\("priv\.collect\.h"\)/.test(src) && /off \? t\("priv\.kept"\) : t\("priv\.fine"\)/.test(src));
@@ -667,7 +668,7 @@ ok("隱私:會收分 8 組(0.1.39 設計稽核 §C,Wei 核准):組的順序照�
   LANG = "zh"; privPaint();
   { const all = []; const walk = (n) => { if (!n || !n.children) return; n.children.forEach((c) => { if (c && typeof c === "object") { all.push(c); walk(c); } }); }; walk($("set-priv"));
     const gs = all.filter((n) => n._cls === "priv-g"), heads = gs.map((g) => g.children[0]);
-    ok("隱私:privPaint 把會收畫成 8 組,每組一個 .priv-gh 小標(不是 li,不吃短劃)接一份 ul;組內句數照 PRIV_COLLECT", gs.length === 8
+    ok("隱私:privPaint 把會收畫成 7 組,每組一個 .priv-gh 小標(不是 li,不吃短劃)接一份 ul;組內句數照 PRIV_COLLECT", gs.length === 7
       && heads.every((h, i) => h._cls === "priv-gh" && h.textContent === PRIV_COLLECT[i][0]) && gs.every((g, i) => g.children[1].children.length === PRIV_COLLECT[i][1].length)
       && /\.priv-g \+ \.priv-g \{ margin-top: var\(--space-8\); \}/.test(css) && /\.priv-gh \{[^}]*font-weight: 400;[^}]*color: var\(--ink\);/.test(css)); }
   // privPaint 用 document.createElement 組節點,不經過 $():從 #set-priv 的子樹把那顆鈕找出來
@@ -705,12 +706,11 @@ const PRIV_ZH = {
   stuck: ["卡在哪一步", "回合失敗、連不上 AI、策略庫用不了的原因類別", "綁卡／儲值提示有沒有出現與按下、回來後能不能用", "啟動雲端方案的結果、更新卡在哪一步", "第一次收到 AI 回覆", "第一次安裝或更新後補裝引擎與策略套件，有沒有裝好", "沒裝好是哪一類原因", "只記類別，不含內容"],
   auth: ["登入與金鑰", "本機 AI 的登入方式，例如訂閱或 API 金鑰", "不含帳號與金鑰", "登入失敗的類別，以及當下是否判定為已登入", "改金鑰時驗證碼框的出現、通過與鎖住", "不含驗證碼"],
   meta: ["每筆紀錄都帶", "發生的時間", "app 版本、作業系統與版本、系統語言", "電腦類型：筆電或桌機", "安裝識別碼：這份安裝隨機產生的編號", "登入後，安裝識別碼會跟你的帳號對上"],
-  lib: ["策略庫下載", "沒登入或登入失效時，從策略庫下載免登入策略", "記策略庫編號與安裝識別碼，用來算安裝人數", "之後登入就會跟你的帳號對上"],
   acct: ["帳號上", "登入後，帳號會記下連的是哪種 AI", "也記這台電腦有沒有跑過回測，保留 90 天"],
 };
 const privKeys = (g) => ["priv.c." + g + ".h", ...PRIV_ZH[g].slice(1).map((_, i) => "priv.c." + g + "." + (i + 1))];
 const zhCount = (x) => { const CJK = /[\p{Script=Han}]/gu; return (x.match(CJK) || []).length + (x.replace(CJK, " ").match(/[\p{L}\p{N}_]+(?:[.,]\p{N}+)*/gu) || []).length; };
-ok("隱私 0.1.39:會收八組的 zh 逐字、每句 ≤25 字(canon 算法);組標題與句子 en 都有", Object.keys(PRIV_ZH).every((g) => privKeys(g).every((k, i) => POS(0, k) === PRIV_ZH[g][i] && zhCount(PRIV_ZH[g][i]) <= 25 && !!POS(1, k))));
+ok("隱私 0.1.39:會收七組的 zh 逐字、每句 ≤25 字(canon 算法);組標題與句子 en 都有", Object.keys(PRIV_ZH).every((g) => privKeys(g).every((k, i) => POS(0, k) === PRIV_ZH[g][i] && zhCount(PRIV_ZH[g][i]) <= 25 && !!POS(1, k))));
 // 事件數跟告知綁在一起:加事件而沒補「會收」那幾組,這裡就紅(canon product-telemetry 出貨清單第 5 條)
 ok("隱私:三十一個事件逐項對得上契約的白名單(heartbeat=做到哪一步「app 開著的每一天」;strat_* 三個=每支策略,只記型別與市場類別;feature_used=用了哪些功能,名稱、每日一次、不含內容;lib_pick / idea_sent=用了哪些功能的策略庫與找點子;reply_notif=系統通知;0.1.9 九個、0.1.12 引擎安裝兩個、0.1.15 detect_fail=卡在哪一步,只記類別;cli_auth / auth_fail / key_verify=登入與金鑰;device_type=每筆紀錄都帶的電腦類型,spec-0.1.13 #12:寫作業系統與版本,不寫 macOS)",
   Object.keys(require("../shell/telemetry.js").EVENTS).length === 31
@@ -718,12 +718,11 @@ ok("隱私:三十一個事件逐項對得上契約的白名單(heartbeat=做到�
   && /^App version, operating system and version, system language$/.test(POS(1, "priv.c.meta.2")) && /^Computer type: laptop or desktop$/.test(POS(1, "priv.c.meta.3"))
   && /whether local auto-trading runs/.test(POS(1, "priv.c.step.2")) && /type \(A\/B\/C\) and market category/.test(POS(1, "priv.c.strat.2")) && /^Never its name or symbol$/.test(POS(1, "priv.c.strat.3"))
   && /whether it needs Blave data/.test(POS(1, "priv.c.feat.3")) && /which entry point/.test(POS(1, "priv.c.feat.4")) && /^Never the chat title or text$/.test(POS(1, "priv.c.feat.6"))
-  && /^Categories only, never the content$/.test(POS(1, "priv.c.stuck.7")) && /^Never the code$/.test(POS(1, "priv.c.auth.5")) && /kept 90 days/.test(POS(1, "priv.c.acct.2"))
-  && /signed out or your sign-in expired/.test(POS(1, "priv.c.lib.1")) && /to count installs/.test(POS(1, "priv.c.lib.2")));
+  && /^Categories only, never the content$/.test(POS(1, "priv.c.stuck.7")) && /^Never the code$/.test(POS(1, "priv.c.auth.5")) && /kept 90 days/.test(POS(1, "priv.c.acct.2")));
 ok("acct.sub 開通試用那句兼講期限(Wei 核准 0.1.10):zh / en 逐字", /msgid "acct\.sub"\nmsgstr "首次綁卡，\{t\} 天內有 \{q\} TWD 的 AI 額度，電腦版也拿得到 Blave 的資料。"/.test(PO[0])
   && /msgid "acct\.sub"\nmsgstr "A first-time card gets \{q\} TWD of AI credit and Blave data in the desktop app, both for \{t\} days\."/.test(PO[1]));
 // 例外只有報告分享的掛名二選一(shr.anon):那是公開頁上作者欄真的不出名字,不是在講追蹤資料匿名
-ok("隱私 0.1.13(Wei 核准草稿 §B):priv.never.2 收窄成「你自己的策略」(免登入下載那條 0.1.39 起在「策略庫下載」組,逐字見上)", /msgid "priv\.never\.2"\nmsgstr "你自己的策略：程式碼與名稱"/.test(PO[0]) && /msgid "priv\.never\.2"\nmsgstr "Your own strategies' code and names"/.test(PO[1]));
+ok("隱私 0.1.13(Wei 核准草稿 §B):priv.never.2 收窄成「你自己的策略」", /msgid "priv\.never\.2"\nmsgstr "你自己的策略：程式碼與名稱"/.test(PO[0]) && /msgid "priv\.never\.2"\nmsgstr "Your own strategies' code and names"/.test(PO[1]));
 ok("全 app 的字串不出現「匿名 / anonymous」(報告分享的掛名選項 shr.anon 除外);首次告知的 priv.notice* 沒有建", PO.every((x) => !/匿名|anonym/i.test(x.replace(/^#.*$/gm, "").replace(/msgid "shr\.anon"\nmsgstr "[^"]*"/, ""))) && PO.every((x) => !/priv\.notice/.test(x)) && !/telemetryNoticed/.test(src));
 // 設定 › 資料與雲端方案 › 主機運行中那格:主鈕是「切到雲端」(關設定 + 走切換器同一個守門入口),不再外開網頁(Wei:不用前往工作頁了)
 {
@@ -806,18 +805,22 @@ ok("全 app 的字串不出現「匿名 / anonymous」(報告分享的掛名選�
     ok("已登入、查不到:帳號列照出,餘額列畫「—」", page().rows === 2 && page().who.v === "acct.signedIn" && page().bal.v === "—" && page().foot.join() === "btn-out:plan.recheck");
     // 登出:按了才出確認框(Wei 2026-09-28 定案);三句說明不常駐
     const press = (o) => { boxes.length = 0; cur = o.cur; acct = o.acct; hasToken = true; planPaint(); const b = page().who.btn; b._click(); return boxes[0]; };
+    // A 案:內文全在兩組 sections,lines 空;ink 那句記成 *key
+    const grp = (b) => b && b.lines.length === 0 && b.sections ? b.sections.map((g) => g.label + ":" + g.lines.map((x) => (typeof x === "string" ? x : (x.ink ? "*" : "") + x.text)).join()).join("|") : "BAD";
     const own = press({ cur: "claude", acct: { plan: { state: "none" } } });
-    ok("按「登出」:出確認框(標題、確認鈕、開它的那顆鈕);用自己的 CLI、沒有主機 → 兩句", !!own && own.title === "acct.cf.title" && own.ok === "acct.cf.ok" && own.opener === page().who.btn && own.lines.join() === "acct.out.1,acct.out.2" && typeof own.onOk === "function");
-    PH = { visible: true, signedIn: true, on: true }; const phOn = press({ cur: "claude", acct: { plan: { state: "running" } } }).lines.join();
-    PH = { visible: false, signedIn: true, on: true }; const phHidden = press({ cur: "claude", acct: { plan: { state: "none" } } }).lines.join(); PH = { visible: true, signedIn: true, on: false };
-    ok("手機對話開著:多一句「手機對話會關閉,伺服器上的對話會刪除」,排在主機那句前面;總開關關著(區塊不出)不講", phOn === "acct.out.1,acct.out.6,acct.out.4,acct.out.2" && phHidden === "acct.out.1,acct.out.2", [phOn, phHidden]);
-    ok("用 Blave AI:多一句「登出會回到選 AI 的畫面」,排第一", press({ cur: "blave", acct: { plan: { state: "none" } } }).lines.join() === "acct.out.3,acct.out.1,acct.out.2");
-    ok("帳號有主機(啟動中 / 運行中 / 已停機):多一句「登出不會停用雲端主機,主機費照扣」;沒有主機不出", ["starting", "running", "stopped"].every((st) => press({ cur: "claude", acct: { plan: { state: st } } }).lines.join() === "acct.out.1,acct.out.4,acct.out.2")
-      && press({ cur: "blave", acct: { plan: { state: "running" } } }).lines.join() === "acct.out.3,acct.out.1,acct.out.4,acct.out.2");
+    ok("按「登出」:出確認框(標題、確認鈕、開它的那顆鈕);用自己的 CLI、沒有主機 → 兩句", !!own && own.title === "acct.cf.title" && own.ok === "acct.cf.ok" && own.opener === page().who.btn && grp(own) === "acct.out.gStop:acct.out.1|acct.out.gKeep:acct.out.2" && typeof own.onOk === "function", grp(own));
+    { const n0 = featured.length; const bx = press({ cur: "claude", acct: { plan: { state: "none" } } }); const opened = featured.length - n0; bx.onOk();
+      ok("埋點:開框不送;按〔登出〕送一次 feature_used acct_out,在白名單", opened === 0 && featured.slice(n0).join() === "acct_out" && /"acct_out"/.test(fs.readFileSync(path.join(R, "..", "telemetry.js"), "utf8"))); }
+    PH = { visible: true, signedIn: true, on: true }; const phOn = grp(press({ cur: "claude", acct: { plan: { state: "running" } } }));
+    PH = { visible: false, signedIn: true, on: true }; const phHidden = grp(press({ cur: "claude", acct: { plan: { state: "none" } } })); PH = { visible: true, signedIn: true, on: false };
+    ok("手機對話開著:多一句「手機對話會關閉,伺服器上的對話會刪除」,排在主機那句前面;總開關關著(區塊不出)不講", phOn === "acct.out.gStop:acct.out.1,acct.out.6|acct.out.gKeep:*acct.out.4,acct.out.2" && phHidden === "acct.out.gStop:acct.out.1|acct.out.gKeep:acct.out.2", [phOn, phHidden]);
+    ok("用 Blave AI:多一句「登出會回到選 AI 的畫面」,排第一", grp(press({ cur: "blave", acct: { plan: { state: "none" } } })) === "acct.out.gStop:acct.out.3,acct.out.1|acct.out.gKeep:acct.out.2");
+    ok("帳號有主機(啟動中 / 運行中 / 已停機):「不變」組第一句多「主機費照扣」、升主墨(ink);沒有主機不出", ["starting", "running", "stopped"].every((st) => grp(press({ cur: "claude", acct: { plan: { state: st } } })) === "acct.out.gStop:acct.out.1|acct.out.gKeep:*acct.out.4,acct.out.2")
+      && grp(press({ cur: "blave", acct: { plan: { state: "running" } } })) === "acct.out.gStop:acct.out.3,acct.out.1|acct.out.gKeep:*acct.out.4,acct.out.2");
     { boxes.length = 0; oauthPending = true; acctOutAsk(null); oauthPending = false; ok("等待登入中:不出框", boxes.length === 0);
       cur = "claude"; acct = { plan: { state: "none" } }; running = true; acctOutAsk(null); running = false;
-      ok("回合進行中(busy-lock spec §2.3:登出放開):照出框,第一句講正在回覆的這條會先停", boxes.length === 1 && boxes[0].lines.join() === "busy.cut.out,acct.out.1,acct.out.2"); }
-    ok("確認框按下去才走登出那一支(回合中先停再登出:busyStopThen);登出之後(用自己 CLI 的人留在原地)焦點回左欄的「帳號與方案」、讀屏念一次;用 Blave AI 的人照舊回選 AI 的畫面", /confirmBox\(\{ title: t\("acct\.cf\.title"\), lines, ok: t\("acct\.cf\.ok"\), opener, onOk: \(\) => busyStopThen\(acctSignOut\) \}\);/.test(src)
+      ok("回合進行中(busy-lock spec §2.3:登出放開):照出框,「會停止」組第一句講進行中的回覆先停(登出自己的短句,不改共用的 busy.cut.out)", boxes.length === 1 && grp(boxes[0]) === "acct.out.gStop:acct.out.busy,acct.out.1|acct.out.gKeep:acct.out.2"); }
+    ok("確認框按下去才走登出那一支(回合中先停再登出:busyStopThen);登出之後(用自己 CLI 的人留在原地)焦點回左欄的「帳號與方案」、讀屏念一次;用 Blave AI 的人照舊回選 AI 的畫面", /confirmBox\(\{ title: t\("acct\.cf\.title"\), lines: \[\], sections: \[\{ label: t\("acct\.out\.gStop"\), lines: stop \}, \{ label: t\("acct\.out\.gKeep"\), lines: keep \}\], ok: t\("acct\.cf\.ok"\), opener, onOk: \(\) => \{ trackFeature\("acct_out"\); busyStopThen\(acctSignOut\); \} \}\);/.test(src)
       && /async function acctSignOut\(\) \{\n  if \(!hasToken \|\| oauthPending \|\| planLoginBusy \|\| acctOutBusy\) return;\n  acctOutBusy = true;\n  const r = await window\.blave\.signOutBlave\(\)\.finally\(\(\) => \{ acctOutBusy = false; \}\);/.test(src)
       && /srSay\(t\("acct\.outDone"\)\);\n    const c = document\.querySelector\('\.set-cat\[data-set-cat="plan"\]'\); if \(c\) c\.focus\(\);/.test(src) && /await window\.blave\.clearConnection\(\);\n  cur = null;\n  setClose\(\);/.test(src));
     // 訊息格
@@ -1365,7 +1368,24 @@ ok("確認框字(r8):body1 有 Linux Starter;鈕「付 {x} TWD 開通」/ Pay {x
     ok("連結頁 QR:登入且開著才出兩張(iOS、Android,alt 空);關著、pending、登出都不出;圖檔在 renderer/img", on.length === 2 && on.map((n) => n.src).join() === "img/qr_ios.png,img/qr_android.png" && on.every((n) => n.alt === "")
       && [{ visible: true, signedIn: true, on: false }, { visible: true, signedIn: true, on: false, pending: true }, { visible: true, signedIn: false, on: true }].every((m) => imgs(m).length === 0)
       && ["qr_ios.png", "qr_android.png"].every((f) => fs.existsSync(path.join(R, "img", f)))
-      && /const MV_APP_IOS = "https:\/\/apps\.apple\.com\/tw\/app\/blave\/id6747014559";/.test(src) && /const MV_APP_ANDROID = "https:\/\/play\.google\.com\/store\/apps\/details\?id=org\.wuchi\.blave\.android";/.test(src)); }
+      && /const MV_APP_IOS = "https:\/\/apps\.apple\.com\/tw\/app\/blave\/id6747014559";/.test(src) && /const MV_APP_ANDROID = "https:\/\/play\.google\.com\/store\/apps\/details\?id=org\.wuchi\.blave\.android";/.test(src));
+    // 設定 › 連結精簡版(connect-page-trim-2026-11-05):上傳頻率與關掉會刪進開關名稱的 tooltip,開著時開關下不再有說明句;兩件同一批
+    const nodes = (mv) => flat(block(mv)), leads = (mv) => nodes(mv).filter((n) => n.cls === "priv-lead");
+    ok("手機查看:開關名稱掛 tooltip(mv.tip、虛線字),開著時開關下沒有說明句;待刪那句照出;tooltip 鍵盤打得開",
+      [{ visible: true, signedIn: true, on: true }, { visible: true, signedIn: true, on: false }].every((m) => nodes(m).some((n) => n.cls === "tip" && n.text === "mv.tip") && nodes(m).some((n) => n.cls === "set-tipl" && n.text === "mv.switch"))
+      && leads({ visible: true, signedIn: true, on: true, name: "Mac" }).length === 0 && leads({ visible: true, signedIn: true, on: false, pending: true }).map((n) => n.textContent).join() === "mv.leadPending"
+      && /setAttribute\("aria-labelledby", "mv-l"\); sw\.setAttribute\("aria-describedby", "mv-tip"\)/.test(fnSrc("mvBlock")) && !/mv\.lead"|mv\.leadNoName/.test(src)
+      && css.includes(".mv .sw-row:has(.sw:focus-visible:not([data-tip-off])) .tip { display: block; }")); }
+  { // 登出框 A 案:confirmBox 的 sections 真的畫成兩組(小標 span.gl + 每句一個 p),ink 那句帶 cf-ink;CSS 組內 4、組間 16、小標 13/600 --ink-3、ink 句升主墨
+    const box = fnSrc("confirmBox"), line = box.split("\n").find((l) => /^\s*\(sections \|\| \[\]\)\.forEach/.test(l)) || "";
+    const body = el(), mk = (tag, cls, text) => { const n = el(); n.tag = tag; n.className = cls || ""; if (text != null) n.textContent = text; return n; };
+    new Function("sections", "mk", "body", line)([{ label: "STOP", lines: ["a", "b"] }, { label: "KEEP", lines: [{ text: "money", ink: true }, "c"] }], mk, body);
+    const g = body.children, sh = (n) => n.children.map((c) => c.tag + "." + c.className + ":" + c.textContent).join();
+    ok("登出框 A 案:sections 畫成兩組 div.cf-grp,組名 span.gl 在前、每句一個 p;ink 那句 p.cf-ink、其餘沒有 class",
+      g.length === 2 && g.every((x) => x.tag === "div" && x.className === "cf-grp") && sh(g[0]) === "span.gl:STOP,p.:a,p.:b" && sh(g[1]) === "span.gl:KEEP,p.cf-ink:money,p.:c", g.map(sh));
+    ok("登出框 A 案 CSS:組間 16、組內 4(壓過 .del-body.lines p+p 的 8)、組名 13/600 --ink-3、ink 句 --ink;不畫線",
+      css.includes(".del-body .cf-grp + .cf-grp { margin-top: var(--space-16); }") && /\.del-body \.cf-grp \.gl \{ display: block; margin-bottom: var\(--space-4\); font-size: 13px; font-weight: 600; line-height: 1\.5; color: var\(--ink-3\); \}/.test(css)
+      && css.includes(".del-body.lines .cf-grp p + p { margin-top: var(--space-4); }") && css.includes(".del-body.lines .cf-grp p.cf-ink { color: var(--ink); }") && !/\.cf-grp[^{]*\{[^}]*border/.test(css)); }
   ok("資料來源空狀態的金鑰那句拿掉了,.src-fine 跟著刪", !/src-fine/.test(fs.readFileSync(path.join(R, "datasrc.css"), "utf8") + fs.readFileSync(path.join(R, "datasrc.js"), "utf8")));
 })().then(() => {
 console.log(red ? red + " 紅" : "ALL PASS"); process.exit(red ? 1 : 0);

@@ -1452,13 +1452,13 @@ msgid "cn.blave.name"
 msgstr "Blave AI"
 
 msgid "acct.out.1"
-msgstr "登出之後，這台電腦不再取得 Blave 的資料。"
+msgstr "這台電腦不再取得 Blave 資料。"
 
 msgid "acct.out.2"
-msgstr "對話與策略都留在這台電腦，不受影響。"
+msgstr "對話與策略都留著。"
 
 msgid "acct.out.3"
-msgstr "你現在用的是 Blave AI，登出會回到選 AI 的畫面，要先選一個才能繼續用。"
+msgstr "Blave AI 停用，要重選一個 AI。"
 
 # 登出的確認框(登出鈕在「帳號與方案」最上面那一列;「登出會怎樣」按了才出)。acct.out.4 只在帳號有主機時出
 msgid "acct.cf.title"
@@ -1468,13 +1468,24 @@ msgid "acct.cf.ok"
 msgstr "登出"
 
 msgid "acct.out.4"
-msgstr "登出不會停用雲端主機，主機費照扣。"
+msgstr "雲端主機照跑，主機費照扣。"
 
 msgid "acct.out.5"
-msgstr "手機 App 也看不到這台電腦的部位了。"
+msgstr "手機 App 看不到這台的部位。"
 
 msgid "acct.out.6"
-msgstr "手機對話會關閉，伺服器上的對話會刪除。"
+msgstr "手機對話關閉，伺服器上的對話刪除。"
+
+# 登出確認框的兩組小標(spec signout-dialog A 案):會停止的在前,不變的在後;主機那句排「不變」第一、主墨色
+msgid "acct.out.gStop"
+msgstr "會停止"
+
+msgid "acct.out.gKeep"
+msgstr "不變"
+
+# 登出框「會停止」組第一句(回合中才出)。不共用 busy.cut.out:那句換 AI、移除金鑰框也在用
+msgid "acct.out.busy"
+msgstr "進行中的回覆會先停止。"
 
 msgid "acct.lbl"
 msgstr "Blave 帳號"
@@ -1573,7 +1584,7 @@ msgid "cx.fail"
 msgstr "{msg}（{stage}）"
 
 msgid "cx.presStopped"
-msgstr "登入已停止，按「繼續」確認登入。"
+msgstr "登入已停止，按「重新登入」確認登入。"
 
 msgid "cx.err.okxMode"
 msgstr "OKX 帳戶模式不支援合約。到 OKX 設定 → 帳戶模式，改成合約模式或跨幣種保證金。"
@@ -1646,6 +1657,38 @@ msgstr "下單停了，不是你按的 · 停在 {t}。按「啟動下單」重�
 
 msgid "tr.s.on"
 msgstr "執行中"
+
+msgid "tr.s.presStopped"
+msgstr "登入已停止"
+
+msgid "tr.presStopped"
+msgstr "統一登入已停止，新單與平倉都送不出去。"
+
+# 統一登入停了、頁首的實心鈕(開通框確認登入;開通中的 cap.continue 不動)
+msgid "tr.presRelogin"
+msgstr "重新登入"
+
+# 暫停中又遇到統一登入停了:標題下那句(不接 HALT 的「平倉照常」)
+msgid "tr.presStoppedHalted"
+msgstr "統一登入已停止，新單與平倉都送不出去，要重新登入。"
+
+msgid "tr.presStoppedCloud"
+msgstr "統一登入已停止，新單與平倉都送不出去。到網站確認登入。"
+
+msgid "tr.ov.evPresStopped"
+msgstr "統一登入已停止"
+
+msgid "tr.ov.evPresStoppedNote"
+msgstr "新單與平倉都送不出去。到自動下單按「重新登入」。"
+
+msgid "tr.ov.evCapStopped"
+msgstr "群益登入已停止"
+
+msgid "tr.ov.evCapStoppedNote"
+msgstr "新單與平倉都送不出去。到自動下單重填交易密碼。"
+
+msgid "tr.ov.evCapLockedNote"
+msgstr "新單與平倉都送不出去。先到群益解鎖，再到自動下單重填交易密碼。"
 
 msgid "tr.s.off"
 msgstr "尚未啟動"
@@ -1799,6 +1842,10 @@ msgstr "會重新開始送出真實委託，把策略的部位調到目前的目
 
 msgid "tr.unmanagedTip"
 msgstr "這個部位不是 Blave 下單建立的，對帳不會動它。"
+
+# 「帳戶實際 N」的 tooltip(trade.js detRow)
+msgid "tr.acctActualTip"
+msgstr "策略記的比帳戶多，可能是你在交易所自己平過。要對齊，請 agent 處理。"
 
 msgid "tr.startCatchUp"
 msgstr "啟動並補齊部位"
@@ -1983,7 +2030,7 @@ msgid "tr.quote.why.notEnabled"
 msgstr "統一帳號沒有行情權限，找營業員開通"
 
 msgid "tr.quote.why.noLogin"
-msgstr "統一還沒登入"
+msgstr "統一登入已停止"
 
 msgid "tr.quote.why.notOk"
 msgstr "統一的行情讀不到"
@@ -2380,6 +2427,125 @@ msgstr "登入資料會從這台電腦移除，下單機不能再用它交易。
 msgid "tr.unbindWarnPaper"
 msgstr "再綁模擬交易時，權益與部位會重新開始，成交紀錄保留。策略組合和金額保留，重綁後存一次即可。"
 
+# 解除綁定確認框(spec unbind-positions-2026-11-05 A 版 §4;混合機器 unbind-consistency §5)。zh 為準,web workspace_pf_ub_* 同字
+msgid "tr.ub.x0"
+msgstr "登入資料會從這台電腦移除，下單停止。策略組合和金額保留，重綁後存一次即可。"
+
+msgid "tr.ub.x0Cloud"
+msgstr "登入資料會從主機移除，下單停止。策略組合和金額保留，重綁後存一次即可。"
+
+msgid "tr.ub.x0Pres"
+msgstr "統一的帳號密碼與憑證檔會一起刪掉。"
+
+msgid "tr.ub.askTitle"
+msgstr "解除綁定前，要平掉這 {n} 個部位嗎？"
+
+msgid "tr.ub.askTitle1"
+msgstr "解除綁定前，要平掉這 1 個部位嗎？"
+
+msgid "tr.ub.askTitleN"
+msgstr "解除綁定前，要先平倉嗎？"
+
+msgid "tr.ub.unreadN"
+msgstr "讀不到帳戶部位，帳上可能還有自動下單的部位。"
+
+msgid "tr.ub.closeSelf"
+msgstr "「平倉並解除」只平自動下單的部位，全部成交才解除。"
+
+msgid "tr.ub.closeAll"
+msgstr "「平倉並解除」會平掉帳戶上所有部位，含你手動開的單。"
+
+msgid "tr.ub.keep"
+msgstr "「保留部位並解除」之後沒人管，要自己到{venue}處理。"
+
+msgid "tr.ub.keepOld"
+msgstr "要自己到{venue}處理。"
+
+msgid "tr.ub.keepGo"
+msgstr "保留部位並解除"
+
+msgid "tr.ub.closeGo"
+msgstr "平倉並解除"
+
+msgid "tr.ub.closedTitle"
+msgstr "解除綁定後，這 {n} 個部位沒人管"
+
+msgid "tr.ub.closedTitle1"
+msgstr "解除綁定後，這 1 個部位沒人管"
+
+msgid "tr.ub.closedTitleN"
+msgstr "解除綁定後，部位可能沒人管"
+
+msgid "tr.ub.closedWhen"
+msgstr "台指期休市，{time} 開盤後才能平倉。"
+
+msgid "tr.ub.closedWhenN"
+msgstr "台指期休市，開盤後才能平倉。"
+
+msgid "tr.ub.closedLater"
+msgstr "想先平倉就開盤後再解除，或到{app} app 自己平。"
+
+msgid "tr.ub.cantClose"
+msgstr "群益的部位這台主機平不了，要在群益 app 自己平。"
+
+msgid "tr.ub.runTitle"
+msgstr "平倉後解除綁定"
+
+msgid "tr.ub.runLine"
+msgstr "全部成交後自動解除。關掉這個框不會中斷。"
+
+msgid "tr.ub.running"
+msgstr "平倉中"
+
+msgid "tr.ub.runningBtn"
+msgstr "平倉中…"
+
+msgid "tr.ub.failTitle"
+msgstr "有 {n} 個部位沒平掉，還沒解除綁定"
+
+msgid "tr.ub.failTitle1"
+msgstr "有 1 個部位沒平掉，還沒解除綁定"
+
+msgid "tr.ub.failTitleN"
+msgstr "平倉沒有完成，還沒解除綁定"
+
+msgid "tr.ub.failReply"
+msgstr "{venue}回覆：{msg}"
+
+msgid "tr.ub.failState"
+msgstr "下單維持暫停，沒平的部位還在帳上。"
+
+msgid "tr.ub.unconfirmed"
+msgstr "未確認的那筆，先到{app} app 看有沒有成交。"
+
+msgid "tr.ub.retryGo"
+msgstr "重新平倉並解除"
+
+msgid "tr.ub.stDone"
+msgstr "已平"
+
+msgid "tr.ub.stNoFill"
+msgstr "沒成交"
+
+msgid "tr.ub.stUnconf"
+msgstr "未確認"
+
+msgid "tr.ub.stManual"
+msgstr "要自己平"
+
+msgid "tr.ub.close"
+msgstr "關閉"
+
+msgid "tr.ub.busy"
+msgstr "另一個平倉還在跑，跑完再試一次。"
+
+# 「到{app} app 自己平」的券商 app 短名
+msgid "tr.ub.appPres"
+msgstr "統一"
+
+msgid "tr.ub.appCap"
+msgstr "群益"
+
 msgid "tr.ov.equity"
 msgstr "總權益"
 
@@ -2561,6 +2727,9 @@ msgstr "昨天"
 
 msgid "tr.ov.evHalt"
 msgstr "已暫停下單"
+
+msgid "tr.ov.evHaltPhone"
+msgstr "已從手機暫停下單"
 
 msgid "tr.spotNoShort"
 msgstr "現貨不放空"
@@ -2767,6 +2936,19 @@ msgstr "已暫停下單"
 
 msgid "tm.notifBody"
 msgstr "已停止下單；部位沒有動。要恢復，到 Blave 的「自動下單」按「啟動下單」。"
+
+msgid "tm.phoneHalt"
+msgstr "已從手機暫停下單"
+
+msgid "tm.phoneHaltFail"
+msgstr "手機送來的暫停沒有生效"
+
+# 手機暫停回 UNKNOWN_RESULT(下單程式收走了指令、還沒回報):多半已生效,標題不講沒生效(0.1.47,Wei 拍板)
+msgid "tm.phoneHaltUnsure"
+msgstr "手機送來的暫停，結果不明"
+
+msgid "tm.phoneHaltUnsureBody"
+msgstr "多半已經生效。打開 Blave 看一下狀態。"
 
 msgid "tm.pauseFail"
 msgstr "暫停的指令沒有送到，它可能還在交易。打開 Blave 再按一次「暫停下單」。"
@@ -3188,11 +3370,9 @@ msgstr "隱私"
 msgid "mv.switch"
 msgstr "在手機 App 上查看這台電腦的部位"
 
-msgid "mv.lead"
-msgstr "每 2 分鐘上傳策略、部位與權益，只有你看得到。手機上這台叫 {name}，關掉會刪平台上這台的資料。"
-
-msgid "mv.leadNoName"
-msgstr "每 2 分鐘上傳策略、部位與權益，只有你的帳號看得到。關掉會刪掉平台上這台的資料。"
+# 開關名稱的 tooltip(設定 › 連結精簡版):原本開著時開關下那一段搬進來,電腦名稱不留
+msgid "mv.tip"
+msgstr "每 2 分鐘上傳策略、部位與權益，只有你看得到。關掉就刪除伺服器上這台的資料。"
 
 msgid "mv.appIos"
 msgstr "App Store"
@@ -3201,7 +3381,7 @@ msgid "mv.appAndroid"
 msgstr "Google Play"
 
 msgid "mv.leadPending"
-msgstr "已關閉，但平台上這台的資料還沒刪成；連上網路後會自動再刪。"
+msgstr "伺服器上這台的資料還沒刪掉，連上網路後會自動刪。"
 
 msgid "mv.leadOut"
 msgstr "登入 Blave 帳號後才能用。"
@@ -3336,18 +3516,6 @@ msgstr "安裝識別碼：這份安裝隨機產生的編號"
 
 msgid "priv.c.meta.5"
 msgstr "登入後，安裝識別碼會跟你的帳號對上"
-
-msgid "priv.c.lib.h"
-msgstr "策略庫下載"
-
-msgid "priv.c.lib.1"
-msgstr "沒登入或登入失效時，從策略庫下載免登入策略"
-
-msgid "priv.c.lib.2"
-msgstr "記策略庫編號與安裝識別碼，用來算安裝人數"
-
-msgid "priv.c.lib.3"
-msgstr "之後登入就會跟你的帳號對上"
 
 msgid "priv.c.acct.h"
 msgstr "帳號上"
@@ -3669,10 +3837,10 @@ msgid "src.cloudEmpty"
 msgstr "雲端主機上沒有資料來源。"
 
 msgid "ho.up.btn"
-msgstr "送上雲端"
+msgstr "送上雲端…"
 
 msgid "ho.down.btn"
-msgstr "拉回這台電腦"
+msgstr "拉回…"
 
 msgid "ho.down.aria"
 msgstr "拉回這台電腦"
@@ -3691,9 +3859,6 @@ msgstr "策略程式碼"
 
 msgid "ho.row.movesKeys"
 msgstr "策略程式碼、它用到的資料來源金鑰（{sources}）"
-
-msgid "ho.row.movesMaybe"
-msgstr "策略程式碼，以及它用到的資料來源金鑰（如果有）"
 
 msgid "ho.row.stays"
 msgstr "不會搬"
@@ -3719,9 +3884,6 @@ msgstr "雲端那一支照常下單；拉回來的這份要在這台電腦的自
 msgid "ho.block.goCloud"
 msgstr "去雲端看"
 
-msgid "ho.ok"
-msgstr "確認"
-
 msgid "ho.emptyHint"
 msgstr "雲端還沒有策略。在這台電腦打開一支策略，按「送上雲端」；或直接在這裡請 agent 做一支。"
 
@@ -3737,9 +3899,6 @@ msgstr "留在雲端"
 msgid "ho.gate.stale"
 msgstr "現在讀不到雲端的狀況，先不送。"
 
-msgid "ho.sending"
-msgstr "這支正在送，進度在對話裡。"
-
 msgid "ho.updating"
 msgstr "雲端主機正在更新，更新完再送。"
 
@@ -3748,18 +3907,6 @@ msgstr "雲端主機已停機，現在送不上去。"
 
 msgid "ho.back.btn"
 msgstr "回這台電腦送上來"
-
-msgid "ho.msg.up"
-msgstr "把策略 {id} 送上我的雲端主機，存成 {to}。搬完在雲端重跑回測，把兩邊的數字並排給我看。"
-
-msgid "ho.msg.down"
-msgstr "把雲端主機上的策略 {id} 拉回這台電腦，存成 {to}。拉回後在這裡重跑回測，把兩邊的數字並排給我看。"
-
-msgid "ho.msgB.up"
-msgstr "把策略 {id} 送上我的雲端主機，存成 {to}。搬完確認它在雲端跑得起來，告訴我結果。"
-
-msgid "ho.msgB.down"
-msgstr "把雲端主機上的策略 {id} 拉回這台電腦，存成 {to}。拉回後確認它在這裡跑得起來，告訴我結果。"
 
 msgid "up.about"
 msgstr "關於"
@@ -3843,16 +3990,16 @@ msgid "cdel.gotIt"
 msgstr "知道了"
 
 msgid "ho.note.up"
-msgstr "接下來由 agent 搬過去，在雲端重跑一次回測，兩邊的數字會並排在聊天裡。"
+msgstr "會在雲端重跑一次回測，跑完兩邊數字並排在這一頁。"
 
 msgid "ho.note.down"
-msgstr "接下來由 agent 搬回來，在這台電腦重跑一次回測，兩邊的數字會並排在聊天裡。"
+msgstr "會在這台電腦重跑一次回測，跑完兩邊數字並排在這一頁。"
 
 msgid "ho.noteB.up"
-msgstr "接下來由 agent 搬過去，確認它在雲端跑得起來。"
+msgstr "會在雲端確認它跑得起來。"
 
 msgid "ho.noteB.down"
-msgstr "接下來由 agent 搬回來，確認它在這台電腦跑得起來。"
+msgstr "會在這台電腦確認它跑得起來。"
 
 msgid "strat.delInPf"
 msgstr "這支策略還在自動下單的組合裡，不能刪除。先到「策略組合」把它移出，再回來刪除。"
@@ -3916,9 +4063,6 @@ msgstr "新資料夾"
 
 msgid "sg.uncat"
 msgstr "未分類"
-
-msgid "sg.auto"
-msgstr "建市場資料夾"
 
 msgid "sg.max"
 msgstr "最多 20 個資料夾"
@@ -3988,27 +4132,6 @@ msgstr "移到{name}"
 
 msgid "sg.moveOut"
 msgstr "移出資料夾"
-
-msgid "sg.mkt.crypto"
-msgstr "加密"
-
-msgid "sg.mkt.txf"
-msgstr "台指期"
-
-msgid "sg.mkt.tw"
-msgstr "台股"
-
-msgid "sg.mkt.us"
-msgstr "美股"
-
-msgid "sg.mkt.stockFut"
-msgstr "個股期貨"
-
-msgid "sg.mkt.global"
-msgstr "國際期貨"
-
-msgid "sg.mkt.mixed"
-msgstr "混合"
 
 msgid "sg.e.2B50"
 msgstr "星星"
@@ -4253,12 +4376,6 @@ msgstr "缺 {a}、{b} 等 {n} 個來源的金鑰，這支跑不起來。"
 msgid "rp.btnUpdate"
 msgstr "立即更新"
 
-msgid "rp.help"
-msgstr "怎麼看"
-
-msgid "rp.help.aria"
-msgstr "怎麼看（在瀏覽器開啟）"
-
 msgid "rp.missKey.go"
 msgstr "去資料來源"
 
@@ -4329,6 +4446,12 @@ msgstr "請在群益下單軟體手動平倉"
 # 字同 api openclaw/notify.py _MANUAL_CLOSE_SNAPSHOT_LAG(券商名同 _VENUE_NAMES 短名),web workspace_ov_ev_manual_close_lag;整句一則,不拆說明,與 api 逐字同);{broker} 照下面對照表
 msgid "tr.ov.evManualCloseLag"
 msgstr "沒替{broker}平倉：部位資料還沒跟上剛送的單。一分鐘後再按「暫停並關閉部位」，或到券商平倉。"
+
+msgid "tr.ov.evManualCloseQueued"
+msgstr "沒替{broker}平倉：上一筆平倉還在等回報。{at} 後再按「暫停並關閉部位」，或到券商看過委託再平。"
+
+msgid "tr.ov.evManualCloseQueuedSoon"
+msgstr "沒替{broker}平倉：上一筆平倉還在等回報。過幾分鐘再按「暫停並關閉部位」，或到券商看過委託再平。"
 
 msgid "tr.ov.brokerCapital"
 msgstr "群益"
@@ -4722,9 +4845,9 @@ msgstr "重新啟動"
 msgid "up.md.stay"
 msgstr "取消就照常下單，結束 Blave 時才會更新。"
 
-# 設定 › 一般 › 關於:每天 06:00 自動更新的開關(預設開)
+# 設定 › 一般 › 關於:自動更新的開關(預設開):每天 06:00,手機對話開著時視窗收進背景也會裝
 msgid "up.sch.sw"
-msgstr "每天 06:00 自動更新"
+msgstr "自動更新"
 
 # 上面那個開關底下的說明句
 msgid "up.sch.lead"
@@ -4899,7 +5022,7 @@ msgid "rob.cfOk"
 msgstr "送出"
 
 msgid "rob.msgScan"
-msgstr "請掃描策略 {name} 的參數（lib.param_scan：scan_grid → find_plateau → write_scan → plot_heatmap），範圍由你依指標分佈決定，掃完回報尖峰與穩健點。"
+msgstr "請掃描策略「{display_name}」({name}) 的參數（lib.param_scan：scan_grid → find_plateau → write_scan → plot_heatmap），範圍由你依指標分佈決定，掃完回報尖峰與穩健點。"
 
 msgid "rob.msgScanLabel"
 msgstr "掃描 {name} 的參數"
@@ -4941,7 +5064,7 @@ msgid "rob.cfNote"
 msgstr "通常要幾分鐘，期間越長、格子越多越久。掃完會換掉現在這份結果。"
 
 msgid "rob.msgRescan"
-msgstr "請重新掃描策略 {name} 的參數（lib.param_scan：scan_grid → find_plateau → write_scan → plot_heatmap）。期間與手續費照目前回測：{start} → {end}、手續費 {fee}%；兩軸沿用上次的 {rp}（{r0}–{r1}）與 {cp}（{c0}–{c1}），穩健點落在邊上時照 lib 規則往外延伸一次。掃完回報尖峰與穩健點。"
+msgstr "請重新掃描策略「{display_name}」({name}) 的參數（lib.param_scan：scan_grid → find_plateau → write_scan → plot_heatmap）。期間與手續費照目前回測：{start} → {end}、手續費 {fee}%；兩軸沿用上次的 {rp}（{r0}–{r1}）與 {cp}（{c0}–{c1}），穩健點落在邊上時照 lib 規則往外延伸一次。掃完回報尖峰與穩健點。"
 
 msgid "rob.msgRescanLabel"
 msgstr "重新掃描 {name} 的參數"
@@ -4971,7 +5094,7 @@ msgid "rob.cfRangeVal"
 msgstr "{rp} {r0}–{r1}（{R} 格）"
 
 msgid "rob.msgRescan1"
-msgstr "請重新掃描策略 {name} 的參數（lib.param_scan：scan_grid → find_plateau → write_scan → plot_heatmap，單參數照 lib 文件的一格第二軸寫法）。期間與手續費照目前回測：{start} → {end}、手續費 {fee}%；只有一個參數 {rp}，範圍沿用上次的 {r0}–{r1}，穩健點落在邊上時照 lib 規則往外延伸一次。掃完回報尖峰與穩健點。"
+msgstr "請重新掃描策略「{display_name}」({name}) 的參數（lib.param_scan：scan_grid → find_plateau → write_scan → plot_heatmap，單參數照 lib 文件的一格第二軸寫法）。期間與手續費照目前回測：{start} → {end}、手續費 {fee}%；只有一個參數 {rp}，範圍沿用上次的 {r0}–{r1}，穩健點落在邊上時照 lib 規則往外延伸一次。掃完回報尖峰與穩健點。"
 
 msgid "rob.tag.atPlateau1"
 msgstr "目前參數：就是穩健參數"
@@ -5474,19 +5597,12 @@ msgstr "下載不到這支策略，請再試一次。"
 msgid "lib.dl.blocked"
 msgstr "這支策略沒通過平台的安全檢查，不能下載。"
 
-# 0.1.13 稽核補的兩種(字待設計師定稿)
-msgid "lib.dl.signin"
-msgstr "這台電腦的 Blave 登入需要更新，重新登入 Blave 後再按一次。"
-
+# 0.1.13 稽核補的(字待設計師定稿)
 msgid "lib.dl.unsent"
 msgstr "安裝那句沒送出去，這支還沒裝。等對話空下來再按一次。"
 
 msgid "lib.dl.gone"
 msgstr "這支策略已經不在策略庫了。"
-
-# 匿名 /public_code 的 404:下架或已不符合免登入條件分不出來,講中性句(spec-0.1.13-smallfixes #10)
-msgid "lib.dl.anonGone"
-msgstr "這支現在不能免登入下載，可能已經下架，或改成要登入。清單已經重新整理。"
 
 # 429(匿名下載每 IP 每小時 30 次):講「稍後」,不講「再試一次」(稽核 0.1.13 UI S5)
 msgid "lib.dl.rateLimited"
@@ -6034,9 +6150,6 @@ msgstr "儲值後能用"
 msgid "lib.grp.check"
 msgstr "帳號狀態確認後能用"
 
-msgid "lib.grp.signedOut"
-msgstr "要先登入"
-
 msgid "lib.grp.gate.noCard"
 msgstr "這些要綁卡才跑得了回測。"
 
@@ -6045,9 +6158,6 @@ msgstr "這一小時付不出資料費，這些先跑不了回測。儲值後馬
 
 msgid "lib.grp.gate.unknown"
 msgstr "現在查不到帳號的資料狀態，這些可能跑不了回測。"
-
-msgid "lib.grp.gate.signedOut"
-msgstr "這些要先登入 Blave 才能下載。"
 
 msgid "lib.grp.empty"
 msgstr "這裡還沒有只用公開價格的策略。"
@@ -6733,9 +6843,6 @@ msgstr "轉出只做目前這一版。"
 
 msgid "xp.sending"
 msgstr "這支正在轉，進度在對話裡。"
-
-msgid "xp.why.busy"
-msgstr "agent 正在回覆，回覆完再轉出。"
 
 msgid "xp.cf.title.xq"
 msgstr "轉出 XQ（XS）版"
@@ -8954,6 +9061,10 @@ msgstr "照策略組合 {n} 支策略下單。"
 msgid "po.manualPart"
 msgstr "另有手動 {n}"
 
+# 帳本模式:帳戶比帳本少(差額跟帳本反號)時取代「另有手動」(trade.js detRow)
+msgid "po.acctActual"
+msgstr "帳戶實際 {n}"
+
 msgid "po.detInclManual"
 msgstr "（含手動）"
 
@@ -9747,6 +9858,10 @@ msgstr "Bitget 換成經典帳戶後，{n} 個倉位跟換之前對不上。暫�
 msgid "tr.haltBitgetCopyKey"
 msgstr "Bitget 跟單或帶單帳戶的金鑰下不了單。用一般帳戶在「API 管理」建交易金鑰，勾讀取與交易、不勾提領。"
 
+# 讀帳是空的、策略還記著部位而自動暫停(reason 開頭 positions read back empty;trade.js trHaltReasonText)
+msgid "tr.haltEmptyRead"
+msgstr "帳戶沒有部位了，策略還記著，什麼單都不送。同一帳戶、自己平的就再按「啟動下單」，不然問 agent。"
+
 # 對不上的倉位清單(trade.js trPaintMismatch):欄名與出口句
 msgid "tr.mm.colSym"
 msgstr "標的"
@@ -9945,6 +10060,19 @@ msgstr "績效更新過，重新測試後才會更新。"
 msgid "xt.busyRefresh"
 msgstr "績效正在更新，跑完再按一次。"
 
+# 台指期不是交易所拒單的 P1(order_errors 帶 kind:clock_skew_hold／tw_entry_hold):事件列標題、本機通知內文
+msgid "tr.ov.evClockHold"
+msgstr "台指期新倉暫停"
+
+msgid "tr.ov.evTwHold"
+msgstr "台指期新倉暫停"
+
+msgid "tm.evTwHoldNote"
+msgstr "台指期新倉暫停，平倉照常。打開 Blave 看要核對什麼。"
+
+msgid "tm.evClockHoldNote"
+msgstr "這台電腦的時鐘不準，台指期新倉先暫停，平倉照常。打開 Blave 看怎麼恢復。"
+
 # 下單結果不明(order_unconfirmed,canon notifications §3):事件列標題／說明、本機 P1 通知內文、列下那一句;策略段(策略檔名)組字
 msgid "tr.ov.evUnconfirmed"
 msgstr "下單結果不明"
@@ -9965,13 +10093,16 @@ msgid "tr.err.unconfirmed"
 msgstr "結果不明，可能已經成交，不要手動補單。這個標的暫停開倉，平倉照常。"
 
 msgid "tr.ov.evStratOne"
-msgstr "策略 {name}"
+msgstr "策略「{name}」"
 
 msgid "tr.ov.evStratTwo"
-msgstr "策略 {a}、{b}"
+msgstr "策略「{a}」、「{b}」"
 
 msgid "tr.ov.evStratMany"
-msgstr "{name} 等 {n} 支策略"
+msgstr "「{name}」等 {n} 支策略"
+
+msgid "tr.ov.evStratName"
+msgstr "「{name}」"
 
 msgid "tm.evWithStrat"
 msgstr "{strat}：{note}"
@@ -9998,6 +10129,27 @@ msgstr "有一筆單結果不明、可能已成交，什麼單都不送。不要
 
 msgid "tm.evHaltUnconfirmedNote"
 msgstr "有一筆單結果不明、可能已成交，什麼單都不送。不要手動補單，告訴 agent 成交多少再按「啟動下單」。"
+
+msgid "tm.evCloseIdentity"
+msgstr "群益部位未平倉"
+
+msgid "tm.evCloseIdentityNote"
+msgstr "這台電腦登不進群益下單，請在群益下單軟體手動平倉。"
+
+msgid "tm.evCloseLag"
+msgstr "部位這次沒平倉"
+
+msgid "tm.evCloseLagNote"
+msgstr "部位資料還沒跟上剛送的單。一分鐘後再按「暫停並關閉部位」，或到券商平倉。"
+
+msgid "tm.evCloseQueued"
+msgstr "群益部位這次沒平倉"
+
+msgid "tm.evCloseQueuedNote"
+msgstr "上一筆平倉還在等回報。{at} 後再按「暫停並關閉部位」，或到群益下單軟體看過委託再平。"
+
+msgid "tm.evCloseQueuedSoonNote"
+msgstr "上一筆平倉還在等回報。過幾分鐘再按「暫停並關閉部位」，或到群益下單軟體看過委託再平。"
 
 msgid "tr.ov.evUnconfirmedCloseAll"
 msgstr "沒有一起平倉"
@@ -10163,7 +10315,7 @@ msgid "ph.cf.3"
 msgstr "附件、策略程式和舊對話的圖片不上傳。回覆手機時的圖片會上傳。"
 
 msgid "ph.cf.ok"
-msgstr "開啟"
+msgstr "打開"
 
 msgid "ph.off.title"
 msgstr "關閉手機對話？"
@@ -10176,6 +10328,28 @@ msgstr "伺服器上的對話會刪除，這台電腦上的不受影響。"
 
 msgid "ph.off.ok"
 msgstr "關閉"
+
+msgid "ph.slot"
+msgstr "在手機上用"
+
+# 側欄「在手機上用」pop 的步驟(spec slot-phone-steps §3)
+msgid "ph.stepGet"
+msgstr "下載 App"
+
+msgid "ph.stepPair"
+msgstr "在 App 配對"
+
+# 已登入時第 1 步(打勾),下面小字是 Blave 帳號 email
+msgid "ph.signed"
+msgstr "已登入"
+
+# 〔對話〕是 App 的 mchat_entry;App 改字要回頭同步這句
+msgid "ph.stepChat"
+msgstr "在 App 的 Agent 分頁按〔對話〕配對"
+
+# 最後一步,「允許手機對話」已開就不列。〔打開〕要跟配對確認框的鈕 ph.ask.ok 逐字相同
+msgid "ph.stepAllow"
+msgstr "電腦跳出確認時，按〔打開〕"
 
 msgid "ph.syncing"
 msgstr "已同步 {n}／{m} 條對話"
@@ -10209,13 +10383,13 @@ msgstr "帳號下的手機"
 msgid "ph.webRevoke"
 msgstr "到網站撤銷"
 
-# 〔到網站撤銷〕的讀屏名稱:會開瀏覽器(同 rp.help.aria)
+# 〔到網站撤銷〕的讀屏名稱:會開瀏覽器
 msgid "ph.webRevoke.aria"
 msgstr "到網站撤銷（在瀏覽器開啟）"
 
 # 開著、帳號還沒有手機:組內那一槽
 msgid "ph.none"
-msgstr "還沒有配對的手機。在 App 的 Agent 分頁配對。"
+msgstr "在 App 的 Agent 分頁按〔對話〕配對。"
 
 # 手機配對完、這台開關關著時主視窗跳的確認框(§9b):標題帶機型,內文沿用 ph.cf.1–3;電腦當時沒開的話標題後面另接配對時間(mono)
 msgid "ph.ask.title"
@@ -10392,3 +10566,236 @@ msgstr "連不上雲端主機"
 # 報告空清單 Setup fog 卡上那句;扁平態仍用 rpt.emptyHint
 msgid "rpt.fogNew"
 msgstr "請 agent 寫第一份報告。"
+
+# 側欄策略改名(renderer/stratrename.js;spec strategy-rename-2026-11-05 §2/§3/§5):選單項、選單 aria、名稱框、框下那一行、錯誤碼對應句、改好後的朗讀
+msgid "strat.rename"
+msgstr "改名"
+
+msgid "strat.menu"
+msgstr "{name} 的選項"
+
+msgid "strat.nameAria"
+msgstr "策略名稱"
+
+msgid "strat.nameMax"
+msgstr "最多 60 字"
+
+msgid "strat.nameBad"
+msgstr "名稱不能有 {c}"
+
+msgid "strat.nameWrapped"
+msgstr "名稱不能整個包在 [ ] 裡"
+
+msgid "strat.nameDup"
+msgstr "已經有一支叫這個名字"
+
+msgid "strat.renameGone"
+msgstr "這支策略的資料夾不見了，清單已重新整理。"
+
+msgid "strat.renameNoLiteral"
+msgstr "在對話裡請 agent 改。"
+
+msgid "strat.renameJob"
+msgstr "正在重跑回測，跑完再改。"
+
+msgid "strat.renameFail"
+msgstr "沒有改成，按 Enter 再試一次。"
+
+msgid "strat.renamed"
+msgstr "已改名為{name}"
+
+# 0.1.47 送上雲端／拉回改成 app 直接搬(renderer/handoff.js)
+msgid "ho.row.staysVDown"
+msgstr "交易所金鑰、資料來源金鑰、投入金額、下單狀態"
+
+msgid "ho.busy"
+msgstr "這支正在搬，進度在這一行。"
+
+msgid "ho.p.send.up"
+msgstr "正在送上雲端"
+
+msgid "ho.p.send.down"
+msgstr "正在從雲端拉回"
+
+msgid "ho.p.run.up"
+msgstr "已存成雲端的 {dest}，正在那邊重跑回測"
+
+msgid "ho.p.run.down"
+msgstr "已存成這台電腦的 {dest}，正在重跑回測"
+
+msgid "ho.p.trial.up"
+msgstr "已存成雲端的 {dest}，正在確認它跑得起來"
+
+msgid "ho.p.trial.down"
+msgstr "已存成這台電腦的 {dest}，正在確認它跑得起來"
+
+msgid "ho.cmp.show"
+msgstr "看兩邊數字"
+
+msgid "ho.cmp.hide"
+msgstr "收起數字"
+
+msgid "ho.cmp.here"
+msgstr "這台電腦"
+
+msgid "ho.cmp.cloud"
+msgstr "雲端"
+
+msgid "ho.cmp.ret"
+msgstr "總報酬"
+
+msgid "ho.cmp.sharpe"
+msgstr "Sharpe"
+
+msgid "ho.cmp.mdd"
+msgstr "最大回撤"
+
+msgid "ho.cmp.trades"
+msgstr "交易次數"
+
+msgid "ho.cmp.start"
+msgstr "開始"
+
+msgid "ho.cmp.end"
+msgstr "結束"
+
+msgid "ho.cmp.data"
+msgstr "資料來源"
+
+msgid "ho.cmp.dataHere"
+msgstr "Binance 公開 K 線"
+
+msgid "ho.cmp.dataHereBlave"
+msgstr "Binance 公開 K 線、Blave 資料"
+
+msgid "ho.cmp.dataCloud"
+msgstr "Blave 資料"
+
+msgid "ho.err.unknown"
+msgstr "還沒收到雲端的回覆，結果不確定。稍後看清單上有沒有 {to}。"
+
+msgid "ho.err.old"
+msgstr "雲端主機的程式還沒更新到這一版。它會自己更新，幾分鐘後再試。"
+
+msgid "ho.err.retry"
+msgstr "這次沒搬成，稍後再試。"
+
+msgid "ho.err.portable"
+msgstr "搬不過去：用到了 {x}，那邊沒有。"
+
+msgid "ho.err.name"
+msgstr "搬不過去：檔案裡的 STRATEGY_NAME 跟資料夾名不一致，請 agent 先改成一致。"
+
+msgid "ho.err.files"
+msgstr "搬不過去：{x} 這個檔不能搬（太大、檔名不合規，或不是 UTF-8）。"
+
+msgid "ho.err.noSource"
+msgstr "找不到這支策略的程式碼。"
+
+msgid "ho.err.run"
+msgstr "已存成{at} {dest}，但回測沒跑完（{why}）。"
+
+msgid "ho.err.slow"
+msgstr "已存成{at} {dest}，回測跑了 20 分鐘還沒結束。"
+
+msgid "ho.why.REFUSED"
+msgstr "被前視檢查擋下"
+
+msgid "ho.why.DATA"
+msgstr "取不到資料"
+
+msgid "ho.why.TIMEOUT"
+msgstr "逾時"
+
+msgid "ho.why.EXIT"
+msgstr "中途出錯"
+
+msgid "ho.keys.none"
+msgstr "已存成雲端的 {dest}，但這台電腦沒有 {src} 的金鑰，沒搬過去。"
+
+msgid "ho.keys.noneB"
+msgstr "已存成雲端的 {dest}，但這台電腦沒有 {src} 的金鑰，還沒確認它跑得起來。"
+
+msgid "ho.keys.failed"
+msgstr "已存成雲端的 {dest}，但資料來源金鑰沒寫進去，所以沒有跑回測。"
+
+msgid "ho.keys.failedB"
+msgstr "已存成雲端的 {dest}，但資料來源金鑰沒寫進去，所以還沒確認它跑得起來。"
+
+msgid "ho.keys.go"
+msgstr "去資料來源"
+
+msgid "ho.notrun.order"
+msgstr "已存成{at} {dest}。它會下單，所以沒有試跑，只檢查了程式碼。"
+
+msgid "ho.notrun.syntax"
+msgstr "已存成{at} {dest}，但 {x} 有語法錯誤，沒有試跑。"
+
+msgid "ho.trial.ok"
+msgstr "已存成{at} {dest}，它跑得起來，也正常結束了。"
+
+msgid "ho.trial.fail"
+msgstr "已存成{at} {dest}，但試跑時出錯了。"
+
+msgid "ho.trial.stopped"
+msgstr "已存成{at} {dest}，它跑得起來；兩分鐘後先停下，沒有排定時。"
+
+msgid "ho.left"
+msgstr "沒搬：{x}（只搬 .py 檔）。"
+
+msgid "ho.goDest.up"
+msgstr "到雲端看"
+
+msgid "ho.goDest.down"
+msgstr "到這台電腦看"
+
+msgid "ho.dismiss"
+msgstr "收起"
+
+msgid "ho.card.up"
+msgstr "把 {name} 送上雲端"
+
+msgid "ho.card.down"
+msgstr "把 {name} 拉回這台電腦"
+
+msgid "ho.card.upBtn"
+msgstr "送上雲端…"
+
+msgid "ho.card.downBtn"
+msgstr "拉回…"
+
+msgid "ho.at.up"
+msgstr "雲端的"
+
+msgid "ho.at.down"
+msgstr "這台電腦的"
+
+msgid "ho.done.match"
+msgstr "已存成{at} {dest}，交易次數與期間兩邊一致。"
+
+msgid "ho.done.differs"
+msgstr "已存成{at} {dest}，交易次數兩邊不一樣。"
+
+msgid "ho.done.period"
+msgstr "已存成{at} {dest}，兩邊回測期間不同。"
+
+msgid "ho.done.nosrc"
+msgstr "已存成{at} {dest}，原本那支沒有回測可以對照。"
+
+msgid "ho.cmp.noise"
+msgstr "兩邊資料來源不同，小幅差異是正常的。"
+
+msgid "ho.ok.up"
+msgstr "送上雲端"
+
+msgid "ho.ok.down"
+msgstr "拉回"
+
+msgid "ho.row.staysVMissing"
+msgstr "交易所金鑰、投入金額、下單狀態、{sources} 的金鑰（這台電腦沒有）"
+
+msgid "ho.menu.down"
+msgstr "拉回這台電腦…"
+
+msgid "ho.done.none"
+msgstr "已存成{at} {dest}，那邊沒有跑出回測。"

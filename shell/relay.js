@@ -14,6 +14,8 @@
  *   - 開關從關打開只有同意框,api 回 200 就算開。帳號下的手機配對完、這台關著:設定頁讀手機清單、主視窗跳一次確認框(9b),
  *     讀 api 回應的只有 PAIR_SRC 兩個函式(契約 mobile-pairing-v2-api §4–§5)。
  *   - 那一句還沒開跑就不會跑的(not_run／desktop_restarting／bad_session／bad_message)送 message_failed;開跑之後的失敗走回合的 error。
+ *   - 手機的暫停:controls 裡沒有 session 的 {type: "halt", id},交給 opts.halt(同電腦上按暫停),回 halt_result{id, ok, error?}。
+ *     總開關關著照收(安全方向);ok 只代表交給下單主機了,收斂看狀態檔的 halt.halted。
  *   - 引擎的錯誤是接在 error 前面的一段 text,手機回合常沒開視窗,renderer 的 classifyFault 不會跑,分類在這裡做:每段開頭可能是錯誤字就先扣著,
  *     判成錯誤整段不送(api 的 fold 不理 text_replace,送了就留在歷史與推播),代碼放回合的 error。契約 references/turn-events.md。
  *
@@ -26,7 +28,7 @@ const { redact } = require("./redact");
 const { deviceOf } = require("./mobileview");
 
 const EP = {
-  enabled: "/oauth/desktop/relay/enabled",   // → { enabled, on, prompt, paired_notice }
+  enabled: "/oauth/desktop/relay/enabled",   // → { enabled, on, prompt, paired_notice, paired_ever }
   enable: "/oauth/desktop/relay/enable",     // → 200
   disable: "/oauth/desktop/relay/disable",   // 同時刪伺服器上這台的對話(§4.4)
   poll: "/oauth/desktop/relay/poll",         // + ver, restarting → { enabled, messages, controls, server_time } | { enabled:false, reason }
@@ -74,6 +76,7 @@ const SYNC_DAYS = 30, SYNC_MAX_SESSIONS = 200, SYNC_PER_SESSION = 500;
 const SYNC_BATCH_TURNS = 100, SYNC_BATCH_BYTES = 512 * 1024, SYNC_GAP_MS = 1000, TURN_MAX_BYTES = 32 * 1024;
 const MESSAGE_MAX_BYTES = 1024 * 1024;   // = main.js / runtime 的 stdin 上限
 const MSG_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+const HALT_ID_RE = /^[0-9a-f]{32}$/, HALT_ERROR_RE = /^[A-Za-z0-9_.-]{1,64}$/;   // = api relay.HALT_ID_RE / HALT_ERROR_RE
 const NEW_SID_RE = /^desktop-m[a-z0-9]{3,15}$/;   // api 替手機開的新對話(§3.2);其他的必須是這台已經有的
 const DEVICE_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 const ASK_ID_RE = /^[A-Za-z0-9_-]{8,64}:\d{0,15}$/, ASKED_MAX = 50;
@@ -146,6 +149,7 @@ const toMs = (sec) => Math.round(Number(sec) * 1000);   // session.db 的時間�
 
 /* opts:{ dir(userData), stateDir(BASE/state), apiBase, post(url, body, extra), getCreds(), installId(), ver, now?, log?,
           startTurn(payload, origin) → { started|queued|busy|blocked }, stopTurn(sid), turnBusy(sid), isRestarting(), engineKind() → 連線種類(blave／claude／codex／apikey),
+          halt() → Promise<{ ok, error? }>(手機送來的暫停:同電腦上按暫停),
           sessions: { list() → [{ id, last, title }], rowsAfter(sid, afterId, limit, latest) → [{ id, role, content, created_at }], maxId(sid),
                       exists(sid), remove(sid) → bool },
           turnArgs() → { model, effort }(電腦當下存的那一組), known() → [值](第 1 條),
@@ -166,9 +170,11 @@ function createRelay(opts) {
   let pending = [];          // 待送的 chunk(每段帶 session_id),照收到的順序
   let batchTimer = null, reporting = null, retryTimer = null, flushBackoff = BACKOFF_MIN_MS, pingTimer = null;
   let inflight = null;       // 在路上那一批:{ sids, p }(認領只等自己那條的)
+  let pairedEver;
   let acctGen = 0, signingOut = false;   // 登出換一次世代:之前在路上的回報、/relay/enabled 回來後都當上一個帳號的丟掉
   let authLost = false;   // 本機開著時 api 回 401(帳號被重設密碼／全部撤銷、或網站撤了這台):設定區因此收起,重新登入時照樣要講「關了」
   const tombstones = new Set();
+  const haltSeen = new Set();
   const sync = { running: false, done: 0, total: 0, error: false, lastIds: null, again: new Set() };
 
   function load() {
@@ -213,6 +219,8 @@ function createRelay(opts) {
     return r || { status: 0, body: null };
   }
   function changed() { try { if (opts.onChange) opts.onChange(state()); } catch (_) { /* 畫面壞掉不擋 */ } }
+  // 帳號有沒有配對過手機(側欄提示格;含已撤銷,api app_devices 有任何一列)。只收布林,其餘 = 讀不到 = 畫面不畫手機那則
+  function pairedSet(v) { const n = typeof v === "boolean" ? v : undefined; if (pairedEver === n) return; pairedEver = n; changed(); }
   function setFlag(v) { if (flag === v) return; flag = v; if (!v) stopPoll(); changed(); }
   const live = () => flag && load().on && !load().pendingDisable && !!creds() && !stopped;
   // 也通知畫面:分頁上的手機記號跟著每條對話的手機回合數(state().phoneSids)
@@ -243,12 +251,12 @@ function createRelay(opts) {
     if (seenSending) await seenSending.catch(() => {});
     const tok = (creds() || {}).token, gen = acctGen, markedAt = load().notice && load().notice.marked ? load().notice.id : null;
     const r = await call(EP.enabled);
-    if (r.noCreds) { setFlag(false); return false; }
+    if (r.noCreds) { pairedSet(undefined); setFlag(false); return false; }
     if (r.status === 429) return flag;   // 每台限流:總開關、開關、確認框都照上一次,下一輪再問
-    if (r.status !== 200 || !r.body) { setFlag(false); return false; }
+    if (r.status !== 200 || !r.body) { pairedSet(undefined); setFlag(false); return false; }
     authLost = false;
     setFlag(r.body.enabled === true);
-    if (tok && tok === (creds() || {}).token && gen === acctGen && !signingOut) { askFrom(r.body); noticeFrom(r.body, markedAt); }   // 路上換了帳號或登出中:這份 prompt 是上一個帳號的
+    if (tok && tok === (creds() || {}).token && gen === acctGen && !signingOut) { pairedSet(r.body.paired_ever); askFrom(r.body); noticeFrom(r.body, markedAt); }   // 路上換了帳號或登出中:這份 prompt 是上一個帳號的
     if (flag && r.body.on === false) await reenable();
     return flag;
   }
@@ -551,6 +559,7 @@ function createRelay(opts) {
 
   /* ── controls ─────────────────────────────────────── */
   function control(c) {
+    if (c && typeof c === "object" && c.type === "halt") { haltFromPhone(c.id); return; }
     if (!c || typeof c !== "object" || typeof c.session_id !== "string") return;
     const sid = c.session_id;
     if (c.type === "interrupt") {
@@ -578,6 +587,17 @@ function createRelay(opts) {
       if (ok && sync.lastIds) delete sync.lastIds[sid];
       enqueueChunk({ type: ok ? "session_delete" : "delete_refused", session_id: sid }, true);
     }
+  }
+
+  /* 手機按的暫停(api relay.push_halt):只從自己這條 poll 進來,手機的簽章與同帳號在 api 驗過。走跟電腦上按暫停同一條
+     (opts.halt),結果回 halt_result 讓 api 收尾。error 只回代碼:daemon 的 ack 可能是 runtime 的原文 */
+  function haltFromPhone(id) {
+    if (typeof id !== "string" || !HALT_ID_RE.test(id) || haltSeen.has(id)) return;
+    haltSeen.add(id); if (haltSeen.size > 50) haltSeen.delete(haltSeen.values().next().value);
+    Promise.resolve().then(() => opts.halt()).catch(() => null).then((r) => {
+      const err = r && r.ok ? null : r && typeof r.error === "string" && HALT_ERROR_RE.test(r.error) ? r.error : "FAILED";
+      return enqueueChunk({ type: "halt_result", id, ok: !!(r && r.ok), ...(err ? { error: err } : {}) }, true);
+    }).catch((e) => log("relay: halt " + ((e && e.message) || e)));
   }
 
   /* ── 長輪詢 ───────────────────────────────────────── */
@@ -794,7 +814,7 @@ function createRelay(opts) {
       await call(EP.disable, null, QUIT_TIMEOUT_MS);
     } finally { signingOut = false; }
     s.pendingDisable = false; s.synced = false; save(); outboxWrite([]);
-    sync.lastIds = null; seenToken = null; lastToken = null; ask = null; authLost = false;
+    sync.lastIds = null; seenToken = null; lastToken = null; ask = null; authLost = false; pairedEver = undefined;
     forgetReports(); changed();
   }
   /* 上一個帳號沒送完的回報整批丟掉:call 送出當下才讀憑證,留著會帶下一個帳號的 token 送出去 */
@@ -947,7 +967,7 @@ function createRelay(opts) {
   function state() {
     const s = load();
     const signedIn = !!creds();
-    return { visible: flag, on: s.on, pending: s.pendingDisable, signedIn,
+    return { visible: flag, on: s.on, pending: s.pendingDisable, signedIn, pairedEver: signedIn ? pairedEver : undefined,
       sync: { running: sync.running, done: sync.done, total: sync.total, error: sync.error, synced: s.synced },
       mobileTurns: active.size, queued: [...queue.values()].reduce((n, q) => n + q.length, 0), phoneSids: phoneSids(),
       ask: ask && flag && signedIn && !s.on ? { ...ask } : null,

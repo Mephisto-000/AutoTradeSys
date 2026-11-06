@@ -8,6 +8,31 @@ miss it. (Channel rules: `.claude/docs/blave-agent-update-channels.md`.)
 
 ## Unreleased
 
+## 1.1.158 — 2026-11-06(desktop 0.1.47)
+
+- **雲端群益用 Administrator 身分平倉(`portfolio_reporter.CAPITAL_ADMIN_FLATTEN_ON`,預設關)**:開著時,雲端 Windows 的 bridge 身分登不進群益、但機器上有 Administrator 密碼,範圍裡有群益的平倉(close_all、close_then_unbind)改經 `capital_connect.run_detached_as_administrator` 起一次性排程(`BlaveCapitalFlatten`,跑 `state/flatten_admin.cmd`,清掉 `BLAVE_AGENT_LOCAL`),flatten 放開 `state/flatten.lock` 後刪排程。排程起不來就照舊用 bridge 身分起(群益記手動平)。`can_flatten`、`manual_close_venues`、listener `_manual_venues` 跟著認「可換身分」。要等 Windows 測試機上 1 口微台真單驗過(成交、刪排程不砍程式、worker 同時登入不互踢、密碼不進 log)才翻 true;翻的同一版補 `references/capital-broker.md` 與 `manager.md`。
+
+- **電腦版 daemon 自己校時(`local_daemon._clock_loop`)**:綁著群益或統一時,每 10 分鐘 GET 一次 api 的 `/fx_rates`(公開、只讀 Redis),回應的 Date 交給 `lib/tw_clock.note_reply` 寫進 workspace 的 `state/clock_skew.json`。沒有 Blave 資料權限的電腦版原本拿不到校時樣本,台指期新倉的時鐘閘等於沒作用;時鐘快超過 60 秒時,預開盤送出的市價單會被當成「沒成交」每輪重送。tw_clock 用檔案路徑載進私有模組,skew 檔指定絕對路徑,不受執行緒 cwd 影響;workspace 沒有 `lib/tw_clock.py` 就跳過。
+
+- **策略改名(`rename_strategy {name, display_name}`,spec strategy-rename-2026-11-05)**:側欄〔改名〕的直接指令,web 與電腦版兩個視角都走它,不經 agent。在 workspace 子行程跑 `lib.strategy.rename`(名稱規則、只改 `DISPLAY_NAME` 那一行、版本 hash 換寫法都在 lib);ack `{display_name, changed}`,改了才推一次 strategies。拒絕碼 `UPDATE_REQUIRED`(lib 沒有 `STRATEGY_RENAME`)／`TURN_RUNNING`(機器上有對話回合;排程報告的不算)／`JOB_RUNNING`(這支在背景重跑或回測鎖被佔)／`BAD_NAME`／`DUPLICATE`／`NOT_FOUND`／`NOT_LITERAL`／`BAD_ARGS`。`local_daemon.ALLOWED` 加它(api 先上 ALLOWED 與 `CLOUD_COMMANDS`)。
+- **報告每支策略帶 `renamable: true`**(lib 有 `STRATEGY_RENAME` 才帶;`strategy_reporter.lib_renames`,同 `lib_restore_in_place` 的文字比對):頁面沒有這個欄位就不出〔改名〕。
+- **改名不算改碼(canon strategy-versions §2)**:runtime 自己比 hash 的三處改成不算 `DISPLAY_NAME = "…"` 那一行(只認改名寫得出的形狀:一個字串字面值、可帶註解;同一行還有別的碼照算)、舊的整檔 hash 也認(`strategy_reporter.code_hash`／`hash_matches`,跟 lib 與 shell 跑同一份 `tests/fixtures/code_hash_name.json`):還原的背景重跑(`_version_code_hash`、`_file_is_version`:lib 會改名時釘不算名字的 hash,因為還原保留目前的名字)、更新績效的計畫(`_refresh_plan`)、組合預覽(`portfolio_reporter._same_code`)。
+- 測試 `tests/check_rename_command.py`(新)、`tests/check_strategy_rename.py`(新,lib)、`tests/fixtures/api_agent_command_allowed.json` 加 `rename_strategy`。
+
+- **拉回這台電腦的本機傳法(`strategy_import` 本機模式收 `{name, to?, stage, files:[{f, sha256}]}`)**:電腦版主行程比過兩份 sha256 後把檔寫進 `state/transfer_in/<stage>/`,daemon 讀檔時不跟 symlink、再驗一次 sha256 與上限,讀完一律刪暫存;雲端主機收到 `stage` 一律拒。`local_daemon` 把 `strategy_import` 從 `CLOUD_ONLY` 移進 `ALLOWED`(外殼只讓主行程送,`daemon.js MAIN_ONLY_COMMANDS`);api 白名單不變。測試 `tests/check_strategy_transfer.py` §9、`tests/check_shell_transfer.js`。
+- **搬策略動作卡(`--handoff-card`)**:外殼帶這個旗標時 prompt 掛 `_HANDOFF_RULE`,用戶在對話裡要搬策略,agent 只寫兩句加 `<handoff dir="up|down" name="<資料夾名>"/>`,`WebSink` 送 chunk `{"type":"handoff","dir","name"}`(名字過 `strategy_transfer.NAME_RE`,被 Stop 截斷不送),四個 sink 都剝。沒帶旗標的舊外殼照舊走 `references/cloud-handoff.md`。測試 `tests/check_await_marker.py`。
+- **策略搬家不經 agent(`strategy_import`、`strategy_export`,新模組 `strategy_transfer.py`;電腦版 0.1.47 送上雲端／拉回接這兩條)**:import 把電腦版送來的 `strategies/<name>/*.py` 寫進一個新資料夾(名字被佔就 `<name>_N`,檔案、單檔版、下單設定三張表、`state/deployments.json`、crontab 任一個有就算佔,從不覆蓋),逐檔 `.handoff` → 讀回比 sha256 → 換名,半途失敗只刪自己寫的檔與自己建的資料夾;換名時只改 `STRATEGY_NAME` 那一行、`DISPLAY_NAME` 加（N）;`STRATEGY_NAME` 必須是最上層唯一一個字串常數(可帶型別標註),讀不到拒(NO_STRATEGY_NAME)、跟資料夾不同拒(NAME_MISMATCH),否則回測會寫進別支策略;helper 檔提到 STRATEGY_NAME、或任何檔有 `import *` 也拒(NO_STRATEGY_NAME),擋複製來的 helper 跨檔改名;例外是 Type B 而且搬來的每個檔都沒提到 STRATEGY_NAME、也沒 import lib.runner(不回測、不寫 stats),照資料夾代號搬、只試跑;用到目的地沒有的 `lib.*`、自訂 allocator → NOT_PORTABLE,什麼都不寫。雲端收資料來源金鑰(只收 `DATA_<來源>_<欄位>`)寫進 `.env` 受管區塊(持 `.env.lock`,0600),本機不收。寫完背景跑一次:Type A／C 安靜回測(`BLAVE_MODE=backtest BLAVE_QUIET=1`,目的地的 v1),Type B 會下單或編不過就不跑,其餘試跑 120 秒;試跑也帶 `BLAVE_MODE=backtest BLAVE_QUIET=1`,不管程式碼指到哪支策略,runner 都不寫 live state.json、對帳器也不會當成 tick。進度寫 `strategies/<dest>/transfer.json`,`strategy_reporter` 以 `transfer` 帶上去(回測成功後刪檔;失敗沿用重跑的錯誤碼;一週後不再回報),也進 strategy marker(只在檔案存在時加欄,其餘策略的 marker 不變)。export 讀 `*.py`(不跟 symlink、跑出來的檔不帶、其餘列在 `left_behind`),交給 api 的 `/export` 暫存,ack 只帶檔名與 sha256。`delete_strategy` 會一起停掉搬家的背景跑(先刪紀錄再殺,被殺那一跑的結算不會把檔寫回正在刪的資料夾);listener 重啟會接回或結算。`local_daemon` 先把兩條放在 `CLOUD_ONLY`,本機的 import 等 0.1.47 外殼定好傳法再開。名字與檔名另拒 Windows 保留名(con、nul、com1.py…,不分大小寫)。測試 `tests/check_strategy_transfer.py`(新)、`tests/fixtures/api_agent_command_allowed.json`,`check_stats_mtime_consumers`／`check_runtime_atomic_file`／`check_state_read_retry` 登記新的讀寫點。
+
+## 1.1.157 — 2026-11-05(desktop 0.1.45)
+
+- **統一登入等鎖逾時(`president_connect.LOGIN_STATES` 加 `"BUSY": "timeout"`)**:lib 的登入鎖被另一個登入佔著、等不到時回 BUSY,頁面當成「逾時」那一態,不算新的一類錯誤。BUSY 不寫 STOP、不佔一天的登入次數(lib/president_vault)。
+- **平倉後解除綁定(`close_then_unbind {env, request_id?}`)**:只平要解除的那幾家(flatten `--venues`),全部成交而且重讀歸零,才跑原本的 `credentials_remove`。沒平完、結果不明(統一 0000 沒回報成交)、或 flatten 沒跑完,就停住(`held`),金鑰和暫停都保留,不會自己再送。台指期休市、群益在這個身分下平不了、workspace 的 flatten.py 太舊,這三種情況什麼都不做。等待中的請求放在 `state/unbind_after_close.json`,雲端 listener 和電腦版 daemon 都在指令執行緒上推進,重開後接著做。報告新增 `can_close_unbind`、`last_flatten`、`unbind_after_close`、`txf_session`。舊的 `credentials_remove` 行為不變,只多清掉同一家等待中的請求。進行中時拒絕整機的 `resume`／`resume_wait`(帶 `strategies` 的照舊),解除前也確認當初掛的 HALT 還在、沒被換過;不在就停住(`resumed`),不刪金鑰。flatten 的 `--venues` 裡有任何一家沒讀到部位,整次就算沒平(`unread`)。需要同版 workspace 的 `manager/flatten.py`;api 要先把 `close_then_unbind` 加進 ALLOWED。
+
+## 1.1.156 — 2026-11-04
+
+- **名稱帶 [] 或（）的策略也寫名稱(`_display_name`、`_NAME_FOLD`)**:1.1.155 把含 `[]（）` 的 DISPLAY_NAME 整個退回代號,29026 canary 的「[測試] 台積電 1 分 K 均線交叉」「ETH 均線交叉（4h）」因此在回覆裡寫成 canary_2330_1m、eth_ma_cross_4h。改成換字照用:`[]` 換全形 `［］`(收不掉事實行),`（）` 換半形 `()`(偽造不了 `_named` 包代號的（）)。`、;:；：「」` 與分行／格式字元照舊退回代號。整串包在 `[]` 裡的值(TEMPLATE_A／C 的佔位名,判法同 api `openclaw/marketplace.py`)換字前先退回代號,複製範本沒改名不會把佔位字串當名稱。
+- **列舉策略只寫名稱(`_STYLE_RULES`、`_SUGGEST_ANCHOR_TAIL`)**:風格規則與逐輪錨加一句,列舉幾支也只寫名稱、名稱後不括代號,代號只在用戶要動檔案或要對照時才附;設定檔、工具結果只看到代號時照上線現況或 DISPLAY_NAME 換成名稱。上線現況那一行的定稿句不動(`check_deploy_prompt_010` 逐字鎖)。
+
 ## 1.1.155 — 2026-11-04
 
 - **回覆提到策略寫顯示名稱,不寫程式代號(`agent_turn._STYLE_RULES`,web、電腦版、App、Telegram 共用;Wei 拍板)**:風格規則加兩條。策略寫 `DISPLAY_NAME`,沒有就用 `# Strategy:` 或用戶慣稱,都沒有才用代號;交易所與券商寫名稱不寫 id(新表 `_VENUE_NAMES`:president 統一期貨、capital 群益期貨、paper 模擬交易,中英各一,字照 shell `i18n/zh.po`、`en.po` 的 msgstr,測試釘住)。建議規則 `_SUGGEST_RULE` 與逐輪錨 `_SUGGEST_ANCHOR_TAIL` 改成同一個退路順序。

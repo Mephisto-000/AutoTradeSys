@@ -60,8 +60,8 @@ function sfReady() {
   }, () => {});
   return SF.ready;
 }
-// 資料夾編輯列開著(含它開出的 emoji 選擇器):重建會把編輯列拔掉、打的字會丟(spec §6 編輯中延後重建)
-const sgEditing = () => typeof SG !== "undefined" && SG.editing;
+// 資料夾編輯列開著(含它開出的 emoji 選擇器)或策略改名列開著(stratrename.js):重建會把編輯列拔掉、打的字會丟(spec §6 編輯中延後重建)
+const sgEditing = () => (typeof SG !== "undefined" && SG.editing) || (typeof SRN !== "undefined" && !!SRN.edit);
 // stratRefresh 重建列之前:偏好要讀好(第一次畫就是對的順序)、拖拉中或編輯資料夾中等結束(列拔掉會殺掉進行中的拖拉)、旗標面板開著先收(錨點會失效)
 function sfBeforeRebuild() {
   sfPopClose(false);
@@ -91,12 +91,6 @@ function sfForget(name) {
   if (name in SF.flags) { delete SF.flags[name]; sfSave("flags"); }
   if (name in SF.groups.map) { const m = { ...SF.groups.map }; delete m[name]; SF.groups = { ...SF.groups, map: m }; sfSave("groups"); }
 }
-// 本機視角的市場:常駐程式回報的 strategy_kinds(還沒回報 = 全部未知,「建市場資料夾」不出現)
-function sfLocalMarket(name) {
-  const r = typeof TR_BAGS !== "undefined" && TR_BAGS.local.st ? TR_BAGS.local.st.report : null;
-  const k = r && r.strategy_kinds && typeof r.strategy_kinds === "object" ? r.strategy_kinds[name] : null;
-  return k && typeof k.market === "string" ? k.market : null;
-}
 
 const SF_LOCAL = {
   box: () => $("strat-list"),
@@ -109,7 +103,6 @@ const SF_LOCAL = {
   last: [],   // 上一次畫的清單(已套序),資料夾操作原地重排用
   groups: () => SF.groups,
   setGroups(g) { SF.groups = g; sfSave("groups"); },
-  market: (x) => sfLocalMarket(x.name),
 };
 
 /* ── 雲端 tab:api 狀態信封的 strat_order / strat_flags 上面疊一層記憶體覆蓋(SFC.over)。
@@ -182,7 +175,6 @@ const SF_CLOUD = {
   last: [],
   groups: () => SFC.cur.groups,
   setGroups(g) { SFC.over.groups = SFC.cur.groups = g; sfCloudSave("groups"); },
-  market: (x) => x.srcMarket || null,
 };
 /* envPaintSide 整個清單重建之前問一次:拖拉中或資料夾編輯列開著 → 不建(會殺掉進行中的拖拉／編輯列),結束補畫一次;面板開在雲端列上 → 先收(錨點會失效) */
 function sfCloudHold(repaint) {
@@ -264,6 +256,13 @@ function sfPopBuild() {
   sfPop.appendChild(grid);
   const sep = () => { const d = document.createElement("div"); d.className = "divider"; d.setAttribute("role", "separator"); return d; };
   const item = (cls) => { const b = document.createElement("button"); b.type = "button"; b.className = cls; b.setAttribute("role", "menuitem"); return b; };
+  // 〔改名〕(spec strategy-rename §2):第一條線下第一項,機器會改名才出;回合中、這支在背景重跑時 aria-disabled、按了沒反應
+  const rn = item("item"); rn.dataset.rn = "1";
+  rn.addEventListener("click", () => {
+    if (rn.getAttribute("aria-disabled") === "true") return;
+    const x = SF.popX, sc = SF.popStore, w = SF.popWrap; sfPopClose(false);
+    if (x && typeof srnOpen === "function") srnOpen(sc, w, x);
+  });
   const rm = item("item");
   rm.addEventListener("click", () => { const x = SF.popX, sc = SF.popStore; sfPopClose(true); if (x) sfSetFlag(x.name, null, sc); });
   const d2 = sep(), del = item("item danger");
@@ -276,10 +275,18 @@ function sfPopBuild() {
     if (!x.classList.contains("is-armed")) x.click();   // app.js armedDelete:第一下 = 武裝成「移到垃圾桶？」
     x.focus();
   });
-  const d1 = sep(); d1.dataset.rm = "1"; rm.dataset.rm = "1";   // 沒有旗標時「移除旗標」連同它上面那條線一起收
+  // 第一條線分開「選顏色」與「對這支做事」(改名、移除旗標、送上雲端／拉回、移到資料夾);底下都不出時連線一起收。
+  // 最多兩條線(spec strategy-rename §2):搬家那一項併進這一組、不另畫線(0.1.47 兩支合併時的排法,待設計師看)
+  const d1 = sep(); d1.dataset.d1 = "1"; rm.dataset.rm = "1";
+  // 送上雲端／拉回這台電腦(handoff.js hoMenuDir／hoGo;spec strategy-transfer-desktop §1):畫不出就不出
+  const ho = item("item"); ho.dataset.ho = "1";
+  ho.addEventListener("click", () => {
+    const x = SF.popX, dir = ho.dataset.dir, ret = SF.popReturn; sfPopClose(false);
+    if (x && dir && typeof hoGo === "function") hoGo(dir, x.name, ret, "menu");
+  });
   // 移到資料夾(給不能拖的人;spec §13):有資料夾才出,內容每次開啟時由 stratgroups.js sgMoveFill 填
-  const dm = sep(), moves = document.createElement("div"); dm.dataset.mv = "1"; moves.className = "sg-moves"; moves.dataset.mv = "1";
-  sfPop.append(d1, rm, dm, moves, d2, del);   // 鍵盤排序提示那行 Wei 10-12 拿掉(Alt+↑/↓ 仍可用,只是不印)
+  const moves = document.createElement("div"); moves.className = "sg-moves"; moves.dataset.mv = "1";
+  sfPop.append(d1, rn, rm, ho, moves, d2, del);   // 鍵盤排序提示那行 Wei 10-12 拿掉(Alt+↑/↓ 仍可用,只是不印)
   sfPop.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { if (e.isComposing || e.keyCode === 229) return; e.preventDefault(); e.stopPropagation(); sfPopClose(true); return; }   // 不給 app.js 的 escTop:一次只關一層
     if (["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"].indexOf(e.key) < 0) return;
@@ -294,8 +301,9 @@ function sfPopBuild() {
   document.body.appendChild(sfPop);
 }
 // 字在每次開啟時填(換語言不必重建面板)
-function sfPopText(sc) {
-  sfPop.setAttribute("aria-label", t("side.flagSet"));
+function sfPopText(sc, x) {
+  sfPop.setAttribute("aria-label", t("strat.menu", { name: x.displayName || x.name }));
+  sfPop.querySelector(".item[data-rn]").textContent = t("strat.rename");
   sfPop.querySelectorAll(".swcell").forEach((c) => { const n = t(SF_COLORS[Number(c.dataset.flag)]); c.setAttribute("aria-label", n); c.querySelector(".tip").textContent = n; });
   sfPop.querySelector(".item[data-rm]").textContent = t("side.flagRemove");
   sfPop.querySelector(".item[data-ctx]").textContent = (sc || SF_LOCAL).delLabel();
@@ -304,15 +312,22 @@ function sfPopOpen(wrap, anchor, x, ctx, store) {
   const sc = store || SF_LOCAL;
   if (!sfPop) sfPopBuild();
   sfPopClose(false);   // 換列重開:先收上一個
-  sfPopText(sc);
+  sfPopText(sc, x);
   const del = wrap.querySelector(".cs-del"), showDel = !!ctx && !!del && !del.disabled;   // 回合中 ✕ 收起,刪除那條也不給
   sfPop.querySelectorAll("[data-ctx]").forEach((n) => { n.hidden = !showDel; });
   SF.popWrap = wrap; SF.popReturn = anchor; SF.popX = x; SF.popStore = sc;
   anchor.setAttribute("aria-expanded", "true");
   const cur = sfFlagId(sc.flags()[x.name]);
   sfPop.querySelectorAll("[data-rm]").forEach((n) => { n.hidden = !cur; });
+  const hoDir = typeof hoMenuDir === "function" ? hoMenuDir(sc === SF_CLOUD, x.name) : null, hoIt = sfPop.querySelector(".item[data-ho]");
+  if (hoDir) { hoIt.dataset.dir = hoDir; hoIt.textContent = t(hoDir === "up" ? "ho.up.btn" : "ho.menu.down"); }
+  sfPop.querySelectorAll("[data-ho]").forEach((n) => { n.hidden = !hoDir; });
   const mv = typeof sgMoveFill === "function" && sgMoveFill(sfPop.querySelector(".sg-moves"), wrap, x, sc);
   sfPop.querySelectorAll("[data-mv]").forEach((n) => { n.hidden = !mv; });
+  const rn = sfPop.querySelector(".item[data-rn]"), canRn = typeof srnAvailable === "function" && srnAvailable(x);
+  rn.hidden = !canRn;
+  if (canRn && srnLocked(sc, x)) rn.setAttribute("aria-disabled", "true"); else rn.removeAttribute("aria-disabled");
+  sfPop.querySelector("[data-d1]").hidden = !(canRn || cur || hoDir || mv);
   sfPop.querySelectorAll(".swcell").forEach((c) => { const on = Number(c.dataset.flag) === cur; c.classList.toggle("selected", on); c.setAttribute("aria-checked", on ? "true" : "false"); });
   wrap.classList.add("flag-open");
   // 先隱形量尺寸再定位(sfPopPlace)
@@ -351,7 +366,7 @@ $("strat-list-cloud").addEventListener("scroll", () => sfPopClose(false));
    有資料夾時組標題(.sg-head)是同一層的兄弟節點,也是落點(spec strategy-sidebar-folders §6 拖拉):
    落點每次 pointermove 拿指標 y 比可見節點——列用起手時存的基準矩形(不含讓位的 transform,捲動補 scrollTop 差,否則列一讓位落點就翻回來),
    組標題用即時矩形(釘頂中的也算,疊在一起時取 DOM 最後那個 = 畫面最上面那個)。指到組標題 = 該組最底;列的上半 = 排在它前、下半 = 排在它後 */
-// 寫回:畫面由上到下的列(含收合組裡 hidden 的列)。資料夾換序、刪資料夾、建市場資料夾也走這條,但不送 strat_reorder
+// 寫回:畫面由上到下的列(含收合組裡 hidden 的列)。資料夾換序、刪資料夾也走這條,但不送 strat_reorder
 // 清單是空的(含主機沒回、讀不全)時畫面沒有順序可寫:api 把 [] 當清掉自訂順序,同網頁 sgCommitLayout
 function sfWriteOrder(sc) {
   const names = [...sc.box().querySelectorAll(":scope > .strat-wrap")].map((w) => w.dataset.name).filter(Boolean);

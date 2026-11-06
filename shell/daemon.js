@@ -15,18 +15,21 @@ const wsfile = require("./wsfile");
 
 // renderer 可以要求送的指令。比 daemon 的 ALLOWED 窄:畫面上沒有的功能不開(報告排程、偏好、刪策略…
 // 在電腦版走別條路或還沒做);多開一個就是多一個 renderer 被攻破時能碰到的面。
-const UI_COMMANDS = new Set(["halt", "resume", "resume_wait", "amounts", "execution", "credentials", "credentials_remove",
+const UI_COMMANDS = new Set(["halt", "resume", "resume_wait", "amounts", "execution", "credentials", "credentials_remove", "close_then_unbind",
   "restart_reconciler", "retest_accounts", "close_all", "book_account_confirm", "version_restore", "stats_refresh",
-  "manage_optimize", "manage_backtest", "manage_cancel"]);
+  "manage_optimize", "manage_backtest", "manage_cancel", "rename_strategy"]);
 // manage_optimize 是 Deferred(腳本最長 120 秒才 ack),等 ack 的時間另給;雲端那條(main.js cloud-send)也用這一份
-const CMD_TIMEOUT_MS = { manage_optimize: 150000 };
+// rename_strategy:runtime 給改名子行程 60 秒(_RENAME_TIMEOUT_S;剛開 app 冷啟動 import numpy/pandas 可能好幾秒),再加排隊,等 90 秒
+const CMD_TIMEOUT_MS = { manage_optimize: 150000, rename_strategy: 90000 };
 // 只有主行程送得出的(send(…, { trusted: true })):設定 › Agent 規則的兩個寫入(shell/agentrules.js)。不放進 UI_COMMANDS:
 // renderer 的寫入必須經過 rules-save / reply-lang-save 那兩支 IPC——「規則檔讀不到就不寫」那道閘在那裡,通用的 trade-send 繞得過它;
 // api 的雲端白名單(CLOUD_COMMANDS = UI_COMMANDS + …,api/tests/check_desktop_cloud_command.py 釘住)也就不跟著變。
 // president_local(統一本機開通,shell/president_local.js)也只有主行程送:帳密在這裡封裝,renderer 碰不到密文以外的東西;
 // 它不在 api 的任何清單(runtime local_daemon.LOCAL_ONLY)
 // capital_local(群益本機開通,shell/capital_local.js)同一套:身分證與交易密碼在主行程封裝
-const MAIN_ONLY_COMMANDS = new Set(["preferences_set", "reply_lang_set", "president_local", "capital_local"]);
+// strategy_import(拉回這台電腦,shell/transfer.js down):主行程比過兩份 sha256、把檔寫進 state/transfer_in/<id>/ 之後才送,
+// 指令只帶暫存代號與雜湊;renderer 送不了,也就塞不進任意的檔
+const MAIN_ONLY_COMMANDS = new Set(["preferences_set", "reply_lang_set", "president_local", "capital_local", "strategy_import"]);
 const PRESIDENT_OPS = ["setup", "cert", "secrets", "probe", "host", "test_order", "start", "stop"];   // = runtime president_connect.LOCAL_OPS
 const CAPITAL_OPS = ["setup", "bind", "secrets", "probe", "start", "stop"];   // = runtime capital_local.LOCAL_OPS
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -98,6 +101,9 @@ function argsOk(cmd, a, trusted) {
   // 解除綁定只准拿掉這一版認得的憑證 key(handler 自己也永遠不刪 blave_*)
   if (cmd === "credentials_remove") return keys.length === 1 && Array.isArray(a.env) && a.env.length > 0 && a.env.length <= 16
     && a.env.every((n) => typeof n === "string" && REMOVABLE.has(n.toUpperCase()));
+  // 平倉後解除:同一份名字,多一個選填的 request_id(機器端靠它認重送)
+  if (cmd === "close_then_unbind") return keys.every((k) => k === "env" || k === "request_id") && Array.isArray(a.env) && a.env.length > 0 && a.env.length <= 16
+    && a.env.every((n) => typeof n === "string" && REMOVABLE.has(n.toUpperCase())) && (a.request_id === undefined || (typeof a.request_id === "string" && ID_RE.test(a.request_id)));
   if (cmd === "amounts") {
     const m = a.amounts, c = a.contracts;
     if (!keys.every((k) => k === "amounts" || k === "contracts")) return false;
@@ -139,11 +145,23 @@ function argsOk(cmd, a, trusted) {
      版號同 main.js versionN。有金額的策略由機器端的 restore() 在動檔前拒絕,這一層只擋形狀 */
   if (cmd === "version_restore") return keys.length === 2 && typeof a.name === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(a.name)
     && Number.isInteger(a.n) && a.n > 0 && a.n <= 1000000;
+  /* 策略改名(renderer/stratrename.js):剛好 name + display_name。名字規則同 version_restore(= runtime _cmd_rename_strategy);
+     display_name 這一層只擋形狀,名稱規則(1–60 字、不收的字、包在 [ ] 裡、同名)由機器端 lib.strategy.rename 判 */
+  if (cmd === "rename_strategy") return keys.length === 2 && typeof a.name === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(a.name)
+    && typeof a.display_name === "string" && a.display_name.length <= 400;
   // 更新績效(renderer/perf.js):names,1–50 支、不重複,名字規則同 version_restore;成交測試那顆多帶 exec_test,只能是 true、只配一支
   // (= runtime _stats_refresh_args、api _stats_refresh_args_error)
   if (cmd === "stats_refresh") return keys.every((k) => k === "names" || k === "exec_test") && Array.isArray(a.names) && a.names.length >= 1 && a.names.length <= 50
     && a.names.every((n) => typeof n === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(n)) && new Set(a.names).size === a.names.length
     && (a.exec_test === undefined || (a.exec_test === true && a.names.length === 1)) && keys.indexOf("names") >= 0;
+  // 拉回:= runtime strategy_transfer.import_args 的暫存形狀;檔的內容由 daemon 讀暫存時再驗一次
+  if (cmd === "strategy_import") {
+    const T = require("./transfer");
+    return keys.every((k) => k === "name" || k === "to" || k === "stage" || k === "files") && T.NAME_RE.test(String(a.name))
+      && (a.to === undefined || T.NAME_RE.test(String(a.to))) && /^[0-9a-f]{32}$/.test(String(a.stage))
+      && Array.isArray(a.files) && a.files.length >= 1 && a.files.length <= T.MAX_FILES
+      && a.files.every((x) => x && typeof x === "object" && Object.keys(x).length === 2 && T.FILE_RE.test(String(x.f)) && /^[0-9a-f]{64}$/.test(String(x.sha256)));
+  }
   // 密文只驗形狀(base64、長度);內容由 daemon 解開後再驗
   if (cmd === "president_local") {
     if (PRESIDENT_OPS.indexOf(a.op) < 0) return false;
@@ -271,7 +289,7 @@ function createDaemonHost({ python, script, base, workspace, env, log = () => {}
   }
   /* 送一個指令並等 ack。回 {ok, result} / {ok:false, error};daemon 沒在跑、逾時也走 error。
      `halt` 在 daemon 沒跑(或 secret 不在)時照送不簽——它是安全方向,daemon 起來就會吃到。 */
-  async function send(cmd, args, { timeoutMs = CMD_TIMEOUT_MS[cmd] || 20000, trusted = false } = {}) {
+  async function send(cmd, args, { timeoutMs = CMD_TIMEOUT_MS[cmd] || 20000, trusted = false, by = null } = {}) {
     if (!UI_COMMANDS.has(cmd) && !(trusted === true && MAIN_ONLY_COMMANDS.has(cmd))) return { ok: false, error: "NOT_ALLOWED" };
     if (!argsOk(cmd, args || {}, trusted === true)) return { ok: false, error: "BAD_ARGS" };
     const live = !!(child && secret);
@@ -284,8 +302,10 @@ function createDaemonHost({ python, script, base, workspace, env, log = () => {}
     while (Date.now() < until) {
       const a = readAck(id);
       if (a && a.ok && cmd === "credentials_remove") { eqAppend({ ts: Math.floor(Date.now() / 1000), reset: true }); eqLast = null; }
+      // 平倉後解除:機器平完才自己刪金鑰——曲線的 reset 與時間軸的「解除」等回報裡那一家真的不見了才記(status())
+      if (a && a.ok && cmd === "close_then_unbind") unbindVenues(args.env).forEach((id) => ubWaiting.add(id));
       if (a && a.ok && (cmd === "credentials" || cmd === "retest_accounts")) setTimeout(eqTick, 12000);   // 連上後第一筆:等帳戶讀取器讀完
-      if (a && a.ok) uiEvent(cmd, cmd === "close_all" ? { closing: closeAllStarted(a.result) } : undefined);
+      if (a && a.ok) uiEvent(cmd, cmd === "close_all" ? { closing: closeAllStarted(a.result) } : cmd === "halt" && by === "phone" ? { by } : undefined);
       if (a) return a.ok ? { ok: true, result: a.result } : { ok: false, error: String(a.error || "FAILED") };
       if (!child) return { ok: false, error: withdraw(id) ? "DAEMON_DOWN" : "UNKNOWN_RESULT" };
       await new Promise((r) => setTimeout(r, 150));
@@ -299,9 +319,21 @@ function createDaemonHost({ python, script, base, workspace, env, log = () => {}
 
   /* 狀態檔原樣交出去,外加宿主這一側知道的事。檔案是 daemon 原子寫的,讀到一半的情形不存在;
      讀不到 / 壞掉 → report:null,畫面照「還沒有狀態」處理,不猜。 */
+  const ubWaiting = new Set();
+  function ubSettle(report) {
+    const v = report && report.venues;
+    if (!ubWaiting.size || !v || typeof v !== "object") return;
+    for (const id of [...ubWaiting]) {
+      if (v[id] && v[id].credentials) continue;
+      ubWaiting.delete(id);
+      eqAppend({ ts: Math.floor(Date.now() / 1000), reset: true }); eqLast = null;
+      uiEvent("credentials_remove");
+    }
+  }
   function status() {
     let report = null;
     try { report = JSON.parse(fs.readFileSync(statusFile, "utf8")); } catch (_) { /* 還沒寫出來 */ }
+    ubSettle(report);
     const hb = report && report.daemon && Number(report.daemon.heartbeat_at);
     const hbMs = hb ? (hb > 1e12 ? hb : hb * 1000) : 0;
     const alive = !!child && !!hbMs && Date.now() - hbMs <= HEARTBEAT_DEAD_MS;
@@ -391,7 +423,8 @@ function createDaemonHost({ python, script, base, workspace, env, log = () => {}
   }
 
   /* 用戶在畫面上做的事(暫停 / 恢復 / 連接 / 解除)。雲端這些來自平台的事件流;電腦版沒有那一層,
-     由宿主在指令 ack 成功時自己記一筆,總覽的時間軸才畫得出「已暫停 → 已恢復」。只記型別與時間,不記參數。 */
+     由宿主在指令 ack 成功時自己記一筆,總覽的時間軸才畫得出「已暫停 → 已恢復」。只記型別與時間,不記參數。
+     手機送來的暫停多記 by: "phone"(主行程 send 的選項,不從參數讀:畫面送的 reason 是任意字),那一列寫「從手機暫停」 */
   const uiFile = path.join(stateDir, "ui_events.jsonl");
   const UI_EVENT = { halt: "halt", close_all: "halt_close", resume: "resume", resume_wait: "resume_wait", credentials: "venue_connected", credentials_remove: "venue_disconnected" };
   function uiEvent(cmd, extra) {
@@ -408,7 +441,7 @@ function createDaemonHost({ python, script, base, workspace, env, log = () => {}
        往上拋——畫面才會說「讀不到」,而不是替資料斷言「這段期間沒有發生事情」。 */
     let txt = ""; try { txt = fs.readFileSync(uiFile, "utf8"); } catch (e) { if (e && e.code === "ENOENT") return []; throw e; }
     const from = Date.now() / 1000 - (Number(days) > 0 ? Math.min(Number(days), 3660) : 30) * 86400, out = [];
-    for (const line of txt.split("\n")) { if (!line) continue; try { const r = JSON.parse(line); if (r && typeof r.ts === "number" && r.ts >= from && typeof r.type === "string") out.push({ ts: r.ts, type: r.type, venue: typeof r.venue === "string" ? r.venue : null, ...(typeof r.holds_all === "boolean" ? { holds_all: r.holds_all } : {}), ...(typeof r.closing === "boolean" ? { closing: r.closing } : {}) }); } catch (_) { /* 壞行跳過 */ } }
+    for (const line of txt.split("\n")) { if (!line) continue; try { const r = JSON.parse(line); if (r && typeof r.ts === "number" && r.ts >= from && typeof r.type === "string") out.push({ ts: r.ts, type: r.type, venue: typeof r.venue === "string" ? r.venue : null, ...(typeof r.holds_all === "boolean" ? { holds_all: r.holds_all } : {}), ...(typeof r.closing === "boolean" ? { closing: r.closing } : {}), ...(r.by === "phone" ? { by: "phone" } : {}) }); } catch (_) { /* 壞行跳過 */ } }
     return out.slice(-500);
   }
 
@@ -428,5 +461,16 @@ function createDaemonHost({ python, script, base, workspace, env, log = () => {}
 }
 /* close_all 的 ack(runtime command_listener._cmd_close_all):只有 started / already_running 真的有平倉程式在跑;
    halted_only、halted_capital_manual、nothing_closed、capital_manual 只掛了暫停(或什麼都沒送),事件列不能寫成在平倉 */
+// 解除綁定的 env 名 → 交易所 id(統一／群益是自己那一組名字,其餘 {ID}_API_KEY)
+function unbindVenues(names) {
+  const out = new Set();
+  (Array.isArray(names) ? names : []).forEach((n) => {
+    const k = String(n).toLowerCase();
+    if (PRESIDENT_ENV.indexOf(k) >= 0 || PRESIDENT_ENV.indexOf(k.toUpperCase()) >= 0) out.add("president");
+    else if (CAPITAL_ENV.indexOf(k) >= 0 || CAPITAL_ENV.indexOf(k.toUpperCase()) >= 0) out.add("capital");
+    else { const m = /^(.+)_api_key$/.exec(k); if (m) out.add(m[1]); }
+  });
+  return [...out];
+}
 function closeAllStarted(result) { return /^close_all=(?:restart_stopped:)?(?:started|already_running)$/.test(String(result || "")); }
 module.exports = { createDaemonHost, UI_COMMANDS, CMD_TIMEOUT_MS, MAIN_ONLY_COMMANDS, PRESIDENT_ENV, CAPITAL_ENV, SINOPAC_ENV, argsOk, closeAllStarted };

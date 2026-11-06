@@ -142,7 +142,20 @@ function interpretEvents(res) {
   return { code: "OK", events: b.events
     .filter((e) => e && typeof e === "object" && typeof e.ts === "number" && typeof e.type === "string")
     .slice(0, EVENTS_MAX)
-    .map((e) => ({ ts: e.ts, type: e.type, data: e.data && typeof e.data === "object" ? e.data : {} })) };
+    .map(eventRow) };
+}
+// api events_view 列上算好的名稱(同名已補代號)、合併次數、級別:renderer 讀 ev.strategy_label / ev.count / ev.level,
+// 少了這幾欄雲端視角就退回自己查清單,同名兩支又變成兩列一樣的字
+const LABEL_MAX = 120;
+const labelOf = (x) => (typeof x === "string" && x ? x.slice(0, LABEL_MAX) : null);
+function eventRow(e) {
+  const row = { ts: e.ts, type: e.type, data: e.data && typeof e.data === "object" ? e.data : {} };
+  const one = labelOf(e.strategy_label);
+  if (one) row.strategy_label = one;
+  if (Array.isArray(e.strategy_labels)) row.strategy_labels = e.strategy_labels.slice(0, 50).map((x) => labelOf(x) || "");
+  if (Number.isInteger(e.count) && e.count >= 1) row.count = e.count;
+  if (typeof e.level === "string" && /^P[123]$/.test(e.level)) row.level = e.level;
+  return row;
 }
 
 /* 單支策略的回應 → { code, strategy }(純函式)。同事件清單:讀不到與「沒有這支」是兩件事——
@@ -160,7 +173,7 @@ function interpretStrategy(res, name) {
   if (!s || typeof s !== "object" || s.name !== name) return STRATEGY_UNREACHABLE();
   const str = (v) => (typeof v === "string" ? v : "");
   const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : null);
-  return { code: "OK", strategy: { name, displayName: str(s.display_name) || name, description: str(s.description), stats: obj(s.backtest), scan: obj(s.scan), wf: obj(s.wf), code: str(s.code), versions: obj(s.versions), perf: obj(s.perf), logic: logicOf(s.logic) } };
+  return { code: "OK", strategy: { name, displayName: str(s.display_name) || name, description: str(s.description), stats: obj(s.backtest), scan: obj(s.scan), wf: obj(s.wf), code: str(s.code), versions: obj(s.versions), perf: obj(s.perf), logic: logicOf(s.logic), transfer: obj(s.transfer) } };
 }
 /* 績效輪詢用的輕量版(body `lite: 1`,api 只回 name/display_name/status/sig/updated_at/perf):只取 perf。
    api 還沒有 lite 時會忽略這個欄位、回整份,這裡一樣只挑 perf,兩種回應結果相同。回 { code: "OK", strategy: { name, perf } | null } / UNREACH;

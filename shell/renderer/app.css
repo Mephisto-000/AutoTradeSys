@@ -658,7 +658,9 @@ button, textarea, input, a { -webkit-app-region: no-drag; }
 
 /* ── 策略報告的骨架(分頁內容由 report-*.css 各自負責)──── */
 .rp { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.rp-head { flex: none; min-width: 0; padding: var(--space-16) var(--space-24) var(--space-12); display: flex; align-items: flex-start; gap: var(--space-16); }
+.rp-head { flex: none; min-width: 0; padding: var(--space-16) var(--space-24) var(--space-12); display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0 var(--space-16); }
+/* 說明下一行那一格與搬家的鈕列、並排表:橫跨整個頁首(動作槽那一列下面) */
+.rp-head > .rp-ho-note, .rp-head > .rp-ho-acts, .rp-head > .rp-ho-cmp { flex: 0 0 100%; min-width: 0; }
 .rp-head .txt { flex: 1; min-width: 0; }
 /* 狀態詞／記號／主鈕／雲朵 icon 鈕共用一條中線(記號 20、狀態詞 12px 不貼頂;spec strategy-page-autotrade 附錄 A.3-2) */
 .rp-head .act { flex: none; display: flex; align-items: center; gap: var(--space-8); }
@@ -695,6 +697,28 @@ button, textarea, input, a { -webkit-app-region: no-drag; }
 /* 說明下一行:雲端停機那兩句(hoNote)與策略頁頭的整句原因(spPaintNote)。要被讀到的那一階,--ink-2 */
 .rp-ho-note { margin: var(--space-4) 0 0; font-size: 12px; line-height: 1.5; color: var(--ink-2); }
 .rp-ho-note .btn-quiet { font-size: inherit; }
+/* 搬家的鈕列(handoff.js hoJobPaint):不是 live region;文字鈕之間 12,熱區 44(同 .busy-fix::before)。句子裡不放鈕 */
+.rp-ho-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-12); margin: var(--space-4) 0 0; font-size: 12px; }
+.rp-ho-acts .btn-quiet { font-size: inherit; min-height: 44px; }
+.rp-ho-acts .btn-quiet::before { inset: auto; left: 50%; top: 50%; width: max(44px, calc(100% + 8px)); height: 44px; transform: translate(-50%, -50%); }
+.rp-ho-note .spin16 { vertical-align: -3px; margin-right: var(--space-8); }
+/* 並排比較(hoCmpTable;spec §4):hidden 容器,〔看兩邊數字〕aria-controls 開合。數字 mono 靠右、不上紅綠;資料來源那格可折行 */
+.rp-ho-cmp { margin: var(--space-4) 0 0; overflow-x: auto; }
+.ho-cmp { border-collapse: collapse; font-size: 12px; }
+.ho-cmp th, .ho-cmp td { padding: var(--space-4) var(--space-12) var(--space-4) 0; text-align: left; font-weight: 400; color: var(--ink-2); vertical-align: top; }
+.ho-cmp thead th { color: var(--ink-3); text-align: right; }
+.ho-cmp thead th:first-child { text-align: left; }
+.ho-cmp td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); text-align: right; white-space: nowrap; }
+.ho-cmp td.wrap { white-space: normal; }
+/* 對話動作卡(handoff.js hoCardTurnEnd):一列高,殼同聊天結果卡(results.css .res):bg-body 墊在聊天欄 surface-card 上、無框、dark 也一樣 */
+.msg.ai .ho-card {
+  display: flex; align-items: center; gap: var(--space-12); margin: var(--space-12) 0 0; padding: var(--space-12);
+  border-radius: var(--radius-md); background: var(--bg-body);
+  animation: res-in var(--motion-base) var(--ease-standard) backwards;
+}
+.ho-card .ic { flex: none; width: 16px; height: 16px; color: var(--ink-3); }
+.ho-card-t { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ho-card .btn-out { flex: none; }
 .rp-ho-note.err { color: var(--color-redText); }   /* 直送失敗那句:同框裡 cf-block 的錯誤色 */   /* 句尾的文字鈕跟著那句話的字級(同 .tr-ro-note) */
 /* 第一行固定 32 高(= 動作鈕的高度),策略名在列內垂直置中(canon › 策略版本第 1 條):跟主鈕、狀態詞、雲朵鈕同一條中線 */
 .rp-name { margin: 0; font-size: 17px; font-weight: 600; line-height: 32px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -885,10 +909,10 @@ body.resizing * { cursor: col-resize !important; }
 /* 更新膠囊(spec desktop-update-pill §3;canon › In-app 功能動作鈕 › 具名例外:電腦版更新膠囊)。
    橘實心墨字、hover primaryDark;視覺 32 / 熱區 44(透明 ::before)。停用照 Disabled 退灰(不用 opacity)。
    細軌那顆是 28 的圓、熱區 44,同一個 class 加 .up-rail */
-.up-pill-wrap { margin: 0 0 var(--space-8); padding: 0 var(--space-4); }
+.up-pill-wrap { margin: 0 0 var(--space-8); }
 .up-pill {
-  position: relative; display: inline-flex; align-items: center; gap: var(--space-6);
-  max-width: 100%; height: 32px; min-height: 0; padding: 0 var(--space-12) 0 var(--space-8);   /* 不裁切:::before 的熱區要伸出去;裁切在 .up-pill-t */
+  position: relative; display: inline-flex; align-items: center; gap: var(--space-8);
+  max-width: 100%; height: 32px; min-height: 0; padding: 0 13px 0 11px;   /* 加上 1px 框 = 左 12 右 14,圖示欄對齊〔設定〕(canon › 側欄提示格)。不裁切:::before 的熱區要伸出去;裁切在 .up-pill-t */
   border: 1px solid transparent; border-radius: var(--radius-pill);
   background: var(--color-primary); color: var(--ink-on-primary);
   font-size: 13px; font-weight: 500; line-height: 1; white-space: nowrap; cursor: pointer;
@@ -899,13 +923,64 @@ body.resizing * { cursor: col-resize !important; }
 .up-pill:disabled, .up-pill[aria-disabled="true"] { background: var(--surface-muted); border-color: var(--color-greyMedium); color: var(--ink-3); cursor: not-allowed; }   /* 同 .btn-fill:disabled */
 .up-pill-ic { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .up-pill-t { min-width: 0; overflow: hidden; }
-.up-pill.no-ic { padding-left: var(--space-12); }
+.up-pill-wrap .up-pill-ic { stroke-width: 1.75; }
+.up-pill.no-ic { padding-left: 13px; }
 .up-pill.no-ic .up-pill-ic { display: none; }
 .up-pill-wrap .busy-why { margin: var(--space-8) var(--space-4) 0; text-align: left; white-space: normal; }
 .up-rail { flex: none; max-width: none; width: 28px; height: 28px; padding: 0; justify-content: center; margin-top: auto; }
 .up-rail::before { inset: -9px; }   /* 1px 透明框不算在 padding box 裡:28 − 2 + 18 = 44 */
 html.ws-sc .side-rail { flex: 1 1 auto; }
-@media (prefers-reduced-motion: reduce) { .up-pill { transition: none; } }
+/* 側欄提示格的手機那則(canon › Components › 側欄提示格):同形膠囊,卡面底。× 視覺 24、熱區 44,滑過或焦點才出;熱區壓到膠囊時膠囊贏,不誤關 */
+.ph-slot { position: relative; display: flex; align-items: center; margin: 0 0 var(--space-8); }
+.ph-slot[hidden] { display: none; }
+.ph-slot::after { content: ""; flex: 0 1 6px; }   /* × 離右緣 6;英文、最窄側欄時縮成 0,× 才不壓到膠囊 */
+.ph-pill {
+  position: relative; z-index: 1; flex: none; display: inline-flex; align-items: center; gap: var(--space-8);
+  max-width: 100%; height: 32px; min-height: 0; padding: 0 14px 0 var(--space-12);
+  border-radius: var(--radius-pill); background: var(--surface-card); box-shadow: var(--shadow-sm); color: var(--ink);
+  font-size: 13px; font-weight: 500; line-height: 1; white-space: nowrap; cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+.ph-pill::before { content: ""; position: absolute; inset: -6px 0; }
+.ph-pill:hover { background: var(--surface-control-on); }
+.ph-pill .up-pill-ic { stroke-width: 1.75; }
+.ph-x {
+  position: relative; flex: none; margin-left: auto; width: 24px; height: 24px; min-height: 0; padding: 0;
+  display: flex; align-items: center; justify-content: center; border-radius: var(--radius-xs); color: var(--ink-3);
+  opacity: 0; transition: opacity var(--motion-fast) var(--ease-standard);
+}
+.ph-x::before { content: ""; position: absolute; inset: -10px; }
+.ph-x .ic { width: 14px; height: 14px; stroke-width: 1.75; }
+.ph-slot:hover .ph-x, .ph-x:focus-visible { opacity: 1; }
+.ph-x:hover { background: var(--surface-muted); color: var(--ink); }
+@media (hover: none) { .ph-x { opacity: 1; } }
+.ph-pop {
+  position: fixed; z-index: 40; width: 240px; padding: var(--space-16);
+  background: var(--surface-card); box-shadow: var(--shadow-md); border-radius: var(--radius-lg);
+}
+.ph-pill[aria-expanded="true"] { background: var(--surface-control-on); }
+.ph-plate { display: inline-block; padding: var(--space-8); background: var(--color-pureWhite); border-radius: var(--radius-md); line-height: 0; }
+.ph-plate img { display: block; width: 112px; height: 112px; }
+/* pop 裡的編號步驟(spec slot-phone-v2 §3,欄距照稽核改 12):號碼盤 20、欄距 12、列距 16。狀態只靠填不填分,只用墨色:
+   done 實心加勾、now 實心號碼、next 空心號碼 */
+.ph-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-16); }
+.ph-step { display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: var(--space-12); align-items: start; }
+.ph-step.btn { align-items: center; }
+.ph-n {
+  width: 20px; height: 20px; border-radius: var(--radius-pill); display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; color: var(--ink-3); box-shadow: inset 0 0 0 1px var(--border-frame);
+}
+.ph-step.done .ph-n, .ph-step.now .ph-n { background: var(--control-fill); color: var(--control-fill-text); box-shadow: none; }
+.ph-n .ic { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.ph-t { min-width: 0; font-size: 13px; line-height: 20px; color: var(--ink-2); }
+.ph-t:lang(zh) { text-wrap: pretty; }
+.ph-step.now .ph-t { color: var(--ink); font-weight: 500; }
+.ph-step.done .ph-t { color: var(--ink-3); }
+.ph-who { display: block; font-size: 12px; line-height: 18px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ph-nw { white-space: nowrap; }
+.ph-body { grid-column: 2; margin-top: var(--space-8); }
+.ph-links { display: flex; gap: var(--space-16); margin-top: var(--space-8); }
+@media (prefers-reduced-motion: reduce) { .up-pill, .ph-pill, .ph-x { transition: none; } }
 /* 更新 modal 的「這版改了什麼」:純文字條列 */
 .del-body .up-notes { margin: 0; padding-left: 18px; color: var(--ink); }
 .del-body .up-notes li { margin-bottom: var(--space-4); }
@@ -1064,15 +1139,18 @@ html.ws-sc .side-rail { flex: 1 1 auto; }
 /* 設定 › 連結「允許手機對話」:跟手機查看那組空 32、不畫線;全組沒有分隔線 */
 .ph { margin-top: var(--space-32); }
 .ph:first-child { margin-top: 0; }
-.ph .sw-l { position: relative; }
+.mv .sw-l, .ph .sw-l { position: relative; }
+/* 頁頂那一列往上只剩 .set-content 的 16 內距,泡泡會被捲動框裁掉:改往下長(mv 不出時 ph 就是第一列) */
+#set-connect > :first-child .sw-l > .tip { bottom: auto; top: calc(100% + 6px); }
 .ph-top:has(.sw:focus-visible:not([data-tip-off])) .tip { display: block; }
+.mv .sw-row:has(.sw:focus-visible:not([data-tip-off])) .tip { display: block; }
 .ph-status, .ph-msg { margin: var(--space-8) 0 0; font-size: 12px; line-height: 1.7; color: var(--ink-3); }
 .ph-status .btn-quiet, .ph-msg .btn-quiet { font-size: inherit; }
 .ph-grp { margin-top: var(--space-24); }
 .ph-gh { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-12); }
 .ph-gh .lbl { font-size: 12px; color: var(--ink-3); }
 .ph-gh .btn-quiet { font-size: 12px; }
-/* 〔到網站撤銷〕:會開瀏覽器,字後面接 ↗(同 .rp-help);12px 文字鈕熱區補到 44 高(同〔檢查更新〕) */
+/* 〔到網站撤銷〕:會開瀏覽器,字後面接 ↗(libExtIcon);12px 文字鈕熱區補到 44 高(同〔檢查更新〕) */
 .ph-web { display: inline-flex; align-items: center; gap: var(--space-4); }
 .ph-web::before { inset: -15px -4px; }
 .ph-web .ic { width: 14px; height: 14px; display: block; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
@@ -1174,6 +1252,11 @@ html.ws-sc .side-rail { flex: 1 1 auto; }
 /* 確認框:三句各自一段 */
 .del-body.lines p{margin:0;text-wrap:pretty}
 .del-body.lines p+p{margin-top:var(--space-8)}
+/* 內文分組(confirmBox sections,登出框 A 案):組名 13/600 --ink-3;組內 4、組間 16,不畫線 */
+.del-body .cf-grp + .cf-grp { margin-top: var(--space-16); }
+.del-body .cf-grp .gl { display: block; margin-bottom: var(--space-4); font-size: 13px; font-weight: 600; line-height: 1.5; color: var(--ink-3); }
+.del-body.lines .cf-grp p + p { margin-top: var(--space-4); }
+.del-body.lines .cf-grp p.cf-ink { color: var(--ink); }
 /* 更新雲端主機確認框的 lede(lead 槽):版號 mono、主墨;確認框在 .app 外面吃不到 .app .mono(同 .cf-rows.kv) */
 .del-body.lines p.cf-lede .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
 /* 確認框內的通用排版(confirmBox 的 extra 用;金額確認框、之後的「送上雲端」共用):一組「說明 — 數字」列,分三個字級 */
@@ -1191,7 +1274,14 @@ html.ws-sc .side-rail { flex: 1 1 auto; }
 .cf-row dt .side { margin-left: var(--space-8); font-family: var(--font-sans); font-size: 12px; }
 .cf-row dt .side.buy { color: var(--color-greenText); }
 .cf-row dt .side.sell { color: var(--color-redText); }
-.cf-row dt .side:first-child { margin: 0 var(--space-8) 0 0; }   /* 存金額框「買進／賣出 標的」:記號在標的前面 */
+.cf-amt .cf-row dt .side { margin: 0 var(--space-8) 0 0; }   /* 存金額框「買進／賣出 標的」:記號在標的前面(認框不認 :first-child:標的是文字節點,後置的多空也會比對到) */
+/* 解除綁定框的列尾狀態欄(canon 提案 unbind-positions §1):平倉中＋圓環、已平(整列退灰)、沒成交／未確認(紅)、要自己平 */
+.cf-row .cf-st { flex: 0 0 56px; text-align: right; white-space: nowrap; font-size: 12px; line-height: 1.5; color: var(--ink-3); }
+:lang(en) .cf-row .cf-st { flex-basis: 84px; }
+.cf-row .cf-st .spin16 { margin-right: var(--space-4); vertical-align: -3px; }
+.cf-row .cf-st.bad, .del-body.lines .ub-reply { color: var(--color-redText); }
+[data-theme="dark"] .cf-row .cf-st.bad, [data-theme="dark"] .del-body.lines .ub-reply { color: var(--color-redBlack); }
+.cf-row.done dt, .cf-row.done dt .side, .cf-row.done dd { color: var(--ink-3); }
 .del-body.lines p.cf-removed { margin: var(--space-12) 0 0; font-size: 13px; line-height: 1.6; color: var(--ink-2); }
 .del-body.lines p.cf-block { margin: var(--space-8) 0 0; font-size: 13px; line-height: 1.6; color: var(--color-redText); }
 .del-body.lines p.cf-note { margin: var(--space-16) 0 0; font-size: 12px; line-height: 1.6; color: var(--ink-3); }
@@ -1588,8 +1678,8 @@ body.is-dragging { user-select: none; -webkit-user-select: none; }
 .sg-head.sg-drop { z-index: 5; }   /* 當落點的那個組標題浮在被拖的列(3)之上,灰填與組名才不被蓋住(同 web) */
 .sg-tog { position: relative; flex: 1; min-width: 0; height: 44px; display: flex; align-items: center; gap: 6px; padding: 0 var(--space-12); border-radius: var(--radius-md); font-size: 12px; color: var(--ink-3); text-align: left; }
 .sg-tog::before { content: ""; position: absolute; inset: 6px 0; z-index: -1; border-radius: var(--radius-md); }
-/* 焦點框內縮:切換鈕與「建市場資料夾」右緣貼齊清單(overflow-x hidden),外擴的框會被裁掉(同 web、電腦版 .cs-item) */
-.sg-tog:focus-visible, .sg-auto:focus-visible { outline-offset: -2px; }
+/* 焦點框內縮:切換鈕右緣貼齊清單(overflow-x hidden),外擴的框會被裁掉(同 web、電腦版 .cs-item) */
+.sg-tog:focus-visible { outline-offset: -2px; }
 .sg-head:is(.menu-open, .sg-drop) .sg-tog::before { background: var(--surface-card); }   /* 由 .sg-head 層驅動:滑到 ⋯ 上不熄;當落點時同一個灰階,不畫插入線 */
 .sg-head.menu-open .sg-tog { color: var(--ink-2); }
 @media (hover: hover) {
@@ -1619,9 +1709,6 @@ body.is-dragging { user-select: none; -webkit-user-select: none; }
 body.is-dragging .sg-head .sg-more { opacity: 0; pointer-events: none; }
 body.is-dragging .sg-head .sg-live { margin-right: 0; }
 .strat-list.has-groups > .strat-wrap { scroll-margin-top: 44px; }   /* 釘頂的組標題會蓋住捲到頂的列 */
-/* 「建市場資料夾」:清單最上方一顆 32 高的文字鈕,hover 同列 */
-.sg-auto { display: flex; align-items: center; width: calc(100% - var(--space-12)); height: 32px; margin: 0 0 var(--space-4) var(--space-12); padding: 0 var(--space-12); border-radius: var(--radius-md); font-size: 12px; color: var(--ink-2); text-align: left; }
-@media (hover: hover) { .sg-auto:hover { background: var(--surface-card); color: var(--ink); } }
 /* 編輯列:圖示鈕(視覺 24,圖示左緣仍在 x=24)＋名稱框 */
 .sg-edit { display: flex; align-items: center; gap: 6px; height: 44px; margin-top: 10px; padding: 0 var(--space-12) 0 20px; }
 .sg-edit:first-child { margin-top: 0; }
@@ -1630,6 +1717,20 @@ body.is-dragging .sg-head .sg-live { margin-right: 0; }
 /* 密 input(≤30)用 radius-xs;字 12 = 送出後組名的字級,按 Enter 那一下不縮(同 web) */
 .sg-input { flex: 1; min-width: 0; height: 28px; padding: 0 var(--space-6); border: 1px solid var(--ink); border-radius: var(--radius-xs); background: var(--surface-field); font: inherit; font-size: 12px; color: var(--ink); }
 .sg-input:focus { outline: none; }
+/* 策略改名(renderer/stratrename.js;spec strategy-rename §3/§4):編輯列取代 .strat-wrap,高 34 = 列高;框 28、字 13 = 列的字級,按 Enter 那一下不跳。
+   框下那一行 12/1.5,左緣對齊框內的字;放在 --bg-body 上,錯誤字用 redText(卡面上的 redBlack 規定不適用側欄) */
+.srn-edit { position: relative; display: flex; align-items: center; height: 34px; padding: 0 0 0 var(--space-12); }   /* 框左右貼齊列的 hover 底 */
+.srn-input { flex: 1; min-width: 0; height: 28px; padding: 0 var(--space-6) 0 11px;   /* 11 + 1px 框 = 列字的 12,按〔改名〕那下字不跳 */
+  border: 1px solid var(--ink); border-radius: var(--radius-xs); background: var(--surface-field); font: inherit; font-size: 13px; color: var(--ink); }
+.srn-input:focus { outline: none; }
+.srn-input.is-bad { border-color: var(--color-redText); }
+.srn-input[readonly] { color: var(--ink-3); padding-right: 28px; }
+.srn-ring { position: absolute; right: var(--space-6); top: 9px; color: var(--ink-3); }
+.srn-err { margin: var(--space-2) var(--space-12) var(--space-6) calc(var(--space-12) + var(--space-12)); font-size: 12px; line-height: 1.5; color: var(--color-redText); }
+.srn-err.is-hint { color: var(--ink-3); }
+.srn-err .srn-ch { display: inline-block; min-width: 16px; margin: 0 var(--space-2); padding: 0 var(--space-4); border-radius: var(--radius-xs); background: var(--surface-muted); font-family: var(--font-mono); font-size: 13px; text-align: center; color: var(--ink); }   /* 半形 : ; \ 在 12px 看不見:給一個小底塊 */
+.flag-pop .item[aria-disabled="true"] { color: var(--ink-disabled); cursor: not-allowed; }
+.flag-pop .item[aria-disabled="true"]:hover { background: transparent; color: var(--ink-disabled); }
 /* emoji 選擇器(Dropdown Panel):6 欄 32×32、格距 4、內容高上限 320 內捲;選中 = 1px --active-line 框、無填色,hover / 焦點 = --surface-muted 底,兩者疊加都看得到 */
 .flag-pop.sg-pick { width: 224px; max-height: 320px; overflow-x: hidden; overflow-y: auto; }
 /* Windows 的捲軸佔內容寬(上面 win32 那組捲軸樣式):不加寬會擠出橫捲、直捲軸壓住最右一欄 */

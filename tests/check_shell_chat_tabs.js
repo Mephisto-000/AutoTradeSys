@@ -51,7 +51,7 @@ const MOD_GLOBAL = {
   "president.js": { PRES: "統一期貨", presTimer: "同上", PRES_FIRST_ARMED: "同上" }, "report-sharelist.js": { SHL_IO: "分享清單" }, "stratflags.js": { sfPop: "彈出層" }, "stratgroups.js": { sgMenu: "資料夾 ⋯ 選單,一次一個", sgPick: "emoji 選擇器,一次一個" },
   "suggest.js": { SUG: "TAB_KEYS 整個換(托盤跟著分頁)" }, "form.js": { FORM: "TAB_KEYS 整個換(表單跟著分頁)", formSeq: "radio 群組名流水號(全 app 一組,兩條分頁的表單名字不撞)" },
   "trade.js": { TR_AS_SAVED: "自動下單頁", TR: "同上", trTipSeq: "同上", trHistTipEl: "同上", trHistTipAt: "同上", trHistTipOpened: "同上", trHistTipQuiet: "同上", trCvHide: "同上", trCvEscN: "同上", cxOpener: "同上", psOpener: "同上", psMode: "同上", psToAmt: "同上", psFromWhy: "同上", psLoading: "同上", ENV_COMPOSING: "輸入法" },
-  "versions.js": { vcSeq: "版本頁", vcSide: "同上" },
+  "versions.js": { vcSeq: "版本頁", vcSide: "同上" }, "promptslot.js": { SLOT_ST: "側欄提示格(全 app 一格)", SLOT_SHOW_DAY: "同上", SLOT_POP_KEY: "同上(pop 內容照登入狀態與語言建)", SLOT_WHO_HOST: "同上(已登入那步的字,email 晚到原地補)", SLOT_WHO: "同上" },
 };
 const FIELDS = {
   LIB: { pending: "SID", seq: "GLOBAL 清單請求流水號(丟掉晚到的舊回應)", noNew: "GLOBAL 灰字掛在那一支卡上", cloudWait: "GLOBAL 一次只等一支(換一支就放掉)" },
@@ -125,7 +125,7 @@ const TAB = [   // 眼前這一條(分頁自己的 running;切分頁時整組換
 ];
 const ANY = [   // 任何回合(機器層級的鎖;busyOn() = csAnyTurn())
   ["apikey.js", /const cut = cur === "apikey" && busyOn\(\);/, "移除自帶金鑰會中斷回合"],
-  ["app.js", /if \(busyOn\(\)\) \{ busyCut\(null, \(\) => connectNow\(kind, info\)\); return; \}/, "換 AI"], ["app.js", /const lines = \(busyOn\(\) \? \[t\("busy\.cut\.out"\)\]/, "登出"],
+  ["app.js", /if \(busyOn\(\)\) \{ busyCut\(null, \(\) => connectNow\(kind, info\)\); return; \}/, "換 AI"], ["app.js", /const stop = \(busyOn\(\) \? \[t\("acct\.out\.busy"\)\]/, "登出"],
   ["app.js", /if \(busyOn\(\)\) \{ busyCut\(b, \(\) => blaveGoNow\(b\)\); return; \}/, "換成 Blave AI"],
   ["app.js", /function upLocalTurn\(\) \{ try \{ return typeof csAnyTurn === "function" \? csAnyTurn\(\) : running === true;/, "更新會重開 app"],
   ["app.js", /busyLock\(d, csAnyTurn\(\)\)\); \}\); \}/, "刪策略"], ["app.js", /busyLock\(del, csAnyTurn\(\)\); del\.onBusy = \(\) => busyHit\("del"\);/, "刪策略"],
@@ -133,8 +133,10 @@ const ANY = [   // 任何回合(機器層級的鎖;busyOn() = csAnyTurn())
   ["busy.js", /function busyOn\(\) \{ return typeof csAnyTurn === "function" \? csAnyTurn\(\) : typeof running !== "undefined" && running === true; \}/, "鎖本身"],
   ["busy.js", /if \(!busyOn\(\)\) \{ fn\(\); return; \}/, "停了再做"], ["busy.js", /if \(!busyOn\(\)\) \{ go\(\); return; \}/, "busyCut"], ["busy.js", /const on = busyOn\(\);/, "busySync"],
   ["chattabs.js", /if \(!csAnyTurn\(\)\) return;/, "回覆中的時長每秒進一格"], ["chattabs.js", /function csAnyTurn\(\) \{/, "定義"],
+  ["promptslot.js", /return \{ turn: csAnyTurn\(\), awaiting: csAnyAwait\(\),/, "側欄提示格:任何對話在回覆就不畫手機"],
   ["intro.js", /running: \(typeof csAnyTurn === "function" \? csAnyTurn\(\) : typeof running !== "undefined" && running === true\)/, "第一次對話 modal 不在任何回合中彈"],
   ["reports.js", /if \(!csAnyTurn\(\)\) RPT\.busyTold = false;/, "原因句"], ["trade.js", /busyLock\(d, busyOn\(\)\); d\.onBusy = \(\) => busyHit\("del"\);/, "雲端刪策略"],
+  ["stratrename.js", /if \(typeof busyOn === "function" && busyOn\(\)\) return true;/, "〔改名〕停用:同刪策略,任何回合"],
 ];
 const LOCAL = [   // 同名但不是回合狀態
   ["app.js", /function phasesPaint\(ol, rows, now, running\)|\[running, rows\.map|tm && running && r\.start|running && i === rows\.length - 1/, "phasesPaint 的參數"],
@@ -155,7 +157,9 @@ const unusedE = all.filter((e) => !used.has(e)).map(([f, , why]) => f + " " + wh
 ok("清單上每一條都還對得到原文", unusedE.length === 0, unusedE);
 ok("切換對話、開新對話、從別處送一句話不再上鎖:busy.js 沒有 switch／new／sendAway;sendAway 的入口全走 csSendAway",
   !/\b(switch|new|sendAway):/.test(read("busy.js").slice(read("busy.js").indexOf("const BUSY = {"), read("busy.js").indexOf("};"))) && !/if \(csTitle\) csStartNew\(\);/.test(fs.readdirSync(R).filter((n) => n.endsWith(".js")).map(read).join("\n"))
-  && ["intro.js", "handoff.js", "capital.js", "export.js", "library.js", "pine-install.js", "newstrategy.js", "reports.js", "versions.js"].every((f) => /csSendAway\(/.test(read(f)) && !/\bsubmitMessage\(/.test(strip(read(f)))));
+  && ["intro.js", "capital.js", "export.js", "library.js", "pine-install.js", "newstrategy.js", "reports.js", "versions.js"].every((f) => /csSendAway\(/.test(read(f)) && !/\bsubmitMessage\(/.test(strip(read(f))))
+  // handoff.js 0.1.47 起不送話給 agent(app 直接搬),兩條入口都不該出現
+  && !/csSendAway\(|\bsubmitMessage\(/.test(strip(read("handoff.js"))));
 
 // ── 3. withTab 的換進換出 ──
 { const core = ct.slice(ct.indexOf("const CS = {"), ct.indexOf("/* ── 機器層級"));
@@ -218,7 +222,7 @@ ok("+N 選單開著:每秒只換時長字,不重建(焦點不掉);整列重建�
 ok("結果卡:那一輪的分頁還開著就到它的容器裡找落點(背景分頁沒有回覆文字的那一輪也出卡)", /const T = typeof CS !== "undefined" && rt\.sid \? CS\.tabs\.get\(rt\.sid\) : null;\n  if \(T && T\.el\) return withTab\(T, \(\) => resHostIn\(rt\)\);/.test(read("results.js")));
 ok("送出第一句就存分頁記憶,並重畫分頁(分頁上的標題是建元素時寫的,不重畫就停在「新對話」)", /csRemember\(\); if \(CS\.loaded\) CS\.loaded\.title = csTitle; tabsSave\(\); tabsPaint\(\); \}/.test(app));
 // 分頁上的標題是建元素時寫進去的:每一處改標題(csTitle／T.title)的函式都要自己重畫分頁,或只是存取同步。列舉,多一處沒歸類就紅
-{ const SITES = { csPaintHistory: "畫回舊對話:同函式尾 tabsPaint()", submitMessage: "第一句:同一行 tabsPaint()", tabSave: "存回分頁自己那份,不改畫面", tabMake: "建新分頁的初值", "(top)": "TAB_KEYS 的寫入器(切分頁整組換,隨後 tabShow 重畫)" };
+{ const SITES = { csPaintHistory: "畫回舊對話:同函式尾 tabsPaint()", submitMessage: "第一句:同一行 tabsPaint()", tabSave: "存回分頁自己那份,不改畫面", tabMake: "建新分頁的初值", tabsPhoneTitle: "手機那句是第一句:同函式尾 tabsPaint()", "(top)": "TAB_KEYS 的寫入器(切分頁整組換,隨後 tabShow 重畫)" };
   const fnOf = (src, idx) => { const m = [...src.slice(0, idx).matchAll(/^(?:async )?function (\w+)\(/gm)].pop(); return m ? m[1] : "(top)"; };
   const hits = []; for (const [f, src] of [["app.js", app], ["chattabs.js", ct]]) { const ss = strip(src); for (const m of ss.matchAll(/(?:^|[^\w.])(?<!let )(csTitle|T\.title|CS\.loaded\.title|T\.st\.csTitle) = (?!=)/gm)) hits.push(f + ":" + fnOf(ss, m.index)); }
   const bad = hits.filter((h) => !(h.split(":")[1] in SITES)), unused = Object.keys(SITES).filter((k) => !hits.some((h) => h.endsWith(":" + k)));

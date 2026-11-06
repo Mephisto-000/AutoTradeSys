@@ -625,23 +625,60 @@ _lib_restore_cache = {}
 RERUN_ERRS = ("REFUSED", "DATA", "TIMEOUT", "EXIT", "SUPERSEDED", "BUSY")
 
 
-def lib_restore_in_place():
+def _lib_flag(pattern):
     path = os.path.join(WORKSPACE, "lib", "strategy.py")
     try:
         st = os.stat(path)
     except OSError:
         return False
-    key = (st.st_mtime_ns, st.st_size)
-    hit = _lib_restore_cache.get(path)
-    if hit and hit[0] == key:
+    key = (path, pattern.pattern)
+    stamp = (st.st_mtime_ns, st.st_size)
+    hit = _lib_restore_cache.get(key)
+    if hit and hit[0] == stamp:
         return hit[1]
     try:
         with open(path, "rb") as f:
-            ok = bool(_RESTORE_IN_PLACE_RE.search(f.read()))
+            ok = bool(pattern.search(f.read()))
     except OSError:
         ok = False
-    _lib_restore_cache[path] = (key, ok)
+    _lib_restore_cache[key] = (stamp, ok)
     return ok
+
+
+def lib_restore_in_place():
+    return _lib_flag(_RESTORE_IN_PLACE_RE)
+
+
+# The machine's lib renames (lib/strategy.py STRATEGY_RENAME): its code_hash ignores the
+# DISPLAY_NAME line, restore() keeps the current name, rename() exists. Without it a rename
+# would read as an edit (drift flag on a live strategy, a new version on the next backtest), so
+# rename_strategy refuses and the report leaves `renamable` out — the page hides 〔改名〕.
+_STRATEGY_RENAME_RE = re.compile(rb"^STRATEGY_RENAME\s*=\s*1\b", re.M)
+
+
+def lib_renames():
+    return _lib_flag(_STRATEGY_RENAME_RE)
+
+
+_RENAME_NAME_RE = _CHART_NAME_RE   # = command_listener rename_strategy's name gate
+
+
+# = lib/strategy.py code_hash / raw_code_hash / hash_matches (the runtime never imports lib);
+# tests/fixtures/code_hash_name.json pins the three spellings (here, lib, shell/main.js).
+_HASH_NAME_LINE_RE = re.compile(
+    rb"(?:^|(?<=\n))DISPLAY_NAME[ \t]*=[ \t]*(?:\"[^\"\\\r\n]*\"|'[^'\\\r\n]*')[ \t]*(?:#[^\r\n]*)?(?:\r\n|\n|\r|\Z)")
+
+
+def raw_code_hash(src_bytes):
+    return hashlib.sha256(src_bytes).hexdigest()[:16]
+
+
+def code_hash(src_bytes):
+    return hashlib.sha256(_HASH_NAME_LINE_RE.sub(b"", src_bytes)).hexdigest()[:16]
+
+
+def hash_matches(src_bytes, stored):
+    return isinstance(stored, str) and stored in (code_hash(src_bytes), raw_code_hash(src_bytes))
 
 
 def _read_rerun(vdir):
@@ -696,6 +733,57 @@ def _read_perf(name):
         refresh["err"] = doc.get("err") if doc.get("err") in RERUN_ERRS else "EXIT"
     out["refresh"] = refresh
     return out
+
+
+TRANSFER_FILE = "transfer.json"   # = command_listener.TRANSFER_FILE
+TRANSFER_KEEP_S = 7 * 86400
+_TRANSFER_TAIL_MAX = 300
+
+
+def _read_transfer(name):
+    """strategies/<name>/transfer.json (the run a desktop 送上雲端 / 拉回 started on this side,
+    written by command_listener) as {kind, status, at, from?, err?, exit?, stopped_after_s?, tail?};
+    None when absent, malformed, settled more than TRANSFER_KEEP_S ago, or a failed backtest that a
+    later backtest has since answered (stats.json newer than the record)."""
+    try:
+        doc = atomic_file.load_json(os.path.join(STRATEGIES_DIR, name, TRANSFER_FILE), encoding="utf-8")
+    except (OSError, ValueError):
+        return None
+    if not isinstance(doc, dict):
+        return None
+    kind, status, at = doc.get("kind"), doc.get("status"), doc.get("at")
+    if kind not in ("backtest", "trial") or status not in ("running", "failed", "done") \
+            or isinstance(at, bool) or not isinstance(at, int):
+        return None
+    if status != "running":
+        if time.time() - at > TRANSFER_KEEP_S:
+            return None
+        try:
+            if kind == "backtest" and os.stat(os.path.join(STRATEGIES_DIR, name, "stats.json")).st_mtime > at + 1:
+                return None
+        except OSError:
+            pass
+    out = {"kind": kind, "status": status, "at": at}
+    if doc.get("from") in ("desktop", "cloud"):
+        out["from"] = doc["from"]
+    if status == "failed":
+        out["err"] = doc.get("err") if doc.get("err") in RERUN_ERRS else "EXIT"
+    if kind == "trial" and status != "running":
+        ex = doc.get("exit")
+        out["exit"] = ex if isinstance(ex, int) and not isinstance(ex, bool) else None
+        if doc.get("stopped_after_s") is not None:
+            out["stopped_after_s"] = 120
+        if isinstance(doc.get("tail"), str):
+            out["tail"] = doc["tail"][-_TRANSFER_TAIL_MAX:]
+    return out
+
+
+def _transfer_marker(name):
+    try:
+        st = os.stat(os.path.join(STRATEGIES_DIR, name, TRANSFER_FILE))
+    except (OSError, ValueError):
+        return "none"
+    return f"{st.st_mtime_ns}:{st.st_size}"
 
 
 def _read_versions(name):
@@ -878,11 +966,14 @@ def strategy_marker(s, image_sig=None):
     call it after every tool step, and _scan_sources has already read the sources this
     marker hashes."""
     name = s["name"]
-    columns = json.dumps(
-        [s["status"], _stats_marker(name, None), _scan_marker(name), _wf_marker(name),
-         image_sig, _content_marker(s), _perf_marker(name)],
-        sort_keys=True,
-    )
+    cols = [s["status"], _stats_marker(name, None), _scan_marker(name), _wf_marker(name),
+            image_sig, _content_marker(s), _perf_marker(name)]
+    # 5. A transfer run's record (transfer.json), for the same reason as point 4. Appended only when
+    # the file exists, so the strategies that never had one keep the marker they had (no fleet resend).
+    tm = _transfer_marker(name)
+    if tm != "none":
+        cols.append(tm)
+    columns = json.dumps(cols, sort_keys=True)
     # Hashed, not the columns verbatim: `image_sig` carries the image FILENAMES, which the
     # agent writes and which are routinely descriptive. Five default filenames already make
     # a 256-char marker and eight agent-named ones measured 522 — past the api's field
@@ -986,6 +1077,7 @@ def scan(include_newborn=False):
     scan and walk-forward validation (all optional, all absent rather than null when
     missing)."""
     strategies = _scan_sources(include_newborn)
+    renamable = lib_renames()
     for s in strategies:
         bt = _read_backtest(s["name"])
         if bt is not None:
@@ -1007,12 +1099,17 @@ def scan(include_newborn=False):
         pf = _read_perf(s["name"])
         if pf is not None:
             s["perf"] = pf
+        tr = _read_transfer(s["name"])
+        if tr is not None:
+            s["transfer"] = tr
         # Web-side hint so the 下單設定 picker can grey the checkbox out; the
         # authoritative block is _cmd_amounts' save-time guard (a stale cache
         # here must not be the only defense). False when unknown — fail open,
         # see is_portfolio_stats.
         s["is_portfolio"] = is_portfolio_stats(bt)
         s.update(_type_market(s))   # the header wins; no header but a Type C backtest → C
+        if renamable and _RENAME_NAME_RE.fullmatch(s.get("name") or ""):
+            s["renamable"] = True
     return strategies
 
 

@@ -21,8 +21,10 @@ any order actually fires. Sending orders directly stays out.
 Secrets: `credentials` carries an exchange key to the workspace .env. It is
 never printed, never echoed, and never included in an error message.
 """
+import base64
 import json
 import contextlib
+import hashlib
 import os
 import platform
 import re
@@ -59,6 +61,7 @@ import save_routing
 import tick_gate
 import turn_slots
 import venue_traits
+import strategy_transfer
 
 try:
     import fcntl
@@ -4530,20 +4533,16 @@ def _stop_reconciler():
     return ok
 
 
-def _cmd_credentials_remove(args):
-    """Unbind: drop exchange keys from the workspace .env.
-
-    The platform's own blave_* data-API credentials are never removed, no
-    matter what the caller lists — losing those takes the machine's market
-    data down with it.
-    """
+def _unbind_targets(args, cmd):
+    """(env names, casefolded names to drop, venue ids lowercased) of an unbind's `env` list —
+    credentials_remove and close_then_unbind read it the same way."""
     names = args.get("env")
     if (
         not isinstance(names, list)
         or not names
         or not all(isinstance(n, str) and n.replace("_", "").isalnum() for n in names)
     ):
-        raise ValueError("credentials_remove needs a list of env names")
+        raise ValueError(f"{cmd} needs a list of env names")
     # casefold like the write side: a MixedCase line (agent-hand-written
     # Gateio_Api_Key) must still match its unbind name
     drop = {n.casefold() for n in names if not n.upper().startswith("BLAVE_")}
@@ -4553,6 +4552,32 @@ def _cmd_credentials_remove(args):
         _own = set(_t.get("cred_env") or {})
         if _own & drop:
             drop |= _own
+    # DATA_* excluded: removing a data-source key is not an unbind — no venue
+    # to prune, and it must not halt trading. Judged on the ID (suffix off),
+    # the same thing _venue_cred_ids judges: the env NAME of a venue called
+    # "DATA" (DATA_API_KEY) starts with the prefix, its id does not.
+    dropped_ids = {
+        m[0].lower() for n in drop
+        if (m := _cred_match(n)) and m[1] == "API_KEY" and not _is_data_cred_id(m[0])
+    }
+    return names, drop, dropped_ids
+
+
+def _cmd_credentials_remove(args):
+    """Unbind: drop exchange keys from the workspace .env.
+
+    The platform's own blave_* data-API credentials are never removed, no
+    matter what the caller lists — losing those takes the machine's market
+    data down with it.
+    """
+    names, drop, dropped_ids = _unbind_targets(args, "credentials_remove")
+    marker = _read_unbind_marker()
+    if (marker and not marker.get("held") and not marker.get("unbinding")
+            and dropped_ids & set(marker.get("venues") or ())):
+        # a close_then_unbind is closing this venue: its flatten already holds the keys and keeps
+        # sending; pulling them now leaves exactly the half state that command exists to prevent.
+        # It unbinds on its own when flat, or stops (held) and this goes through then
+        raise RuntimeError("close_then_unbind is closing this venue's positions — unbind once it finishes")
 
     path = os.path.join(WORKSPACE, ".env")
     with _env_lock():
@@ -4587,14 +4612,6 @@ def _cmd_credentials_remove(args):
     # Prune the unbound venues from account.json right away — the account
     # reader only rewrites it every 2 min, and until then the web would keep
     # showing a live-looking equity for an account that no longer has a key.
-    # DATA_* excluded: removing a data-source key is not an unbind — no venue
-    # to prune, and it must not halt trading. Judged on the ID (suffix off),
-    # the same thing _venue_cred_ids judges: the env NAME of a venue called
-    # "DATA" (DATA_API_KEY) starts with the prefix, its id does not.
-    dropped_ids = {
-        m[0].lower() for n in drop
-        if (m := _cred_match(n)) and m[1] == "API_KEY" and not _is_data_cred_id(m[0])
-    }
     if dropped_ids:
         apath = os.path.join(WORKSPACE, "manager", "account.json")
         try:
@@ -4685,6 +4702,11 @@ def _cmd_credentials_remove(args):
                 # the workspace lib reads its id (lib.portfolio.book_account_check).
             else:
                 _log("reconciler not confirmed stopped — membership kept")
+
+    # 「保留部位並解除」 after a held close_then_unbind (or the unbind that request was waiting
+    # for): nothing is left to wait on for these venues
+    if marker and dropped_ids & set(marker.get("venues") or ()):
+        _drop_unbind_marker()
 
     return f"credentials_remove={removed}"  # count only — never the names' values
 
@@ -4920,6 +4942,7 @@ def _cmd_delete_strategy(args):
         raise RuntimeError("a version restore of this machine is in progress — try again")
     try:
         _kill_rerun(name)
+        _kill_transfer(name)
     finally:
         _RESTORE_LOCK.release()
     if prune_member:   # last refusal passed: the membership goes with the files
@@ -5521,10 +5544,16 @@ def _cmd_close_all(args):
     flatten gets a one-time close-only pass (lib/guard.claim_close_all_pass) and
     every state above carries a `restart_stopped:` prefix instead of the halt —
     e.g. `close_all=restart_stopped:started`."""
+    return _close_all("close_all")
+
+
+def _close_all(label, argv=()):
+    """_cmd_close_all's body; close_then_unbind runs the same path with its own ack label and
+    flatten.py arguments (--venues / --request-id)."""
     from lib.guard import trip_halt
 
     restart = os.path.exists(RESTART_STOP_PATH)
-    prefix = "close_all=restart_stopped:" if restart else "close_all="
+    prefix = f"{label}=restart_stopped:" if restart else f"{label}="
     flatten_path = os.path.join(WORKSPACE, "manager", "flatten.py")
     try:
         with open(flatten_path, encoding="utf-8") as f:
@@ -5543,7 +5572,7 @@ def _cmd_close_all(args):
         _mark_halt_closing(False)  # flipped once a flatten is known to be running
     result = None
     try:
-        result = _close_all_launch(prefix, restart, claims_pass, flatten_path)
+        result = _close_all_launch(prefix, restart, claims_pass, flatten_path, argv)
         return result
     finally:
         if halted_here and _CLOSE_ALL_CLOSING_RE.search(result or ""):
@@ -5572,7 +5601,7 @@ def _mark_halt_closing(closing):
         _log(f"close_all: HALT closing mark failed: {type(e).__name__}: {e}")
 
 
-def _close_all_launch(prefix, restart, claims_pass, flatten_path):
+def _close_all_launch(prefix, restart, claims_pass, flatten_path, argv=()):
     if not os.path.isfile(flatten_path):
         # workspace 還沒更新到有平倉層——誠實回報只掛了 halt(reporter 的
         # can_flatten 同一判準,前端本來就不會給這顆選項;這裡是最後防線)
@@ -5593,7 +5622,7 @@ def _close_all_launch(prefix, restart, claims_pass, flatten_path):
             return prefix + "nothing_closed"  # the flatten could close nothing without it
         pass_written = True
     try:
-        return _launch_flatten(prefix)
+        return _launch_flatten(prefix, argv)
     except BaseException:
         if pass_written:  # never leave a claimable pass behind a flatten that did not start
             try:
@@ -5630,7 +5659,7 @@ def _kick_when_flatten_exits(proc):
     threading.Thread(target=_run, daemon=True).start()
 
 
-def _launch_flatten(prefix):
+def _launch_flatten(prefix, argv=()):
     # log 進檔案不進 DEVNULL:detached 程序的失敗路徑(沒 order lib、平倉炸)
     # 除了 order_errors.json 外,還要有完整紀錄可查
     log_path = os.path.join(WORKSPACE, "state", "flatten.log")
@@ -5647,7 +5676,7 @@ def _launch_flatten(prefix):
         line = "".join(json.dumps({k: v for d in held for k, v in d.items()}) + "\n" for _ in held)
         flags = {**president_connect.child_flags(), **capital_local.child_flags()}
         with atomic_file.open_append(log_path) as logf:
-            proc = subprocess.Popen([sys.executable, "manager/flatten.py"], cwd=WORKSPACE,
+            proc = subprocess.Popen([sys.executable, "manager/flatten.py", *argv], cwd=WORKSPACE,
                                     env=_local_child_env(**flags),
                                     stdout=logf, stderr=logf, start_new_session=True,
                                     **_child_kw(**({"stdin": subprocess.PIPE} if line else {})))
@@ -5660,30 +5689,431 @@ def _launch_flatten(prefix):
                 pass
         _kick_when_flatten_exits(proc)
         return prefix + "started"
+    if platform.system() == "Windows" and _capital_admin_scope(argv):
+        try:
+            _launch_flatten_as_admin(argv, log_path, child_env)
+            return prefix + "started"
+        except Exception as e:
+            # the old launch below: the others close, 群益 is skipped and recorded as manual
+            _log(f"flatten: Administrator launch failed ({type(e).__name__}) — started as this identity")
     if platform.system() == "Windows":
-        # 脫離 NSSM 的 process tree:bridge 重啟時 NSSM 會殺整棵樹,平倉做一半
-        # 被砍=HALT 掛著、倉平一半。經由一個立刻退場的 powershell 中轉
-        # (Start-Process 的子程序在 powershell 死後變孤兒,樹掃描摸不到)。
-        ps_cmd = (
-            f"Start-Process -WindowStyle Hidden -FilePath python "
-            f"-ArgumentList 'manager/flatten.py' -WorkingDirectory '{WORKSPACE}' "
-            f"-RedirectStandardOutput '{log_path}.out' "
-            f"-RedirectStandardError '{log_path}.err'"
-        )
-        subprocess.Popen(["powershell", "-NoProfile", "-Command", ps_cmd],
-                         cwd=WORKSPACE, env=child_env,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **_child_kw())
+        _launch_flatten_windows(argv, log_path, child_env)
         return prefix + "started"
     # Linux:bridge unit 是 KillMode=process(見 systemd/blave-agent-web.service)
     # ——重啟只殺 bridge 本體,flatten 活到收工
     with atomic_file.open_append(log_path) as logf:
         proc = subprocess.Popen(
-            ["python3", "manager/flatten.py"],
+            ["python3", "manager/flatten.py", *argv],
             cwd=WORKSPACE, env=child_env,
             stdout=logf, stderr=logf, start_new_session=True, **_child_kw()
         )
     _kick_when_flatten_exits(proc)
     return prefix + "started"
+
+
+def _launch_flatten_windows(argv, log_path, child_env):
+    # 脫離 NSSM 的 process tree:bridge 重啟時 NSSM 會殺整棵樹,平倉做一半
+    # 被砍=HALT 掛著、倉平一半。經由一個立刻退場的 powershell 中轉
+    # (Start-Process 的子程序在 powershell 死後變孤兒,樹掃描摸不到)。
+    ps_cmd = (
+        f"Start-Process -WindowStyle Hidden -FilePath python "
+        f"-ArgumentList {','.join(repr(a) for a in ('manager/flatten.py', *argv))} "
+        f"-WorkingDirectory '{WORKSPACE}' "
+        f"-RedirectStandardOutput '{log_path}.out' "
+        f"-RedirectStandardError '{log_path}.err'"
+    )
+    subprocess.Popen(["powershell", "-NoProfile", "-Command", ps_cmd],
+                     cwd=WORKSPACE, env=child_env,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **_child_kw())
+
+
+CAPITAL_FLATTEN_TASK = "BlaveCapitalFlatten"
+_ADMIN_FLATTEN_ARG_RE = re.compile(r"^[A-Za-z0-9_,.-]{1,200}$")
+_ADMIN_FLATTEN_CMD_S = 20       # the task's .cmd reports python found within this, or the ack falls back
+_ADMIN_FLATTEN_POLL_S = 5
+_ADMIN_FLATTEN_MAX_S = 2 * 3600  # a flatten that never wrote done_at: the task is dropped anyway
+ADMIN_FLATTEN_STATUS = os.path.join(WORKSPACE_STATE, "flatten_admin.status")
+
+
+def _capital_admin_scope(argv):
+    """Cloud Windows, a 群益 position in this flatten's scope (--venues, else every bound venue),
+    and portfolio_reporter.capital_admin_switch: start it as Administrator, or it skips 群益."""
+    try:
+        import portfolio_reporter
+        if not portfolio_reporter.capital_admin_switch():
+            return False
+        args = list(argv)
+        scope = (set(args[args.index("--venues") + 1].split(",")) if "--venues" in args
+                 else set(portfolio_reporter.venues()))
+        return any(venue_traits.has(v, "windows_identity") for v in scope)
+    except Exception:
+        return False
+
+
+def _admin_status():
+    try:
+        with open(ADMIN_FLATTEN_STATUS, encoding="utf-8", errors="replace") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def _flatten_started_since(t):
+    """manager/flatten.py writes last_flatten.json (done_at None) once it holds its lock: a record
+    started at or after `t` is this launch's. Read, never the lock — probing flatten.lock can make
+    a flatten starting that instant exit already_running."""
+    last = _read_last_flatten() or {}
+    try:
+        return float(last.get("started_at") or 0) >= t - 1, last.get("done_at") is not None
+    except (TypeError, ValueError):
+        return False, False
+
+
+def _launch_flatten_as_admin(argv, log_path, child_env):
+    """manager/flatten.py through a one-shot Administrator task (capital_connect's vehicle). The
+    task runs a .cmd: schtasks /tr is capped at 261 characters and sets no working directory or
+    environment. Never BLAVE_AGENT_LOCAL — flatten.py would judge the identity by the desktop's
+    rule. The .cmd writes ADMIN_FLATTEN_STATUS: `nopython`, `running`, then `exit <code>`.
+    Raises (the caller then starts it as this identity) unless `running` shows within
+    _ADMIN_FLATTEN_CMD_S; after that a watcher starts it as this identity if python exited
+    without the flatten ever starting, and drops the task once it is done."""
+    bad = '"%&^|<> '
+    if any(c in WORKSPACE + log_path for c in bad) or not all(_ADMIN_FLATTEN_ARG_RE.match(a) for a in argv):
+        raise RuntimeError("path or argument not usable in a .cmd")
+    status = ADMIN_FLATTEN_STATUS
+    script = os.path.join(WORKSPACE_STATE, "flatten_admin.cmd")
+    _write_atomic(script, "\n".join([
+        "@echo off",
+        f'cd /d "{WORKSPACE}"',
+        f'set "BLAVE_AGENT_WORKSPACE={WORKSPACE}"',
+        'set "BLAVE_AGENT_LOCAL="',
+        f'where python >nul 2>nul || (echo nopython> "{status}" & exit /b 9009)',
+        f'echo running> "{status}"',
+        f'python manager\\flatten.py {" ".join(argv)} >> "{log_path}.out" 2>> "{log_path}.err"',
+        # redirect first: "...%ERRORLEVEL%> f" reads a lone digit before > as a stream handle (2> etc.)
+        f'>"{status}" echo exit %ERRORLEVEL%', ""]))
+    try:
+        os.remove(status)
+    except OSError:
+        pass
+    launched = time.time()
+    capital_connect.run_detached_as_administrator(f'cmd /c "{script}"', _capital_admin_password(),
+                                                  CAPITAL_FLATTEN_TASK)
+    deadline = launched + _ADMIN_FLATTEN_CMD_S
+    while not _admin_status() and time.time() < deadline:
+        time.sleep(0.5)
+    if _admin_status() in ("", "nopython"):
+        _drop_admin_task()
+        raise RuntimeError(f"Administrator task did not start python ({_admin_status() or 'no status'})")
+
+    def _watch():
+        while time.time() - launched < _ADMIN_FLATTEN_MAX_S:
+            started, done = _flatten_started_since(launched)
+            st = _admin_status()
+            if done or (started and st.startswith("exit")):
+                break
+            if st.startswith("exit") and st != f"exit {FLATTEN_EXIT_ALREADY_RUNNING}":
+                # python ran and left without the flatten ever starting (import error, crash):
+                # nothing was closed on ANY venue — start it as this identity (群益 recorded manual)
+                _log(f"flatten: the Administrator run ended before starting ({st}) — started as this identity")
+                try:
+                    _launch_flatten_windows(argv, log_path, child_env)
+                except Exception as e:
+                    _log(f"flatten: fallback launch failed ({type(e).__name__})")
+                break
+            if st.startswith("exit"):
+                break   # another flatten held the lock: that one closes
+            time.sleep(_ADMIN_FLATTEN_POLL_S)
+        _drop_admin_task()
+
+    threading.Thread(target=_watch, daemon=True).start()
+
+
+def _drop_admin_task():
+    try:
+        capital_connect.drop_task(CAPITAL_FLATTEN_TASK)
+    except Exception as e:
+        _log(f"flatten: Administrator task not dropped ({type(e).__name__})")
+
+
+# ── 平倉後解除綁定(close_then_unbind;spec unbind-positions §5) ─────────────────────
+# One command owns the whole order — close, confirm flat, only then drop the keys — so a page
+# reloaded or an app closed halfway never leaves keys gone with positions open, or a close sent
+# with the keys already gone. The request waits in UNBIND_AFTER_CLOSE_PATH; manager/flatten.py
+# writes its result to LAST_FLATTEN_PATH; unbind_after_close_tick (on the command thread of both
+# the cloud listener and the desktop daemon, so it survives a restart) decides once that result
+# is in: everything closed and re-read flat → credentials_remove; anything else → held, keys kept,
+# HALT kept, nothing sent again on its own.
+
+UNBIND_AFTER_CLOSE_PATH = os.path.join(WORKSPACE_STATE, "unbind_after_close.json")
+LAST_FLATTEN_PATH = os.path.join(WORKSPACE_STATE, "last_flatten.json")
+_UNBIND_RID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_UNBIND_START_GRACE_S = 300   # > guard.TURN_MONEY_WAIT_S (90): a flatten waiting on a turn has not written yet
+_UNBIND_PROBE_EVERY_S = 60    # a crashed flatten (no pid to watch) is found by its released lock
+_UNBIND_TICK_EVERY_S = 2
+_UNBIND_TICK = {"next": 0.0, "probed": 0.0}
+
+
+def _flatten_supports_unbind():
+    """The workspace's flatten.py takes --venues / --request-id and writes last_flatten.json —
+    the runtime ships first, and an older flatten would close every venue and report nothing.
+    Same artifact test as the report's can_close_unbind."""
+    try:
+        with open(os.path.join(WORKSPACE, "manager", "flatten.py"), encoding="utf-8") as f:
+            src = f.read()
+    except OSError:
+        return False
+    return "last_flatten.json" in src and '"--request-id"' in src and '"--venues"' in src
+
+
+def _read_unbind_marker():
+    try:
+        m = atomic_file.load_json(UNBIND_AFTER_CLOSE_PATH)
+    except (OSError, ValueError):
+        return None
+    return m if isinstance(m, dict) and isinstance(m.get("env"), list) else None
+
+
+def _drop_unbind_marker():
+    try:
+        os.remove(UNBIND_AFTER_CLOSE_PATH)
+    except FileNotFoundError:
+        pass
+
+
+def _write_unbind_marker(m):
+    _write_atomic(UNBIND_AFTER_CLOSE_PATH, json.dumps(m))
+
+
+def _read_last_flatten():
+    try:
+        r = atomic_file.load_json(LAST_FLATTEN_PATH)
+    except (OSError, ValueError):
+        return None
+    return r if isinstance(r, dict) else None
+
+
+def _tw_positions_held(vid):
+    """Does the bot hold anything on this TW futures venue? Snapshot file and book only — never
+    a broker login. Unreadable → True: the safe answer when the market is shut is not to send."""
+    import importlib
+    try:
+        import lib.portfolio as _pf
+        cfg = _pf.load_portfolio_config()
+        own = _pf.own_positions_only(cfg) if hasattr(_pf, "own_positions_only") else cfg.get("self_ledger")
+        if own and _pf.book_ready(cfg):
+            book = _pf.ledger_positions(vid)
+            return any(float(r.get("size") or 0) > 0 or float(r.get("qty") or 0) > 0 for r in book.values())
+        rows = importlib.import_module(f"lib.account_{vid}").get_positions({})
+        rows = rows.values() if isinstance(rows, dict) else rows
+        return any(float((r or {}).get("size") or 0) > 0 for r in rows)
+    except Exception as e:
+        _log(f"close_then_unbind: {vid} positions unread ({type(e).__name__}) — taken as held")
+        return True
+
+
+def _txf_closed_for(scope):
+    """A TW futures venue in `scope` holds positions and the TAIFEX session is shut: a market
+    IOC now is refused (9902) or, in the pre-open, queued to the open. Holidays are not known
+    (lib/tw_clock) — the broker's refusal comes back as a held result then."""
+    import importlib
+    tw = sorted(v for v in scope if venue_traits.has(v, "hand_wired"))
+    if not tw:
+        return False
+    try:
+        tc = importlib.import_module("lib.tw_clock")
+        if tc.in_session(tc.corrected()):
+            return False
+    except Exception:
+        return True
+    return any(_tw_positions_held(v) for v in tw)
+
+
+def _manual_venues(scope):
+    """The venues in `scope` this machine can't close: only a password-logon Administrator can
+    trade them (群益) and this identity isn't one — the same identity test close_all's
+    flatten skips them by (portfolio_reporter.manual_close_venues, the report's side)."""
+    gated = {v for v in scope if venue_traits.has(v, "windows_identity")}
+    if not gated:
+        return set()
+    try:
+        import portfolio_reporter
+        return set() if portfolio_reporter._capital_closable() else gated
+    except Exception:
+        return gated
+
+
+def _cmd_close_then_unbind(args):
+    """Close the positions of the venues being unbound, then unbind them — or stop with the
+    keys kept. args: {"env": [names] (= credentials_remove), "request_id"?: str}.
+
+    Ack (opaque `close_then_unbind=<state>`, additive like close_all):
+      started          — HALT tripped (as close_all), flatten launched for these venues only;
+                         the unbind follows on its own once flat (unbind_after_close_tick)
+      already_running  — this machine's close-then-unbind is still working: nothing launched
+      held             — the same request_id again after it was held: nothing launched
+      unconfirmed      — the last attempt left a close of unknown outcome: no new flatten
+                         (群益's auto open/close would open the reverse of one that did fill)
+      market_closed    — a TW futures venue holds positions out of session: nothing done
+      capital_manual   — every venue in scope is 群益 that this identity can't trade: nothing
+                         done. Mixed with closable venues, 群益 is kept instead (marker `manual`)
+                         and unbinds with the rest once they are flat
+      flatten_busy     — another close-all holds the flatten lock: nothing done
+      not_bound        — none of these venues is bound (already unbound): nothing done
+      unsupported      — the workspace's flatten.py predates this: nothing done
+    plus close_all's own states through the same path (restart_stopped: prefix included)."""
+    names, _drop, ids = _unbind_targets(args, "close_then_unbind")
+    rid = args.get("request_id")
+    if rid is not None and (not isinstance(rid, str) or not _UNBIND_RID_RE.match(rid)):
+        raise ValueError("request_id must be 1-64 of [A-Za-z0-9_-]")
+    if not ids:
+        raise ValueError("close_then_unbind needs a venue's env names")
+    p = "close_then_unbind="
+    if not _flatten_supports_unbind():
+        return p + "unsupported"
+    cur = _read_unbind_marker()
+    if cur and not cur.get("held"):
+        return p + "already_running"
+    if cur and rid and cur.get("request_id") == rid:
+        return p + "held"
+    last = _read_last_flatten()
+    if cur and last and last.get("request_id") == cur.get("request_id") and last.get("unconfirmed"):
+        return p + "unconfirmed"
+    # unreadable raises (the ack says so): an empty read would answer not_bound
+    with open(os.path.join(WORKSPACE, ".env")) as f:
+        bound = {i.lower() for i in _venue_cred_ids(f.read().splitlines())}
+    scope = ids & bound
+    if not scope:
+        return p + "not_bound"
+    # 群益 under this identity is kept, as if the user chose keep-and-unbind for it (Wei 2026-11-05,
+    # unbind-consistency §5 step 1): the others close, and once they are flat every venue in
+    # `scope` unbinds together. Only 群益 alone has nothing to close → keep-and-unbind only.
+    manual = _manual_venues(scope)
+    closing = scope - manual
+    if not closing:
+        return p + "capital_manual"
+    # only what is sent: a kept 群益 TXF out of session is not a reason to hold the others
+    if _txf_closed_for(closing):
+        return p + "market_closed"
+    if _flatten_already_running():
+        return p + "flatten_busy"
+    rid = rid or uuid.uuid4().hex[:16]
+    _UNBIND_TICK["probed"] = 0.0
+    _write_unbind_marker({"env": names, "venues": sorted(scope), "closing": sorted(closing),
+                          "manual": sorted(manual), "at": round(time.time(), 3),
+                          "request_id": rid, "held": False})
+    try:
+        result = _close_all("close_then_unbind", ("--venues", ",".join(sorted(closing)), "--request-id", rid))
+    except BaseException:
+        _drop_unbind_marker()
+        raise
+    if result.endswith("started"):
+        m = _read_unbind_marker()
+        if m and m.get("request_id") == rid:
+            m["halt_ts"] = _halt_ts()   # the stop this request stands on; None = restart-stopped, no HALT
+            _write_unbind_marker(m)
+    if not result.endswith("started"):
+        # nothing of ours is running: no request left to wait on. already_running here is
+        # another close-all's flatten (ours was refused above), which closes every venue
+        # and never unbinds
+        _drop_unbind_marker()
+        if result.endswith("already_running"):
+            return p + "flatten_busy"
+    return result
+
+
+def _halt_ts():
+    try:
+        h = atomic_file.load_json(os.path.join(WORKSPACE_STATE, "HALT"))
+    except (OSError, ValueError):
+        return None
+    return h.get("ts") if isinstance(h, dict) else None
+
+
+def _stop_still_stands(marker):
+    """Nothing has traded since the flatten closed: the same HALT this request tripped is still
+    there (a resume removes it; a resume then a new halt replaces its ts), or — a request made
+    while restart-stopped — the restart record still is. Anything else and the reconciler may
+    have re-opened what was closed (flatten kicks it when done), so the keys stay."""
+    ts = marker.get("halt_ts")
+    if ts is not None:
+        return _halt_ts() == ts
+    return os.path.exists(RESTART_STOP_PATH) or ("halt_ts" not in marker and _halt_ts() is not None)
+
+
+def _unbind_hold(marker, why):
+    marker.update({"held": True, "why": why, "held_at": round(time.time(), 3)})
+    try:
+        _write_unbind_marker(marker)
+    except OSError as e:
+        _log(f"close_then_unbind: held mark not written ({type(e).__name__})")
+    _log(f"close_then_unbind {marker.get('request_id')}: held ({why}) — keys kept, trading stays paused")
+    _push(_ON_APPLIED, "close_then_unbind held")
+    return f"held:{why}"
+
+
+def unbind_after_close_tick():
+    """Advance a waiting close_then_unbind. Called from the command thread (cloud run(), desktop
+    daemon loop), where the dispatch it shares cwd swaps with runs too. Cheap when nothing
+    waits; never blocks: the re-read flat check is flatten.py's own (it can wait out a TW
+    snapshot that lags its closes), this only reads the result and probes the lock once at the
+    moment of decision — probing it often would make a flatten starting that instant exit
+    already_running having closed nothing (flatten_running)."""
+    now = time.time()
+    if now < _UNBIND_TICK["next"]:
+        return None
+    _UNBIND_TICK["next"] = now + _UNBIND_TICK_EVERY_S
+    if not os.path.exists(UNBIND_AFTER_CLOSE_PATH):
+        return None
+    marker = _read_unbind_marker()
+    if not marker or marker.get("held"):
+        return None
+    last = _read_last_flatten()
+    if not last or last.get("request_id") != marker.get("request_id"):
+        if now - float(marker.get("at") or 0) < _UNBIND_START_GRACE_S or flatten_running():
+            return None
+        return _unbind_hold(marker, "not_started")
+    if last.get("done_at") is None:
+        if flatten_running() or now - _UNBIND_TICK["probed"] < _UNBIND_PROBE_EVERY_S:
+            return None
+        _UNBIND_TICK["probed"] = now
+        if _flatten_already_running():
+            return None
+        last = _read_last_flatten() or {}
+        if last.get("request_id") != marker.get("request_id") or last.get("done_at") is None:
+            return _unbind_hold(marker, "interrupted")
+    if _flatten_already_running():
+        return None   # the result is written while the lock is still held; it goes a moment later
+    if last.get("unconfirmed"):
+        return _unbind_hold(marker, "unconfirmed")
+    if last.get("unclosed"):
+        return _unbind_hold(marker, "unclosed")
+    if last.get("ok") is not True:
+        return _unbind_hold(marker, "error")
+    if not _stop_still_stands(marker):
+        return _unbind_hold(marker, "resumed")
+    try:
+        marker["unbinding"] = True   # this unbind is the one the request waits for
+        _write_unbind_marker(marker)
+        result = _in_workspace(_cmd_credentials_remove, {"env": marker["env"]})
+    except Exception as e:
+        _log(f"close_then_unbind: credentials_remove failed: {type(e).__name__}: {e}")
+        try:
+            with open(os.path.join(WORKSPACE, ".env")) as f:
+                still = {i.lower() for i in _venue_cred_ids(f.read().splitlines())}
+        except OSError:
+            still = None
+        if still is not None and not still & set(marker.get("venues") or ()):
+            # the keys went before the failure (a later step, e.g. the reconciler stop): it is
+            # unbound, and a held mark would tell the page the keys are still there
+            _drop_unbind_marker()
+            _push(_ON_APPLIED, "close_then_unbind done")
+            return f"unbound_with_error:{type(e).__name__}"
+        return _unbind_hold(marker, "unbind_failed")
+    _drop_unbind_marker()
+    _log(f"close_then_unbind {marker.get('request_id')}: flat — {result}")
+    _push(_ON_APPLIED, "close_then_unbind done")
+    return result
 
 
 # ── 策略管理(工作頁 投資組合 › 策略管理)──────────────────────────────────────
@@ -6506,25 +6936,32 @@ def _classify_rerun(tail):
 
 
 def _version_code_hash(name, n):
-    """v<n>.json's code_hash (lib.strategy.code_hash: sha256 of the file bytes, 16 hex), or None."""
+    """The hash v<n>'s re-run is pinned to (BLAVE_EXPECT_CODE_HASH), or None. A lib that renames
+    (strategy_reporter.lib_renames) wrote v<n>'s code back under the file's current DISPLAY_NAME
+    and its runner compares name-blind: the name-blind hash of the stored code. An older lib
+    wrote the bytes back as stored and compares exactly: the blob's own code_hash."""
+    import strategy_reporter
     try:
-        h = atomic_file.load_json(_versions_path(name, f"v{n}.json"), encoding="utf-8").get("code_hash")
+        blob = atomic_file.load_json(_versions_path(name, f"v{n}.json"), encoding="utf-8")
+        h, code = blob.get("code_hash"), blob.get("code")
     except (OSError, ValueError, AttributeError):
         return None
+    if strategy_reporter.lib_renames() and isinstance(code, str) and code:
+        return strategy_reporter.code_hash(code.encode("utf-8"))
     return h if isinstance(h, str) and h else None
 
 
 def _file_is_version(doc, name, n):
     """Does the strategy file still hold v<n>'s code? (what the re-run was asked to run)"""
-    import hashlib
+    import strategy_reporter
     script = doc.get("script") if isinstance(doc.get("script"), str) else ""
     want = _version_code_hash(name, n)
     try:
         with open(os.path.join(WORKSPACE, script), "rb") as f:
-            have = hashlib.sha256(f.read()).hexdigest()[:16]
+            have = f.read()
     except OSError:
         return False
-    return bool(script) and want is not None and have == want
+    return bool(script) and strategy_reporter.hash_matches(have, want)
 
 
 def _settle_rerun(name, pid, rc=None, err=None):
@@ -6721,6 +7158,431 @@ def _cmd_version_restore(args):
     return Deferred(_run)
 
 
+# ── 策略改名(spec strategy-rename-2026-11-05 §5)───────────────────────────────
+# `rename_strategy {name, display_name}`: the sidebar's 改名 on the web and the desktop (both
+# views), no agent turn. lib.strategy.rename in a workspace subprocess is the one implementation:
+# the name rules, the DISPLAY_NAME rewrite, re-spelling pre-rule version hashes under the versions
+# lock. Old lib (no STRATEGY_RENAME) → UPDATE_REQUIRED: its hash counts the name, so a rename
+# would flag a live strategy as edited and mint a copy on the next backtest. The report carries
+# `renamable` only when this would be accepted, so the page normally never sends it then.
+# TURN_RUNNING / JOB_RUNNING are the race the page's own lock leaves: an agent rewriting the file
+# from memory would undo the rename; a restore's re-run is pinned to the file it started on.
+_RENAME_DISPLAY_MAX = 400   # transport bound only; lib.strategy.name_problem is the rule (60)
+_RENAME_TIMEOUT_S = 60
+_RENAME_PY = (
+    "import json, sys\n"
+    "from lib.strategy import rename\n"
+    "try:\n"
+    "    out = {'ok': True, 'result': rename(sys.argv[1], json.loads(sys.argv[2]))}\n"
+    "except Exception as e:\n"
+    "    out = {'ok': False, 'code': getattr(e, 'restore_code', None) or 'FAILED',\n"
+    "           'error': f'{type(e).__name__}: {e}'[:300]}\n"
+    f"print({_RESTORE_MARK!r} + json.dumps(out))\n"
+)
+
+
+def _chat_turn_running():
+    """Any live turn slot but a scheduled report's (those never edit a strategy file, and run
+    for minutes — refusing every rename meanwhile would read as broken)."""
+    try:
+        names = os.listdir(turn_slots.SLOTS_DIR)
+    except OSError:
+        return False
+    for n in names:
+        p = os.path.join(turn_slots.SLOTS_DIR, n)
+        if not n.startswith("slot-") or turn_slots._is_stale(p):
+            continue
+        try:
+            with open(p, encoding="utf-8") as f:
+                surface = json.load(f).get("surface")
+        except (OSError, ValueError, AttributeError):
+            surface = None   # half-written or unreadable: count it
+        if surface != "report":
+            return True
+    return False
+
+
+def _cmd_rename_strategy(args):
+    """{"name": STRATEGY_NAME, "display_name": str} → result {display_name, changed}; refusals
+    raise "ValueError: <CODE>: …" with CODE in UPDATE_REQUIRED / TURN_RUNNING / JOB_RUNNING /
+    BAD_NAME / DUPLICATE / NOT_FOUND / NOT_LITERAL / BAD_ARGS / FAILED."""
+    if not isinstance(args, dict) or set(args) != {"name", "display_name"}:
+        raise ValueError("BAD_ARGS: rename_strategy takes exactly name and display_name")
+    name, value = args["name"], args["display_name"]
+    if not isinstance(name, str) or not _VERSION_RESTORE_NAME_RE.fullmatch(name):
+        raise ValueError("BAD_ARGS: bad strategy name")
+    if not isinstance(value, str) or len(value) > _RENAME_DISPLAY_MAX:
+        raise ValueError("BAD_NAME: display_name must be a short string")
+    import strategy_reporter
+    if not strategy_reporter.lib_renames():
+        raise ValueError("UPDATE_REQUIRED: this machine's blave-agent lib cannot rename a strategy "
+                         "— update blave-agent first")
+    if _chat_turn_running():
+        raise ValueError("TURN_RUNNING: a reply is still being written on this machine")
+
+    def _run():   # a workspace interpreter importing lib: seconds, not in front of halt
+        with _RESTORE_LOCK:   # not under a restore of the same file, and its re-run seen started
+            doc = _read_rerun_doc(name)
+            if doc and doc.get("status") == "running" and _rerun_pid_alive(name, doc.get("pid")):
+                raise ValueError("JOB_RUNNING: this strategy's backtest is re-running")
+            try:
+                r = subprocess.run([_workspace_python(), "-c", _RENAME_PY, name, json.dumps(value)],
+                                   cwd=WORKSPACE, env=_strategy_subprocess_env("backtest"),
+                                   capture_output=True, encoding="utf-8", errors="replace",
+                                   timeout=_RENAME_TIMEOUT_S, **_child_kw())
+            except subprocess.TimeoutExpired:
+                raise ValueError(f"FAILED: rename did not finish within {_RENAME_TIMEOUT_S}s")
+        line = next((x for x in reversed((r.stdout or "").splitlines()) if x.startswith(_RESTORE_MARK)), None)
+        try:
+            out = json.loads(line[len(_RESTORE_MARK):]) if line else None
+        except ValueError:
+            out = None
+        if not isinstance(out, dict):
+            raise ValueError(f"FAILED: rename exited {r.returncode} — {_tail(r.stderr, 200)}")
+        if not out.get("ok"):
+            code = out.get("code") if isinstance(out.get("code"), str) and out.get("code").isupper() else "FAILED"
+            raise ValueError(f"{code}: {out.get('error') or 'rename refused'}")
+        res = out.get("result") if isinstance(out.get("result"), dict) else {}
+        if res.get("changed"):
+            _push(_ON_APPLIED, "rename")
+        shown = res.get("display_name")
+        return {"display_name": shown if isinstance(shown, str) else value.strip(),
+                "changed": res.get("changed") is True}
+
+    return Deferred(_run)
+
+
+# ── 策略搬家(電腦版「送上雲端／拉回這台電腦」)──────────────────────────────────────
+# `strategy_import {name, to?, files, env?}` / `strategy_export {name}`: the desktop's two handoff
+# buttons, no agent turn (references/cloud-handoff.md is the same procedure for an agent asked in the
+# chat). The rules live in runtime/strategy_transfer.py; this part owns the locks, the background run
+# and the hand-over.
+#   import: a NEW folder strategies/<dest>/ (never overwrite: §4a), the *.py written .handoff → verify
+#   → rename, STRATEGY_NAME / DISPLAY_NAME renumbered when <dest> ≠ <name>, the data-source keys merged
+#   into .env's managed block (cloud only), then one background run: Type A/C a quiet backtest (it is
+#   <dest>'s v1, canon strategy-versions §2), Type B a 120 s trial unless the code can place an order.
+#   The ack = the files are in place; the run's state rides the strategies report as `transfer`
+#   (strategies/<dest>/transfer.json): running → gone after a backtest that wrote stats.json, failed +
+#   a code, or the trial's result. Nothing is scheduled and no amount is set (§6C).
+#   export: the *.py of strategies/<name>/ handed to the api's staging slot for this command id
+#   (api agent_command /export); the desktop fetches them and imports locally with the same handler.
+TRANSFER_FILE = "transfer.json"      # = strategy_reporter.TRANSFER_FILE
+TRANSFER_RUN_TIMEOUT_S = RESTORE_RERUN_TIMEOUT_S
+TRANSFER_TRIAL_TIMEOUT_S = 120
+TRANSFER_TAIL = 300
+_TRANSFER_LOCK = threading.Lock()    # one import at a time: two could pick the same free <dest>
+_TRANSFER_PROCS = {}                 # dest → the run Popen this process started
+
+
+def _transfer_path(name, *parts):
+    return os.path.join(WORKSPACE, "strategies", name, *parts)
+
+
+def _read_transfer_doc(name):
+    try:
+        doc = atomic_file.load_json(_transfer_path(name, TRANSFER_FILE), encoding="utf-8")
+    except (OSError, ValueError):
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def _transfer_pid_alive(name, pid):
+    proc = _TRANSFER_PROCS.get(name)
+    if proc is not None and proc.pid == pid:
+        return proc.poll() is None
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+        return False
+    return f"strategies/{name}/strategy.py" in _pid_cmdline(pid).replace("\\", "/")
+
+
+def _kill_transfer(name):
+    """Stop <name>'s transfer run (delete_strategy: it would recreate the folder it writes into).
+    The record goes first, under the lock _settle_transfer takes: the killed run's watcher then finds
+    nothing to settle instead of writing transfer.json back into a folder being removed."""
+    with _TRANSFER_LOCK:
+        doc = _read_transfer_doc(name)
+        try:
+            os.remove(_transfer_path(name, TRANSFER_FILE))
+        except FileNotFoundError:
+            pass
+    pid = doc.get("pid") if doc else None
+    if doc and doc.get("status") == "running" and _transfer_pid_alive(name, pid):
+        _kill_tree(pid)
+    proc = _TRANSFER_PROCS.pop(name, None)
+    if proc is not None and proc.poll() is None:
+        _kill_tree(proc.pid)
+
+
+def _stats_written_since(name, at):
+    try:
+        return os.stat(_transfer_path(name, "stats.json")).st_mtime >= at - 1
+    except OSError:
+        return False
+
+
+def _settle_transfer(name, pid, rc=None, timed_out=False):
+    """Terminal state of the run `pid` owns (a record a newer import replaced is left alone).
+    Backtest: stats.json written since it started → the record goes, stats.json is the result;
+    otherwise failed with the restore re-run's codes. Trial: exit code and output tail; still running
+    at 120 s = it started fine (`stopped_after_s`)."""
+    with _TRANSFER_LOCK:
+        doc = _read_transfer_doc(name)
+        if not doc or doc.get("pid") != pid or doc.get("status") != "running":
+            return None
+        tail = _log_tail(_transfer_path(name, "transfer.log"), TRANSFER_TAIL)
+        doc.pop("pid", None)
+        if doc.get("kind") == "backtest":
+            if not timed_out and _stats_written_since(name, doc.get("at") or 0):
+                _remove_retry(_transfer_path(name, TRANSFER_FILE), "transfer record")
+                return "done"
+            doc.update(status="failed", err="TIMEOUT" if timed_out else
+                       ("SUPERSEDED" if rc == 0 else _classify_rerun(tail)))
+        elif timed_out:
+            doc.update(status="done", exit=None, stopped_after_s=TRANSFER_TRIAL_TIMEOUT_S, tail=tail)
+        else:
+            doc.update(status="done" if rc == 0 else "failed", exit=rc if isinstance(rc, int) else None,
+                       tail=tail)
+            if rc != 0:
+                doc["err"] = "EXIT"
+        _write_json_atomic(_transfer_path(name, TRANSFER_FILE), doc)
+        return doc["status"]
+
+
+def _watch_transfer(name, proc, timeout):
+    rc, timed_out = None, False
+    try:
+        try:
+            rc = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            _kill_tree(proc.pid)
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
+        _settle_transfer(name, proc.pid, rc, timed_out)
+    except Exception as e:
+        _log(f"transfer run watcher died: {type(e).__name__}: {e}")
+    if _TRANSFER_PROCS.get(name) is proc:
+        _TRANSFER_PROCS.pop(name, None)
+    _push(_ON_APPLIED, "transfer run")
+
+
+def _adopt_transfer(name, pid, deadline):
+    try:
+        while _transfer_pid_alive(name, pid) and time.time() < deadline:
+            time.sleep(_RESTORE_ADOPT_POLL_S)
+        timed_out = _transfer_pid_alive(name, pid)
+        if timed_out:
+            _kill_tree(pid)
+        _settle_transfer(name, pid, None, timed_out)
+    except Exception as e:
+        _log(f"adopted transfer watcher died: {type(e).__name__}: {e}")
+    _push(_ON_APPLIED, "transfer run")
+
+
+def _resume_transfer_watch():
+    """At listener start: a transfer run that outlived the previous process gets a watcher again; a
+    dead one is settled — otherwise the page shows it running forever."""
+    sdir = os.path.join(WORKSPACE, "strategies")
+    try:
+        names = sorted(os.listdir(sdir))
+    except OSError:
+        return
+    for name in names:
+        if not strategy_transfer.NAME_RE.fullmatch(name):
+            continue
+        doc = _read_transfer_doc(name)
+        if not doc or doc.get("status") != "running":
+            continue
+        pid = doc.get("pid")
+        limit = TRANSFER_TRIAL_TIMEOUT_S if doc.get("kind") == "trial" else TRANSFER_RUN_TIMEOUT_S
+        if _transfer_pid_alive(name, pid):
+            threading.Thread(target=_adopt_transfer, args=(name, pid, (doc.get("at") or 0) + limit),
+                             daemon=True, name="transfer-adopt").start()
+        else:
+            try:
+                _settle_transfer(name, pid)
+            except Exception as e:
+                _log(f"transfer settle failed: {type(e).__name__}: {e}")
+
+
+def _start_transfer_run(dest, kind, origin, expect_hash):
+    """The one run of an import, detached: `backtest` (quiet, BLAVE_MODE=backtest — v1 of <dest>) or
+    `trial` (Type B, at most 120 s)."""
+    script = f"strategies/{dest}/strategy.py"
+    popen_kw = {"start_new_session": True} if platform.system() != "Windows" else {
+        "creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+    extra = {"PYTHONUNBUFFERED": "1", "PYTHONPATH": WORKSPACE}
+    # Both kinds run BLAVE_MODE=backtest, the trial too. Without BLAVE_MODE lib/runner infers live
+    # from the 下單設定 of whatever STRATEGY_NAME the code ends up with, and a live run writes that
+    # strategy's state.json, which the reconciler trades. In backtest mode runner never writes
+    # state.json and the reconciler never sees a tick, whichever name the code points at.
+    env = _strategy_subprocess_env("backtest", BLAVE_QUIET="1", **extra)
+    if kind == "backtest":
+        env["BLAVE_EXPECT_CODE_HASH"] = expect_hash
+    at = int(time.time())
+    with atomic_file.open_truncate(_transfer_path(dest, "transfer.log")) as logf:
+        proc = subprocess.Popen([_workspace_python(), script], cwd=WORKSPACE, env=env,
+                                stdout=logf, stderr=logf, **_child_kw(**popen_kw))
+    try:
+        _write_json_atomic(_transfer_path(dest, TRANSFER_FILE),
+                           {"kind": kind, "status": "running", "at": at, "pid": proc.pid, "from": origin})
+    except OSError as e:
+        _kill_tree(proc.pid)
+        raise ValueError(f"FAILED: could not record the run ({type(e).__name__})")
+    _TRANSFER_PROCS[dest] = proc
+    threading.Thread(target=_watch_transfer, daemon=True, name="transfer-run",
+                     args=(dest, proc, TRANSFER_RUN_TIMEOUT_S if kind == "backtest" else TRANSFER_TRIAL_TIMEOUT_S)
+                     ).start()
+
+
+def _transfer_write(dest, files):
+    """strategies/<dest>/ created here (exclusive: an existing folder is never written into), each
+    file as <f>.handoff → read back and hash-checked → renamed into place. Any failure removes exactly
+    what this call wrote and the folder it created, then raises."""
+    folder = _transfer_path(dest)
+    os.mkdir(folder)
+    written = []
+    try:
+        for f, raw, _ in files:
+            tmp, final = os.path.join(folder, f + ".handoff"), os.path.join(folder, f)
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o644)
+            written.append(tmp)
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(raw)
+                fh.flush()
+                os.fsync(fh.fileno())
+            with open(tmp, "rb") as fh:
+                if hashlib.sha256(fh.read()).hexdigest() != hashlib.sha256(raw).hexdigest():
+                    raise OSError(f"{f} did not read back as written")
+            os.replace(tmp, final)
+            written[-1] = final
+    except Exception:
+        for p in reversed(written):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        try:
+            os.rmdir(folder)
+        except OSError:
+            pass
+        raise
+
+
+def _transfer_env(env):
+    """§5 on this machine's .env, under the same lock as every other .env writer → written names."""
+    path = os.path.join(WORKSPACE, ".env")
+    with _env_lock():
+        try:
+            with open(path, encoding="utf-8") as f:
+                old = f.read()
+        except FileNotFoundError:
+            old = ""
+        except OSError as e:
+            raise RuntimeError(f".env unreadable ({type(e).__name__})")
+        text, written = strategy_transfer.merge_env_text(old, env)
+        with atomic_file.replacing(path, perm=0o600, prepare=_env_acl) as f:
+            f.write(text)
+        _sweep_env_temps()
+    return written
+
+
+def _cmd_strategy_import(args):
+    """→ Deferred; ack result {dest, type, renamed, still_names, keys?, run, can_order?, order_lines?,
+    syntax_errors?, missing_keys?}. Refusals before anything is written raise "<CODE>: …" with CODE in
+    BAD_ARGS / BAD_FILES / TOO_LARGE / NOT_UTF8 / NOT_PORTABLE / NAME_MISMATCH / NO_STRATEGY_NAME /
+    CHECK_FAILED / NO_FREE_NAME. `run`: "backtest" / "trial" started; "not_run" (Type B that can place
+    an order, or does not compile); "keys_failed" (a key could not be written: nothing is run, the
+    strategy cannot fetch its data without it — §5)."""
+    name, start, files, env = strategy_transfer.import_args(args, _local_mode(), WORKSPACE)
+    origin = "cloud" if _local_mode() else "desktop"
+
+    def _run():
+        missing = strategy_transfer.missing_modules([t for _, _, t in files], WORKSPACE)
+        if missing:
+            raise strategy_transfer.Refused("NOT_PORTABLE", ", ".join(missing))
+        named = strategy_transfer.check_name(files, name) is not None
+        with _TRANSFER_LOCK:
+            taken = strategy_transfer.taken_check(WORKSPACE)
+            dest, k = name, start
+            while True:
+                while taken(dest):
+                    if k > start + 999:
+                        raise strategy_transfer.Refused("NO_FREE_NAME", name)
+                    dest, k = strategy_transfer.candidate(name, k), k + 1
+                if dest == name:
+                    out, still = files, []
+                elif named:
+                    out, still = strategy_transfer.rename(files, name, dest)
+                else:
+                    out, still = files, strategy_transfer.still_naming(files, name)
+                try:
+                    _transfer_write(dest, out)
+                    break
+                except FileExistsError:   # the folder appeared after the check (an agent turn): next name
+                    if os.path.lexists(_transfer_path(dest)):
+                        dest, k = strategy_transfer.candidate(name, k), k + 1
+                        continue
+                    raise
+        text = next(t for f, _, t in out if f == "strategy.py")
+        kind = strategy_transfer.strategy_type(text)
+        result = {"dest": dest, "type": kind, "renamed": dest != name, "still_names": still}
+        if env:
+            try:
+                result["keys"] = _transfer_env(env)
+            except Exception as e:
+                _log(f"strategy_import {dest}: keys not written: {type(e).__name__}")
+                result.update(keys=[], run="keys_failed")
+                _push(_ON_APPLIED, "strategy import")
+                return result
+        if kind == "B":
+            bad, hits = strategy_transfer.order_scan(out)
+            result.update(can_order=bool(hits), order_lines=hits, syntax_errors=bad)
+            if bad or hits:
+                result["run"] = "not_run"
+                _push(_ON_APPLIED, "strategy import")
+                return result
+        raw = next(r for f, r, _ in out if f == "strategy.py")
+        _start_transfer_run(dest, "trial" if kind == "B" else "backtest", origin,
+                            hashlib.sha256(raw).hexdigest()[:16])
+        result["run"] = "trial" if kind == "B" else "backtest"
+        _push(_ON_APPLIED, "strategy import")
+        return result
+
+    return Deferred(_run)
+
+
+def _cmd_strategy_export(args, cmd_id):
+    """→ Deferred; reads strategies/<name>/*.py and hands them to the api's staging slot for `cmd_id`.
+    Ack result {name, type, files: [{f, sha256}], left_behind}: the hashes the desktop checks what it
+    fetches against. Refusals: BAD_ARGS / NO_SOURCE / BAD_FILES / TOO_LARGE / NOT_UTF8 / HANDOVER."""
+    if not isinstance(args, dict) or set(args) != {"name"}:
+        raise strategy_transfer.Refused("BAD_ARGS", "strategy_export takes exactly name")
+    name = args["name"]
+    if not isinstance(cmd_id, str) or not re.fullmatch(r"[0-9a-f]{32}", cmd_id):
+        raise strategy_transfer.Refused("BAD_ARGS", "no command id to hand the files over under")
+
+    def _run():
+        files, left = strategy_transfer.collect_export(WORKSPACE, name)
+        text = base64.b64decode(next(x["b64"] for x in files if x["f"] == "strategy.py")).decode("utf-8")
+        body = json.dumps({"id": cmd_id, "name": name, "files": files, "left_behind": left}).encode()
+        req = urllib.request.Request(API_BASE + "/export", data=body, headers={
+            "Content-Type": "application/json", "x-api-key": f"proxy-{PROXY_TOKEN}"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                resp.read()
+        except urllib.error.HTTPError as e:
+            raise strategy_transfer.Refused("HANDOVER", f"the api answered {e.code}")
+        except (OSError, ValueError) as e:
+            raise strategy_transfer.Refused("HANDOVER", type(e).__name__)
+        return {"name": name, "type": strategy_transfer.strategy_type(text),
+                "files": [{"f": x["f"], "sha256": x["sha256"]} for x in files], "left_behind": left}
+
+    return Deferred(_run)
+
+
 # ── 更新績效(performance refresh)────────────────────────────────────────────────
 # `stats_refresh {names: [...]}`: the workspace's 更新績效 button (one name) and the manager
 # table's chip (every stale member), no agent turn; every Type A/C strategy with a stats.json,
@@ -6887,18 +7749,20 @@ def _deployed_names():
 
 def _refresh_plan(name):
     """(code_hash, None) when re-running an undeployed strategy's backtest is a refresh — the
-    file equals a stored version (canon §2 mints nothing), or the strategy has no versions yet
-    (that backtest mints v1: a first version, not an edit); the hash (lib.strategy code_hash:
-    sha256 of the bytes, 16 hex) pins the run. (None, skip code) otherwise: CODE_CHANGED = the
+    file equals a stored version (canon §2 mints nothing; either hash form, the DISPLAY_NAME line
+    not counting), or the strategy has no versions yet (that backtest mints v1: a first version,
+    not an edit); the raw hash (sha256 of the bytes, 16 hex) pins the run. (None, skip code) otherwise: CODE_CHANGED = the
     file equals none of an existing history (edited since the last backtest, the run would mint);
     INDEX_BROKEN = the index is there but unreadable, or an entry has no code_hash, so nothing
     can be told; NOT_RUNNABLE = the file itself cannot be read."""
-    import hashlib
+    import strategy_reporter
     try:
         with open(os.path.join(WORKSPACE, "strategies", name, "strategy.py"), "rb") as f:
-            have = hashlib.sha256(f.read()).hexdigest()[:16]
+            src = f.read()
     except OSError:
         return None, "NOT_RUNNABLE"
+    # the raw hash pins the run: every runner takes it (a renaming one compares either form)
+    have = strategy_reporter.raw_code_hash(src)
     try:
         items = atomic_file.load_json(_versions_path(name, "index.json"), encoding="utf-8").get("items") or []
         if not isinstance(items, list):
@@ -6908,7 +7772,7 @@ def _refresh_plan(name):
     except (ValueError, AttributeError):
         return None, "INDEX_BROKEN"
     stored = [i.get("code_hash") if isinstance(i, dict) else None for i in items]
-    if not stored or have in stored:
+    if not stored or any(strategy_reporter.hash_matches(src, h) for h in stored):
         return have, None
     return None, "INDEX_BROKEN" if any(not isinstance(h, str) or not h for h in stored) else "CODE_CHANGED"
 
@@ -7380,6 +8244,7 @@ HANDLERS = {
     "execution": _cmd_execution,
     "credentials": _cmd_credentials,
     "credentials_remove": _cmd_credentials_remove,
+    "close_then_unbind": _cmd_close_then_unbind,
     "retest_accounts": _cmd_retest_accounts,
     "restart_reconciler": _cmd_restart_reconciler,
     "delete_strategy": _cmd_delete_strategy,
@@ -7397,7 +8262,10 @@ HANDLERS = {
     "telegram_reset": _cmd_telegram_reset,
     "book_account_confirm": _cmd_book_account_confirm,
     "version_restore": _cmd_version_restore,
+    "rename_strategy": _cmd_rename_strategy,
     "stats_refresh": _cmd_stats_refresh,
+    "strategy_import": _cmd_strategy_import,
+    "strategy_export": lambda args: _cmd_strategy_export(args, None),
 }
 # 群益 cloud connect (runtime/capital_connect.py): long steps come back as Deferred
 HANDLERS.update({
@@ -7434,9 +8302,17 @@ def dispatch(command):
     # for its unbind-halt (audit H2: outside it, that halt was inert — either
     # a swallowed ImportError or a HALT file in the wrong cwd); credentials for
     # the same reason (its rebind-eviction halt).
-    if cmd in ("halt", "resume", "resume_wait", "downtime_hold", "close_all",
+    if cmd in ("resume", "resume_wait") and args.get("strategies") is None:
+        m = _read_unbind_marker()
+        if m and not m.get("held"):
+            # 平倉後解除進行中:解除暫停會讓 flatten 結束時 kick 的那一輪照策略把部位開回來,
+            # 接著金鑰被刪、部位沒人管——這個指令要防的正是這個。HALT 原樣留著
+            raise RuntimeError("close_then_unbind is closing positions — resume once it finishes or stops")
+    if cmd in ("halt", "resume", "resume_wait", "downtime_hold", "close_all", "close_then_unbind",
                "credentials", "credentials_remove", "book_account_confirm"):
         result = _in_workspace(fn, args)
+    elif cmd == "strategy_export":  # the staging slot is keyed by this command's id
+        result = _cmd_strategy_export(args, command.get("id"))
     else:
         result = fn(args)
     # a start held for an unanswered account question changed nothing: the
@@ -7531,6 +8407,7 @@ def run(on_applied=None, on_progress=None):
     _ON_PROGRESS = on_progress
     _resume_mgmt_watch()
     _resume_restore_watch()
+    _resume_transfer_watch()
     _resume_perf_refresh()
 
     # Type A/C strategy scheduling — its own daemon thread, independent of the
@@ -7578,6 +8455,10 @@ def run(on_applied=None, on_progress=None):
 
     while True:
         _beat()
+        try:
+            unbind_after_close_tick()
+        except Exception as e:
+            _log(f"close_then_unbind tick failed: {type(e).__name__}: {e}")
         try:
             command = poll_once()
         except Exception as e:

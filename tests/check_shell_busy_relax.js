@@ -103,7 +103,8 @@ function rig(tabs, main) {
   A.st.running = false;
   ok("⑤ 跑完就作廢(不靠回合結束事件)", r.F.csOnceLive("k") === null && r.F.csOnceLive("k") === null);
   const hoAsk = fnOf(ho, "hoAsk"), xpAsk = fnOf(xp, "xpAsk");
-  ok("⑤ 送上雲端:按下先看、框開著的期間另一條送了再看一次、送出同步記", /const onceKey = "ho:" \+ dir \+ ":" \+ id, once = hoBlocked\(onceKey\);\n  if \(once\) \{ hoOnceTell\(once\); return; \}/.test(hoAsk) && /const again = hoBlocked\(onceKey\); if \(again\) \{ hoOnceTell\(again\); return; \}/.test(hoAsk) && /csSendAway\(msg, \{ handoff: dir[^\n]*\n\s*csOnceMark\(onceKey\);/.test(hoAsk));
+  ok("⑤ 送上雲端:按下先看、框開著的期間再看一次;0.1.47 起同一支同方向還在搬看 HO.jobs(app 直接搬,不開對話分頁)", /const once = hoBlocked\(dir, id\);\n  if \(once\) \{ hoTellBlocked\(once\); return; \}/.test(hoAsk)
+    && /const again = hoBlocked\(dir, id\); if \(again\) \{ hoTellBlocked\(again\); return; \}/.test(hoAsk) && /HO\.jobs\.set\(key, job\); hoJobPaint\(\);/.test(ho) && !/csSendAway|csOnceMark/.test(hoAsk));
   ok("⑤ 轉出:同一支同平台同一套;別的平台照轉", /const onceKey = "xp:" \+ target \+ ":" \+ id/.test(xpAsk) && /const again = csOnceLive\(onceKey\)/.test(xpAsk) && /const sending = csSendAway\(msg\); csOnceMark\(onceKey\);/.test(xpAsk)); }
 
 // ── ⑥ ──
@@ -135,7 +136,7 @@ function rig(tabs, main) {
 // ── ⑦ 留著的鎖 ──
 { ok("⑦ 更新重啟看任何回合", /function upLocalTurn\(\) \{ try \{ return typeof csAnyTurn === "function" \? csAnyTurn\(\)/.test(app) && /localTurn: upLocalTurn\(\), cloudTurn: !!upCloudTurn\(\)/.test(app));
   ok("⑦ 刪策略(畫面與主行程)看任何回合;還原、再跑一次縮到同一支的測試在 check_shell_restore_lock.js", /busyLock\(d, csAnyTurn\(\)\)/.test(fnOf(app, "stratDelSync")) && /if \(anyTurn\(\)\) return \{ ok: false, code: "TURN_RUNNING" \};/.test(fs.readFileSync(path.join(R, "..", "main.js"), "utf8")));
-  ok("⑦ 換 AI、登出、刪回覆中那條", /busyCut\(null, \(\) => connectNow\(kind, info\)\)/.test(app) && /busyOn\(\) \? \[t\("busy\.cut\.out"\)\]/.test(app) && /busyLock\(del, csTabRunning\(m\.id\)\)/.test(app));
+  ok("⑦ 換 AI、登出、刪回覆中那條", /busyCut\(null, \(\) => connectNow\(kind, info\)\)/.test(app) && /busyOn\(\) \? \[t\("acct\.out\.busy"\)\]/.test(app) && /busyLock\(del, csTabRunning\(m\.id\)\)/.test(app));
   ok("⑦ 同條對話:Enter 與重送回合中照擋(Wei 11-03 拍板不做排隊)", /if \(running && \$\("ta"\)\.value\.trim\(\)\) \{ busySendTell\(\); return; \}/.test(app) && /function canResend\(\) \{ return !running/.test(app)); }
 
 console.log(red ? red + " 紅" : "ALL PASS");

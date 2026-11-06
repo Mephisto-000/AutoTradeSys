@@ -116,6 +116,37 @@ for (const lang of ["zh", "en"]) {
   const bad = Object.entries(LAG_PAIRS).filter(([d, w]) => typeof dp[d] !== "string" || (typeof wp[w] === "string" && dp[d].replace("{broker}", "%(broker)s") !== wp[w] && dp[d] !== wp[w]));
   ok(`全部平倉快照落後 ${lang}:電腦版有這幾句,網頁有的那幾句逐字一致(${Object.keys(LAG_PAIRS).length} 句)`, bad.length === 0, bad.map(([d, w]) => d + "「" + dp[d] + "」 vs " + w + "「" + wp[w] + "」").join(";"));
 }
+// 全部平倉沒替群益送單、上一筆平倉還在等回報(manager/flatten reason queued):有 until／沒 until 兩句,兩邊逐字同;
+// 網頁少了也算紅(上線同批,不是同步中)
+const QUEUED_PAIRS = { "tr.ov.evManualCloseQueued": "workspace_ov_ev_manual_close_queued",
+  "tr.ov.evManualCloseQueuedSoon": "workspace_ov_ev_manual_close_queued_soon" };
+for (const lang of ["zh", "en"]) {
+  const dp = poMap(path.join(__dirname, "..", "shell", "i18n", lang + ".po")), wp = poMap(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po"));
+  const bad = Object.entries(QUEUED_PAIRS).filter(([d, w]) => typeof dp[d] !== "string" || typeof wp[w] !== "string" || dp[d] !== wp[w]);
+  ok(`全部平倉群益上一筆還在等回報 ${lang}:兩句兩邊逐字一致`, bad.length === 0, bad.map(([d, w]) => d + "「" + dp[d] + "」 vs " + w + "「" + wp[w] + "」").join(";"));
+}
+// …而且 api 的 TG／信件那句(openclaw/notify.py _MANUAL_CLOSE_QUEUED,「後」／after 在 until 欄位裡)代入同一組值,
+// 跟電腦版／網頁逐字同。從原始碼取 tuple 與欄位值,不 import api(那邊要 config 與資料庫)
+{ const apiNotify = path.join(process.env.BLAVE_API_DIR || path.join(__dirname, "..", "..", "api"), "openclaw", "notify.py");
+  const src = fs.existsSync(apiNotify) ? fs.readFileSync(apiNotify, "utf8") : "";
+  const block = (src.match(/_MANUAL_CLOSE_QUEUED = \(([\s\S]*?)\n\)/) || [])[1] || "";
+  const parts = [], lit = /"((?:[^"\\]|\\.)*)"\s*(,?)/g;
+  let cur = "", m;
+  while ((m = lit.exec(block))) { cur += m[1]; if (m[2]) { parts.push(cur); cur = ""; } }
+  if (cur) parts.push(cur);
+  const f = (re) => (src.match(re) || [])[1];
+  const fields = { at: { en: f(/until_en=f"([^"]*\{hm\}[^"]*)"/), zh: f(/until_zh=f"([^"]*\{hm\}[^"]*)"/) },
+                   soon: { en: f(/until_en="([^"{]*)", until_zh="[^"{]*"\)/), zh: f(/until_en="[^"{]*", until_zh="([^"{]*)"\)/) } };
+  const BROKER = { zh: "群益", en: "Capital" };
+  for (const [i, lang] of [[0, "en"], [1, "zh"]]) {
+    const dp = poMap(path.join(__dirname, "..", "shell", "i18n", lang + ".po")), wp = poMap(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po"));
+    const api = (until) => parts[i] && parts[i].replace(/^🚨 /, "").split("{broker_" + lang + "}").join(BROKER[lang]).split("{until_" + lang + "}").join(until);
+    const ui = (tpl) => typeof tpl === "string" ? tpl.split("{broker}").join(BROKER[lang]).split("{at}").join("01:20") : null;
+    const rows = [["有 until", api(fields.at[lang] && fields.at[lang].split("{hm}").join("01:20")), ui(dp["tr.ov.evManualCloseQueued"]), ui(wp["workspace_ov_ev_manual_close_queued"])],
+                  ["沒 until", api(fields.soon[lang]), ui(dp["tr.ov.evManualCloseQueuedSoon"]), ui(wp["workspace_ov_ev_manual_close_queued_soon"])]];
+    for (const [label, a, d, w] of rows)
+      ok(`全部平倉群益上一筆還在等回報 ${lang} ${label}:api(TG／信)、電腦版、網頁三邊逐字一致`, !!a && a === d && a === w, `api「${a}」 電腦版「${d}」 網頁「${w}」`);
+  } }
 // 啟動下單框(mockup 03 A 版,2026-11-04;web 同框同字):標題、選項字、兩句說明、補齊怎麼下的四句、常駐句、兩顆主鈕字、「細節」兩邊逐字同(zh / en)。模擬／真錢同字,兩邊都收成一個 key
 // 電腦版那一行說明(tr.stopLine)與小卡五條是本機環境的話(電腦睡眠就停…),網頁在雲端講的是主機停機,內容依環境、不比
 const START_PAIRS = { "tr.start": "workspace_pf_start", "tr.opt.legend": "workspace_pf_start_group", "tr.opt.catch": "workspace_pf_opt_catch", "tr.opt.wait": "workspace_pf_opt_wait",
@@ -152,12 +183,24 @@ for (const lang of ["zh", "en"]) {
   ok(`Bitget 換帳戶類型的暫停句／清單／事件列 ${lang} 兩邊逐字一致(${Object.keys(BITGET_PAIRS).length} 句)`, bad.length === 0,
     bad.map(([d, w]) => d + "「" + dp[d] + "」 vs " + w + "「" + wp[w] + "」").join(";"));
 }
+// 接回後讀帳是空的而自動暫停、帳戶比帳本少(designer rebind-autohalt-ux-2026-11-05 3.2／3.3):頁首專屬句、「帳戶實際 N」與它的 tooltip 逐字一致;
+// 兩邊都用 /^positions read back empty/ 認這一型,而那串字要真的是機器端 manager/reconciler.py 寫的原因開頭。任一邊沒有就紅
+const EMPTY_READ_PAIRS = { "tr.haltEmptyRead": "workspace_pf_halt_empty_read", "po.acctActual": "workspace_pf_acct_actual", "tr.acctActualTip": "workspace_pf_acct_actual_tip" };
+for (const lang of ["zh", "en"]) {
+  const dp = poMap(path.join(__dirname, "..", "shell", "i18n", lang + ".po")), wp = poMap(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po"));
+  const bad = Object.entries(EMPTY_READ_PAIRS).filter(([d, w]) => typeof dp[d] !== "string" || typeof wp[w] !== "string" || dp[d] !== wp[w]);
+  ok(`讀帳是空的自動暫停／帳戶實際 ${lang} 兩邊逐字一致(${Object.keys(EMPTY_READ_PAIRS).length} 句)`, bad.length === 0,
+    bad.map(([d, w]) => d + "「" + dp[d] + "」 vs " + w + "「" + wp[w] + "」").join(";"));
+}
+{ const rec = fs.readFileSync(path.join(__dirname, "..", "manager", "reconciler.py"), "utf8"), re = "/^positions read back empty/";
+  ok("讀帳是空的那一型:機器的原因以 positions read back empty 開頭,電腦版與網頁都用同一條比對", rec.includes('reason = ("positions read back empty while') && desk.includes(re) && web.includes(re)); }
 // 下單結果不明(canon notifications §3 order_unconfirmed)與兩型事件的策略段:zh / en 逐字一致,任一邊找不到也算紅
 const UNCONFIRMED_PAIRS = {
   "tr.err.unconfirmed": "workspace_pf_err_unconfirmed", "tr.ov.evUnconfirmed": "workspace_ov_ev_unconfirmed",
   "tr.ov.evUnconfirmedStuck": "workspace_ov_ev_unconfirmed_stuck", "tr.ov.evUnconfirmedNote": "workspace_ov_ev_unconfirmed_note",
   "tr.ov.evUnconfirmedStuckNote": "workspace_ov_ev_unconfirmed_stuck_note",
   "tr.ov.evStratOne": "workspace_ov_ev_strat_one", "tr.ov.evStratTwo": "workspace_ov_ev_strat_two", "tr.ov.evStratMany": "workspace_ov_ev_strat_many",
+  "tr.ov.evStratName": "workspace_ov_ev_strat_name",
   // 停車解除後(released／filled)與追蹤不了而整台暫停([order_unconfirmed_unparked])
   "tr.ov.evUnconfirmedReleased": "workspace_ov_ev_unconfirmed_released",
   "tr.ov.evUnconfirmedReleasedFilled": "workspace_ov_ev_unconfirmed_released_filled",
@@ -193,6 +236,16 @@ for (const lang of ["zh", "en"]) {
   ok(`「來自手機」${lang} 兩邊逐字一致(chat.fromPhone ↔ workspace_cs_from_phone)`, typeof dp["chat.fromPhone"] === "string" && dp["chat.fromPhone"] === wp.workspace_cs_from_phone,
     "chat.fromPhone「" + dp["chat.fromPhone"] + "」 vs workspace_cs_from_phone「" + wp.workspace_cs_from_phone + "」");
 }
+// 側欄提示格(spec sidebar-prompt-slot-2026-11-03 §2、§5):手機膠囊同一句、關閉與收掉的常數同一份。web 先出貨(§12),web 還沒落地就紅。
+// pop 的步驟字(spec slot-phone-steps §5)web 還沒開 key,開了再把 ph.stepGet／ph.stepChat 兩對加進來;workspace_slot_phone_hint 留給 /app 的 h1,不再對
+for (const lang of ["zh", "en"]) {
+  const dp = poMap(path.join(__dirname, "..", "shell", "i18n", lang + ".po")), wp = poMap(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po"));
+  for (const [d, w] of [["ph.slot", "workspace_slot_phone"]])
+    ok(`提示格 ${lang} 兩邊逐字一致(${d} ↔ ${w})`, typeof dp[d] === "string" && dp[d] === wp[w], d + "「" + dp[d] + "」 vs " + w + "「" + wp[w] + "」");
+}
+{ const SLOT_RE = /SLOT_PH = (\{ COOL_DAYS: \d+, MAX_CLOSES: \d+, SEEN_DAYS: \d+, TRADE_QUIET_MIN: \d+ \})/;
+  const dS = SLOT_RE.exec(fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "promptslot.js"), "utf8")), wS = SLOT_RE.exec(web);
+  ok("提示格 SLOT_PH 兩邊同一份(30 天、2 次、7 個使用日、下單後 30 分鐘)", !!dS && !!wS && dS[1] === wS[1], (dS && dS[1]) + " vs " + (wS && wS[1])); }
 // 對話分頁(0.1.37;技術方案 §1.4、§4):對著雲端主機、名額滿了的排隊行與〔取消排隊〕,電腦版 chattabs.js tabsQueued 與網頁 csShowQueued 同一句;
 // 歷史清單的狀態字(回覆中／排隊中／做完，還沒看)與分組(今天／昨天／更早)也跟網頁 workspace_cs_* 同一組
 const TAB_PAIRS = { "tabs.queue": "workspace_cs_queue_line", "tabs.queueCancel": "workspace_cs_cancel_queued", "tabs.queueCancelTitle": "workspace_cs_cancel_queued_title", "tabs.st.queued": "workspace_cs_queued",
@@ -208,6 +261,18 @@ for (const lang of ["zh", "en"]) {
   ok("排隊行同 web csShowQueued:一行 tabs.queue、行內不放鈕;取消靠送出鍵(排隊時 aria-label tabs.queueCancel、title tabs.queueCancelTitle,同 web sendBtnSync)",
     /q\.textContent = t\("tabs\.queue"\);/.test(ctS) && !/tabs\.queueCancel/.test(ctS.slice(ctS.indexOf("function tabsQueued("), ctS.indexOf("function tabsTrackParallel(")))
     && /b\.dataset\.i18nAria = queued \? "tabs\.queueCancel" : running \? "ws\.stop" : "ws\.send";/.test(appS) && /if \(queued\) b\.title = t\("tabs\.queueCancelTitle"\); else b\.removeAttribute\("title"\);/.test(appS)); }
+// 交易歷史口數單的合約月份與口數(0.1.45):電腦版 trOrderContract／trOrderLotsQty 與網頁 pfOrderContract／pfOrderLotsQty 跑同一組測資
+{ const cutD = (n) => { const i = desk.indexOf("function " + n + "("); let d = 0, k = desk.indexOf("{", desk.indexOf(")", i)); for (; i >= 0 && k < desk.length; k++) { if (desk[k] === "{") d++; else if (desk[k] === "}" && --d === 0) break; } return i < 0 ? "" : desk.slice(i, k + 1); };
+  const cutW = (n) => { const i = web.indexOf("        function " + n + "("); return i < 0 ? "" : web.slice(i, web.indexOf("\n        }\n", i) + 10); };
+  const D = new Function(cutD("trOrderContract") + cutD("trOrderLotsQty") + "\nreturn [trOrderContract, trOrderLotsQty];")();
+  const W = cutW("pfOrderContract") && cutW("pfOrderLotsQty") ? new Function(cutW("pfOrderContract") + cutW("pfOrderLotsQty") + "\nreturn [pfOrderContract, pfOrderLotsQty];")() : null;
+  const V = [{ symbol: "TMF", signed_diff: -6, legs: [{ sent_symbol: "TMF202612", sent_qty: 1 }] },
+    { symbol: "TMF", signed_diff: 3, legs: [{ resolved_symbol: "TMF202611", sent_symbol: "TMF202612", sent_qty: 2, executed_qty: 2 }] },
+    { symbol: "TXF", signed_diff: 4, legs: [{ sent_qty: 2, executed_qty: 1 }, { sent_qty: 3 }] },
+    { symbol: "MXF", signed_diff: -5, legs: [{ executed_qty: 2 }, { sent_qty: 3 }] },
+    { symbol: "TMF", signed_diff: 2, legs: [] }, { symbol: "TMF", legs: null }, { signed_diff: 1, legs: [{ sent_qty: 0, executed_qty: 1 }] }];
+  const out = (f) => f ? JSON.stringify(V.map((o) => [f[0](o), f[1](o)])) : null;
+  ok("交易歷史口數單:合約月份與口數兩邊同一份(" + V.length + " 組)", !!W && out(D) === out(W), out(D) + " vs " + out(W)); }
 // 事件型別集合(cross-surface-parity 規則三:列舉,不只靠上面手寫的配對表):電腦版 trEventText ∪ trOvEvents 認得的型別,
 // 跟網頁 ovEventRow 認得的同一組。order_error / order_unconfirmed 在電腦版從 order_errors[] 那列畫(trOvEvents 讀 e.kind),
 // 不走 `type ===`;只在電腦版的三個是這台電腦自己的指令回音與舊型別(halt_close／resume_wait 是本機指令、downtime_paused 已被
@@ -219,6 +284,9 @@ for (const lang of ["zh", "en"]) {
   if (/r\.order_errors/.test(rows)) dSet.add("order_error");
   if (/e\.kind === "order_unconfirmed"/.test(rows)) dSet.add("order_unconfirmed");
   if (/e\.released === true/.test(rows)) dSet.add("order_unconfirmed_released");   // 同一列 released 時畫成灰字;網頁畫平台的 P3 事件
+  // 台指期那幾種 kind(TR_TW_NOTICE)也從 order_errors[] 那列畫;api 分流成自己事件型別的(agent_overview._error_events)網頁才會畫
+  const API_EVENT_KINDS = ["clock_skew_hold", "tw_entry_hold"], twm = /const TR_TW_NOTICE = \{([^}]*)\}/.exec(desk);
+  for (const m of (twm ? twm[1] : "").matchAll(/([a-z_]+):/g)) if (API_EVENT_KINDS.includes(m[1]) && /TR_TW_NOTICE\[e\.kind\]/.test(rows)) dSet.add(m[1]);
   const wSet = types(seg(web, "function ovEventRow(", "\n        function "));
   const DESK_ONLY = new Set(["halt_close", "resume_wait", "downtime_paused"]);
   const onlyD = [...dSet].filter((x) => !wSet.has(x) && !DESK_ONLY.has(x)), onlyW = [...wSet].filter((x) => !dSet.has(x));
@@ -257,11 +325,11 @@ for (const lang of ["zh", "en"]) {
   const dMax = (appSrc.match(/^const RS_MAX = (\d+);$/m) || [])[1], wMax = (rc.match(/^\s*var MAX = (\d+);$/m) || [])[1];
   ok("回覆摘錄長度上限兩邊同一份", !!dMax && dMax === wMax, dMax + " vs " + wMax);
   const RC_KEYS = { workspace_rn_pre_await: "rc.await", workspace_rn_pre_fail: "rc.fail", workspace_rn_empty_done: "rc.doneEmpty",
-    workspace_rn_empty_await: "rc.awaitEmpty", workspace_rn_empty_fail: "rc.failEmpty", workspace_busy_xp: "xp.why.busy" };
+    workspace_rn_empty_await: "rc.awaitEmpty", workspace_rn_empty_fail: "rc.failEmpty" };
   for (const lang of ["zh", "en"]) {
     const w = poRaw(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po")), d = poRaw(path.join(__dirname, "..", "shell", "i18n", lang + ".po"));
     const bad = Object.keys(RC_KEYS).filter((k) => !w[k] || w[k] !== d[RC_KEYS[k]]);
-    ok("通知前綴／空摘錄五句與回合中轉出原因句兩邊同一份(" + lang + ")", bad.length === 0, bad.map((k) => k + ": " + w[k] + " vs " + d[RC_KEYS[k]]).join(";"));
+    ok("通知前綴／空摘錄五句兩邊同一份(" + lang + ")", bad.length === 0, bad.map((k) => k + ": " + w[k] + " vs " + d[RC_KEYS[k]]).join(";"));
   } }
 // 優化分頁〔套用金額〕停用時的原因句(C 案):zh / en 兩邊逐字一致(設計稽核 v030 S3)
 { const MG_KEYS = { workspace_mg_prop_other_alloc: "mg.propOtherAlloc" };
@@ -372,7 +440,7 @@ for (const lang of ["zh", "en"]) {
     const lib = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "library.js"), "utf8");
     const dfn = (n) => { const a = lib.indexOf("\nfunction " + n + "(") + 1; if (a < 1) return null; let i = lib.indexOf("{", a), d = 0; for (; i < lib.length; i++) { if (lib[i] === "{") d++; else if (lib[i] === "}" && --d === 0) break; } return lib.slice(a, i + 1) + "\n"; };
     const dconst = (n) => { const m = new RegExp("^const " + n + " = [^\\n]*;$", "m").exec(lib); return m ? m[0] + "\n" : null; };
-    const dParts = ["LIB_DAY", "LIB_MARKETS", "LIB_CATEGORY_MARKET"].map(dconst).concat(["libMarket", "libSampleYears", "libCreated", "libIsFree", "libNeeds", "libAnonOk", "libCompare", "libVisible", "wcReco"].map(dfn));
+    const dParts = ["LIB_DAY", "LIB_MARKETS", "LIB_CATEGORY_MARKET"].map(dconst).concat(["libMarket", "libSampleYears", "libCreated", "libIsFree", "libNeeds", "libCompare", "libVisible", "wcReco"].map(dfn));
     const wParts = ["libCommunity", "libReco", "wcReco"].map(wfn), rulesPath = path.join(webDir, "app", "static", "js", "library_rules.js");
     const installed = new Set([5]), isInst = (s) => installed.has(s.id);
     let dPick = null, wPick = null, err = "";
@@ -447,18 +515,15 @@ for (const lang of ["zh", "en"]) {
     const aId = (/^_STRAT_GROUP_ID_RE = re\.compile\(r"([^"]+)"\)/m.exec(api) || [])[1], dId = (/SG_ID_RE = \/\^([^$]+)\$\//.exec(sgMain) || [])[1], cId = (/PREF_GROUP_ID_RE = \/\^([^$]+)\$\//.exec(cloudJs) || [])[1];
     ok("資料夾 id 形狀:api / main.js / cloud.js 同一條(f + 6–12 個 [0-9a-z])", aId === "f[0-9a-z]{6,12}" && dId === aId && cId === aId, JSON.stringify([aId, dId, cId]));
   }
-  // 市場對應(§10 建市場資料夾):market → 預填 emoji
-  const MKT = { crypto: "💎", tw_index_futures: "📈", tw_stock_futures: "📊", tw_stock: "🏦", us_stock: "💵", global_futures: "🌐", mixed: "🧩" };
-  const dM = {}; { const m = /const SG_MARKETS = \{([\s\S]*?)\};/.exec(sgR); if (m) for (const x of m[1].matchAll(/(\w+): \["[^"]+", "([^"]+)"\]/g)) dM[x[1]] = x[2]; }
-  ok("資料夾:電腦版建市場資料夾的對應照 spec §10(七個市場與預填 emoji)", sorted(dM) === sorted(MKT), sorted(dM));
+  // 建市場資料夾 0.1.45 拿掉(Wei);網頁同批(strat_folders.js 的 MARKETS／AUTO_MIN／marketPlan)
+  ok("資料夾:電腦版沒有建市場資料夾", !/SG_MARKETS|SG_AUTO_MIN|sgAuto/.test(sgR));
   // 網頁的純函式層(參照面):app/static/js/agent/strat_folders.js(node 可 require),共用測資 tests/strat_folders_vectors.json 也在網頁那棵
   const wMod = path.join(webDir, "app", "static", "js", "agent", "strat_folders.js"), wVec = path.join(webDir, "tests", "strat_folders_vectors.json");
   const W = fs.existsSync(wMod) ? require(wMod) : null;
   ok("資料夾:找得到網頁的 strat_folders.js 與共用測資 strat_folders_vectors.json", !!W && fs.existsSync(wVec), wMod);
   if (W) {
     ok("資料夾 emoji:網頁 strat_folders.js SG_EMOJI 與 api / 電腦版逐字同一份", W.SG_EMOJI === EMO_SPEC, W.SG_EMOJI);
-    const wM = Object.fromEntries(Object.entries(W.MARKETS || {}).map(([k, v]) => [k, v[1]]));
-    ok("資料夾:建市場資料夾的市場與預填 emoji 兩邊同一份", sorted(wM) === sorted(dM), sorted(wM) + " vs " + sorted(dM));
+    ok("資料夾:網頁也沒有建市場資料夾(等 web 同批拿掉)", !W.MARKETS && !W.marketPlan, Object.keys(W.MARKETS || {}).join());
     ok("資料夾上限:網頁資料夾 20、名稱 20、map 200、id 形狀同電腦版", W.FOLDERS_MAX === 20 && W.NAME_MAX === 20 && W.MAP_MAX === 200 && String(W.ID_RE) === "/^f[0-9a-z]{6,12}$/", JSON.stringify([W.FOLDERS_MAX, W.NAME_MAX, W.MAP_MAX, String(W.ID_RE)]));
   }
   // 同一份測資跑兩邊的 sgBuild(want = 每組 [資料夾 id 或 null(未分類), 名字…])
@@ -607,8 +672,8 @@ for (const lang of ["zh", "en"]) {
     ok("策略頁頭:記號同一句(電腦版 po.live、網頁 poLive)", !!dT("po.live") && dT("po.live") === wT("poLive"), dT("po.live") + " vs " + wT("poLive"));
     // 判準層的豁免(表上看不到,驗兩邊的原文還是那樣)
     const spv = (() => { const i = hoSrc.length ? fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "portfolio.js"), "utf8") : ""; const a = i.indexOf("function spView("); return a < 0 ? "" : i.slice(a, i.indexOf("\nfunction ", a + 1)); })();
-    ok("策略頁頭豁免 1 還成立:串接失敗兩邊都落 fail,但判準不同——網頁是 pfKeyRejected 或「綁著、pfExecState 說 noaccount」(下單程式在不在跑都算);電腦版是 trFailStopped(讀帳失敗或金鑰被拒,而且下單程式沒在跑)。下單程式還在跑時電腦版留在原本那一態(在跑照出記號),說明行改講「串接失敗」＋到自動下單頁,不擋鈕——對帳器還在下單時把頁首換成停用的鈕,等於藏起它在跑",
-      /if \(pfKeyRejected\(\)\) return "fail";/.test(web) && /if \(pfVenueIds\(\)\.length > 0 && pfExecState\(\) === "noaccount"\) return "fail";/.test(web) && /const failStop = hasAcct && trFailStopped\(state, r\);/.test(spv) && /hasAcct && !failStop && \["start", "acct", "off", "running"\]/.test(spv));
+    ok("策略頁頭豁免 1 還成立:串接失敗兩邊都落 fail,但判準不同——網頁是 pfKeyRejected 或「綁著、pfExecState 說 noaccount」(下單程式在不在跑都算);電腦版是 trFailStopped(讀帳失敗或金鑰被拒,而且下單程式沒在跑)。下單程式還在跑時電腦版留在原本那一態(在跑照出記號),策略頁不另外講,串接失敗由中欄頂列講——對帳器還在下單時把頁首換成停用的鈕,等於藏起它在跑",
+      /if \(pfKeyRejected\(\)\) return "fail";/.test(web) && /if \(pfVenueIds\(\)\.length > 0 && pfExecState\(\) === "noaccount"\) return "fail";/.test(web) && /const failStop = hasAcct && trFailStopped\(state, r\);/.test(spv) && !/cxFailWord|go: "tr"/.test(spv));
     ok("策略頁頭豁免還成立:fail.note 兩邊出口不同(電腦版到「設定」、網頁到策略組合),開頭「串接失敗」同字", D.fail && D.fail.note === "$fail" && W.fail && W.fail.note === "fail" && dT("cx.failShort") === wT("pfConnectFailedShort")
       && dT("cx.failStopped") !== wT("pfConnectFailedShort") + "，" + wT("pfVenueGoFix"), CELL_EXEMPT["fail.note"]);
     ok("策略頁頭豁免 2 還成立:網頁的連接中多認「串接中且沒卡住」(真實交易所要 agent 現場建 order_／account_,常超過 3 分鐘);電腦版只認自己的旗標",
@@ -618,22 +683,20 @@ for (const lang of ["zh", "en"]) {
     ok("策略頁頭豁免 5 還成立:存金額的事件網頁是 trade_amounts_saved 帶 source,電腦版是 portfolio_save／sp_amt_saved 不帶屬性(埋點事件名與屬性不比,規則三)",
       /gaEvent\("trade_amounts_saved", \{ source: /.test(web));
   } }
-/* 三個驗證分頁的鈕態表與「怎麼看」對照(canon › 驗證分頁重跑鈕、說明文章外連;cross-surface-parity 規則三):
-   電腦版 report-robust.js 的 VAL_BTN／VAL_BTN_ORDER、app.js 的 RP_HELP_SLUG,網頁 workspace.html 同名常數。逐列比 kind、disabled、labelKey 與優先序。
+/* 三個驗證分頁的鈕態表(canon › 驗證分頁重跑鈕;cross-surface-parity 規則三):
+   電腦版 report-robust.js 的 VAL_BTN／VAL_BTN_ORDER,網頁 workspace.html 同名常數;「怎麼看」0.1.47 兩邊都拿掉,只驗兩邊都沒有。逐列比 kind、disabled、labelKey 與優先序。
    鈕字 key 不同名,比各分頁開始／重跑的 zh／en 原文。網頁還沒有常數 = web 那顆還沒上線,SKIP 講原因 */
 { const robSrc = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "report-robust.js"), "utf8");
   const lit = (src, re, where) => { const m = re.exec(src); if (!m) return null; try { return (0, eval)("(" + m[1] + ")"); } catch (e) { ok(where + " 讀得出來", false, e.message); return null; } };
   const TBL = /const VAL_BTN = (\{[\s\S]*?\n\s*\});/, ORD = /const VAL_BTN_ORDER = (\[[^\]]*\]);/, HLP = /const RP_HELP_SLUG = (\{[^}]*\});/;
-  const D = lit(robSrc, TBL, "電腦版 VAL_BTN"), DO = lit(robSrc, ORD, "電腦版 VAL_BTN_ORDER"), DH = lit(appSrc, HLP, "電腦版 RP_HELP_SLUG");
-  const W = lit(web, TBL, "網頁 VAL_BTN"), WO = lit(web, ORD, "網頁 VAL_BTN_ORDER"), WH = lit(web, HLP, "網頁 RP_HELP_SLUG");
+  const D = lit(robSrc, TBL, "電腦版 VAL_BTN"), DO = lit(robSrc, ORD, "電腦版 VAL_BTN_ORDER");
+  const W = lit(web, TBL, "網頁 VAL_BTN"), WO = lit(web, ORD, "網頁 VAL_BTN_ORDER");
   const SPEC = { behind: ["out", false, "update"], sent: ["out", true, "sent"], empty: ["out", false, "start"], stale: ["out", false, "rerun"], fresh: ["quiet", false, "rerun"] };
   ok("驗證鈕:電腦版 VAL_BTN 五態照 canon(不實心)、優先序 主機太舊 > 已送出 > 還沒跑 > 過時 > 沒過時", !!D && !!DO && JSON.stringify(DO) === JSON.stringify(["behind", "sent", "empty", "stale", "fresh"])
     && Object.keys(SPEC).every((k) => D[k] && JSON.stringify([D[k].kind, D[k].disabled, D[k].labelKey]) === JSON.stringify(SPEC[k])) && Object.keys(D).length === 5, JSON.stringify(D));
-  ok("怎麼看:電腦版對照表只有回測數據、參數掃描、樣本外驗證三頁", !!DH && JSON.stringify(DH) === JSON.stringify({ bt: "backtest_metrics", rob: "avoid_overfitting", wf: "walk_forward" }), JSON.stringify(DH));
   if (!W || !WO) console.log("SKIP  驗證鈕 VAL_BTN／VAL_BTN_ORDER 兩邊同一份(網頁 workspace.html 還沒有這個常數:web 那顆還沒上線)");
   else ok("驗證鈕:VAL_BTN 逐列、優先序兩邊同一份", JSON.stringify(W) === JSON.stringify(D) && JSON.stringify(WO) === JSON.stringify(DO), JSON.stringify(W) + " vs " + JSON.stringify(D));
-  if (!WH) console.log("SKIP  怎麼看 RP_HELP_SLUG 兩邊同一份(網頁 workspace.html 還沒有這個常數:web 那顆還沒上線)");
-  else ok("怎麼看:RP_HELP_SLUG 兩邊同一份", JSON.stringify(WH) === JSON.stringify(DH), JSON.stringify(WH) + " vs " + JSON.stringify(DH));
+  ok("怎麼看已拿掉:電腦版 app.js 與網頁 workspace.html 都沒有 RP_HELP_SLUG", !HLP.test(appSrc) && !HLP.test(web), "app.js " + HLP.test(appSrc) + " / workspace.html " + HLP.test(web));
   const LABELS = { "rob.btnScan": "workspace_rob_btn_scan", "rob.btnRescan": "workspace_rob_btn_rescan", "wf.btnRun": "workspace_wf_btn_run", "wf.btnRerun": "workspace_wf_btn_rerun", "xt.btnRun": "workspace_xt_btn_run", "xt.btnRerun": "workspace_xt_btn_rerun",
     "rob.btnSent": "workspace_rob_btn_sent", "wf.btnSent": "workspace_wf_btn_sent", "xt.btnBusy": "workspace_xt_btn_busy", "rp.btnUpdate": "workspace_upd_go" };
   for (const lang of ["zh", "en"]) {
@@ -684,4 +747,75 @@ for (const lang of ["zh", "en"]) {
   const listOf = (src, re) => { const m = re.exec(src); return m ? JSON.stringify(JSON.parse(m[1]).sort()) : null; };
   const dK = listOf(resSrc, /const RES_KIND_STRAT = new Set\((\[[^\]]*\])\)/), wK = listOf(web, /const CS_STRAT_KINDS = (\[[^\]]*\])/), dS = listOf(resSrc, /const RES_KIND_SAFE = new Set\((\[[^\]]*\])\)/), wS = listOf(web, /const CS_STRAT_SAFE = (\[[^\]]*\])/);
   ok("回合碰過哪支:策略類 kind、確定不碰的 kind 兩邊同一份", !!dK && dK === wK && !!dS && dS === wS, dK + " vs " + wK + ";" + dS + " vs " + wS); }
+// 解除綁定框(designer unbind-positions-2026-11-05 §4、web 稽核 M8):tr.ub.* 與網頁 workspace_pf_ub_* 逐字同(zh／en)。
+// 網頁 zh 在 {venue}／{app} 兩側留空格給 cxVenueFill 依名稱收(電腦版是 trPadLatin 補),比之前先把那兩個空格拿掉。
+// x0 比雲端那句(網頁只有主機視角);電腦版 tr.ub.close 對網頁共用的 workspace_ns_close、appPres/appCap 對 workspace_ov_broker_*。
+// 埋點(product-telemetry):三個事件名兩邊都要有送出點
+{ const UNBIND_PAIRS = { "tr.ub.x0Cloud": "x0", "tr.ub.x0Pres": "x0_pres", "tr.unbindWarnPaper": "-workspace_pf_unbind_warn_paper",
+    "tr.ub.askTitle": "ask_title", "tr.ub.askTitle1": "ask_title_1", "tr.ub.askTitleN": "ask_title_n", "tr.ub.unreadN": "unread_n",
+    "tr.ub.closeSelf": "close_self", "tr.ub.closeAll": "close_all", "tr.ub.keep": "keep", "tr.ub.keepOld": "keep_old", "tr.ub.keepGo": "keep_go", "tr.ub.closeGo": "close_go",
+    "tr.ub.closedTitle": "closed_title", "tr.ub.closedTitle1": "closed_title_1", "tr.ub.closedTitleN": "closed_title_n",
+    "tr.ub.closedWhen": "closed_when", "tr.ub.closedWhenN": "closed_when_n", "tr.ub.closedLater": "closed_later", "tr.ub.cantClose": "cant_close",
+    "tr.ub.runTitle": "run_title", "tr.ub.runLine": "run_line", "tr.ub.running": "running", "tr.ub.runningBtn": "running_btn",
+    "tr.ub.failTitle": "fail_title", "tr.ub.failTitle1": "fail_title_1", "tr.ub.failTitleN": "fail_title_n", "tr.ub.failReply": "fail_reply",
+    "tr.ub.failState": "fail_state", "tr.ub.unconfirmed": "unconfirmed", "tr.ub.retryGo": "retry_go",
+    "tr.ub.stDone": "st_done", "tr.ub.stNoFill": "st_nofill", "tr.ub.stUnconf": "st_unconf", "tr.ub.stManual": "st_manual", "tr.ub.busy": "busy",
+    "tr.ub.close": "-workspace_ns_close", "tr.ub.appPres": "-workspace_ov_broker_president", "tr.ub.appCap": "-workspace_ov_broker_capital" };
+  const wk = (w) => w.charAt(0) === "-" ? w.slice(1) : "workspace_pf_ub_" + w;
+  for (const lang of ["zh", "en"]) {
+    const dp = poMap(path.join(__dirname, "..", "shell", "i18n", lang + ".po")), wp = poMap(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po"));
+    const norm = (x) => lang === "zh" ? String(x).replace(/ (\{(?:venue|app)\})/g, "$1").replace(/(\{venue\}) /g, "$1") : x;
+    const bad = Object.entries(UNBIND_PAIRS).filter(([d, w]) => typeof dp[d] !== "string" || typeof wp[wk(w)] !== "string" || dp[d] !== norm(wp[wk(w)]));
+    ok(`解除綁定框 ${lang} 兩邊逐字一致(${Object.keys(UNBIND_PAIRS).length} 句)`, bad.length === 0, bad.map(([d, w]) => d + "「" + dp[d] + "」 vs " + wk(w) + "「" + wp[wk(w)] + "」").join(";"));
+  }
+  const tradeSrc = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "trade.js"), "utf8");
+  const EVS = ["unbind_keep", "unbind_close", "unbind_retry"];
+  const miss = EVS.filter((e) => tradeSrc.indexOf('"' + e + '"') === -1 || web.indexOf('"' + e + '"') === -1);
+  ok("解除綁定埋點事件名兩邊同一組(" + EVS.join("／") + ")", miss.length === 0 && web.indexOf("unbind_close_retry") === -1, miss.join(", "));
+  // ④ 期間(平倉後解除還在跑)兩邊頁首都停用〔啟動下單〕〔解除暫停〕,原因同一句 runLine(close-then-unbind 第五輪 S2)
+  const dGate = (tradeSrc.match(/ubRun \? t\("tr\.ub\.runLine"\)/g) || []).length >= 2;
+  const wFn = /function pfUbGateExec\(node\) \{[\s\S]*?\n        \}/.exec(web);
+  const wGate = !!wFn && /I18N\.pfStart/.test(wFn[0]) && /I18N\.pfRelease\b/.test(wFn[0]) && /b\.disabled = true;\s*b\.title = I18N\.ubRunLine;/.test(wFn[0]) &&
+    /if \(ctrl && pfUbClosing\(\)\) pfUbGateExec\(ctrl\);/.test(web);
+  ok("平倉後解除進行中:兩邊頁首〔啟動下單〕〔解除暫停〕都停用、原因 runLine", dGate && wGate, "電腦版 " + dGate + " / 網頁 " + wGate);
+  // 關框之後才停住(設計稽核 S3):兩邊在〔解除綁定〕下方都有一行 failTitleN,點了開回平倉失敗那一態
+  ok("解除綁定停住時,頁面在〔解除綁定〕下方有「平倉沒有完成」那一行、點了開回 ⑤(兩邊都有)",
+    /trEl\("p", "pf-note ub-held"\)[^\n]*t\("tr\.ub\.failTitleN"\)[\s\S]{0,200}addEventListener\("click", \(\) => trUnbind\(a\)\)/.test(tradeSrc)
+    && /el\("span", "ub-held"\)[\s\S]{0,120}I18N\.ubFailTitleN[\s\S]{0,200}addEventListener\("click", unbindAccount\)/.test(web));
+}
+// 策略名稱規則(canon notifications §3.1):電腦版 trStratLabel 跑 api tests/check_strategy_names.py 的同一張 CASES,
+// TLD 表與 40 字上限跟 api openclaw/strategy_names.py 同一份。api 那棵找不到就 fail
+{ const apiDir = process.env.BLAVE_API_DIR || path.join(__dirname, "..", "..", "api");
+  const apiTest = path.join(apiDir, "tests", "check_strategy_names.py"), apiRule = path.join(apiDir, "openclaw", "strategy_names.py");
+  if (!fs.existsSync(apiTest) || !fs.existsSync(apiRule)) ok("策略名稱:找得到 api 那棵的規則與測資(" + apiTest + ";設 BLAVE_API_DIR)", false);
+  else {
+    const m = /# CASES_BEGIN\nCASES = json\.loads\(r'''([\s\S]*?)'''\)\n# CASES_END/.exec(fs.readFileSync(apiTest, "utf8")), cases = m ? JSON.parse(m[1]) : [];
+    const rule = fs.readFileSync(apiRule, "utf8"), pyTld = /URL_TLDS = \(([\s\S]*?)\)/.exec(rule), pyMax = /^LABEL_MAX = (\d+)$/m.exec(rule);
+    const block = desk.slice(desk.indexOf("/* 事件列上的策略名稱"), desk.indexOf("\nfunction trEvStrat("));
+    const L = new Function(block.replace(/^const /gm, "var ") + "\nreturn { trStratLabel, TR_LABEL_TLDS, TR_LABEL_MAX };")();
+    const bad = cases.filter(([n, c, want]) => (L.trStratLabel(n, c) || "") !== want);
+    ok(`策略名稱:電腦版跑 api 的 ${cases.length} 筆測資結果一致`, cases.length > 20 && !bad.length, JSON.stringify(bad.map(([n, c, w]) => [n, w, L.trStratLabel(n, c)])));
+    const ms = fs.readFileSync(path.join(__dirname, "..", "shell", "main.js"), "utf8"), mi = ms.indexOf("function stratLabelClean("), mj = ms.indexOf("\n// 本機 P1 系統通知講到策略", mi);
+    const mainClean = mi >= 0 && mj > mi ? new Function(ms.slice(mi, mj) + "\nreturn stratLabelClean;")() : () => "<missing>";
+    const badMain = cases.filter(([n, c, want]) => (mainClean(n, c) || "") !== want);
+    ok(`策略名稱:主行程(系統通知)跑 api 的 ${cases.length} 筆測資結果一致`, cases.length > 20 && !badMain.length, JSON.stringify(badMain.map(([n, c, w]) => [n, w, mainClean(n, c)])));
+    ok("策略名稱:TLD 表與上限跟 api 同一份", !!pyTld && !!pyMax && JSON.stringify([...pyTld[1].matchAll(/"([a-z]+)"/g)].map((x) => x[1])) === JSON.stringify(L.TR_LABEL_TLDS) && Number(pyMax[1]) === L.TR_LABEL_MAX);
+  } }
+// 側欄策略改名(spec strategy-rename-2026-11-05 §3、§5、§7;參照面 = 電腦版):名稱規則三常數、錯誤碼集合、框下那一行與錯誤碼對應句 zh / en 逐字同。
+// 網頁 workspace.html 照電腦版 renderer/stratrename.js 寫成同名常數;網頁還沒落地就紅(不 SKIP)。帶 {c}／{name} 的三句佔位寫法兩邊不同,不比
+{ const dSrc = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "stratrename.js"), "utf8");
+  for (const re of [/const SRN_NAME_MAX = (\d+);/, /const SRN_NAME_BAD = (\/[^\n]*\/);/]) {
+    const d = re.exec(dSrc), w = re.exec(web);
+    ok("策略改名 " + re.source.slice(6, 18) + " 兩邊同一份", !!d && !!w && d[1] === w[1], (d && d[1]) + " vs " + (w && w[1]));
+  }
+  const codes = (src) => { const m = /const SRN_ERR_KEYS = \{([\s\S]*?)\};/.exec(src); return m ? [...m[1].matchAll(/(\w+):/g)].map((x) => x[1]).sort().join(",") : null; };
+  ok("策略改名錯誤碼集合兩邊同一份(SRN_ERR_KEYS 的 key)", !!codes(dSrc) && codes(dSrc) === codes(web), codes(dSrc) + " vs " + codes(web));
+  for (const lang of ["zh", "en"]) {
+    const dp = poMap(path.join(__dirname, "..", "shell", "i18n", lang + ".po")), wp = poMap(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po"));
+    for (const [d, w] of [["strat.rename", "workspace_strat_rename"], ["strat.nameMax", "workspace_strat_name_max"], ["strat.nameWrapped", "workspace_strat_name_wrapped"],
+      ["strat.nameDup", "workspace_strat_name_dup"], ["strat.renameGone", "workspace_strat_rename_gone"], ["strat.renameNoLiteral", "workspace_strat_rename_no_literal"],
+      ["strat.renameFail", "workspace_strat_rename_fail"], ["strat.renameJob", "workspace_strat_rename_job"]])
+      ok(`策略改名 ${lang} 兩邊逐字一致(${d} ↔ ${w})`, typeof dp[d] === "string" && dp[d] === wp[w], d + "「" + dp[d] + "」 vs " + w + "「" + wp[w] + "」");
+  }
+}
 console.log(red ? `\n${red} 紅` : "\nALL PASS"); process.exit(red ? 1 : 0);
