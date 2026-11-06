@@ -67,5 +67,13 @@
   - 上游的啟動下單框把模擬與真錢的說明併成同一句，fork 的「永豐模擬環境標模擬」判斷不受影響
   - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 VERSION `2026-11-04-c`，
     再執行 `tools/sinopac_deploy.py --apply`
+- 2026-11-07：同步上游 `main` 至 `e36501eb`（電腦版 0.1.47，runtime 1.1.158）
+  - `shell/main.js`、`shell/renderer/trade.js`、`shell/traytext.js`：上游新增的選單列狀態「登入停下」與 fork 的永豐名稱兩邊都留
+  - 修改（檔頭已註明）：`shell/renderer/trade.js` 的 `trUbMark`（上游新增的「平倉後解除綁定」框）把永豐模擬環境標成模擬，
+    以及配合的 `tests/check_sinopac_shell.js`
+  - 上游的平倉後解除綁定對永豐實測可用：盤中只賣 Blave 的股數、重讀歸零才刪金鑰；休市時不賣、解除停住、金鑰保留，
+    平倉延到開盤後第一輪（`tests/check_sinopac_wiring.py` 釘住）
+  - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 VERSION `2026-11-06-b`，
+    再執行 `tools/sinopac_deploy.py --apply`
 
 詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
