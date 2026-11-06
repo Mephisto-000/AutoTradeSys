@@ -11,6 +11,8 @@ of tests/sinopac_fake.py:
     not by close-all; a short signal is flat (cash shares cannot short);
   - while the TWSE session is shut the keys are held quietly (no order, no
     error), and close-all defers to the open;
+  - the scoped close an unbind waits on (close_then_unbind, 2026-11-07) reads
+    flat once the bot's shares are sold, and never while the market is shut;
   - a Type C portfolio of TW stocks trades through the same path.
 
 Run: cd blave-agent && .venv/bin/python tests/check_sinopac_wiring.py
@@ -199,6 +201,44 @@ B.positions["0050"] += 700
 flatten._LOCK = None
 flatten.flatten()
 check(B.positions["0050"] == 700 and bot() == 0.0, "in session: close-all sells the bot's share at once")
+
+print("== close-then-unbind (upstream 0.1.45): the scoped close the unbind waits on")
+flatten.VERIFY_GAP_S = 0.0
+
+
+def scoped_close(rid):
+    """manager/flatten.py --venues sinopac --request-id rid, as runtime close_then_unbind runs it."""
+    flatten.SCOPE = flatten.REQUEST_ID = None
+    flatten._parse_argv(["--venues", "sinopac", "--request-id", rid])
+    flatten._RUN.clear()
+    flatten._RUN.update({"unconfirmed": set(), "why": {}, "err": {}, "reply": {}, "first_err": None, "venues": []})
+    flatten._LOCK = None
+    try:
+        return flatten.flatten(), json.load(open(flatten.LAST_PATH))
+    finally:
+        flatten.SCOPE = flatten.REQUEST_ID = None
+
+
+fresh()
+config({"tw_a": 250_000})
+signal(1.0)
+rnd()
+B.positions["0050"] += 700
+ok_, last = scoped_close("ub1")
+check(ok_ is True and last.get("ok") is True and last.get("request_id") == "ub1" and last.get("venues") == ["sinopac"]
+      and last.get("closed") == ["0050@spot"] and B.positions["0050"] == 700 and bot() == 0.0,
+      f"in session: the bot's 1,250 sold, the user's 700 kept, re-read flat → the unbind may go on ({last})")
+fresh()
+config({"tw_a": 250_000})
+signal(1.0)
+rnd()
+B.positions["0050"] += 700
+SESSION[0] = False
+ok_, last = scoped_close("ub2")
+SESSION[0] = True
+check(ok_ is False and last.get("ok") is False and B.positions["0050"] == 1950 and bot() == 1250.0
+      and [u.get("key") for u in last.get("unclosed") or []] == ["0050@spot"],
+      f"market shut: nothing sold and never reported flat → the unbind holds, the keys stay ({last.get('unclosed')})")
 
 print("== a Type C portfolio of TW stocks")
 fresh()
