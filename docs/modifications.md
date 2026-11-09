@@ -75,5 +75,12 @@
     平倉延到開盤後第一輪（`tests/check_sinopac_wiring.py` 釘住）
   - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 VERSION `2026-11-06-b`，
     再執行 `tools/sinopac_deploy.py --apply`
+- 2026-11-10：同步上游 `main` 至 `f22c182e`（電腦版 0.1.51，runtime 1.1.161）
+  - 上游開放群益本機（`CAPL_LOCAL_ON`）：`shell/renderer/trade.js` 連接框「台股」組依序列統一、群益、永豐金，
+    `lib/portfolio.py` 檔頭與上游新增的 import 兩邊都留；配合的測試（`check_shell_connect_venues.js`、`check_shell_trade.js`、
+    `check_venue_traits.py`）收上游的新字並保留永豐那一項
+  - 上游新增「解除綁定就清這一家的帳本」：永豐一樣適用（只清 Blave 的帳本，不賣股票，留在帳戶裡的算用戶自己的），程式不改
+  - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 VERSION `2026-11-09-c`，
+    再執行 `tools/sinopac_deploy.py --apply`
 
 詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
