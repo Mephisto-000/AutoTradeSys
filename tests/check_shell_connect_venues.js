@@ -16,7 +16,7 @@ let red = 0; const ok = (n, c) => { console.log((c ? "PASS  " : "FAIL  ") + n); 
 const J = JSON.stringify;
 
 if (!process.versions.electron) (async () => {
-  ok("⓪ trade.js 有 PRES_LOCAL_ON 旗標,下拉的「台股」組與 change 都看它(cxPresListed);群益本機另受 CAPL_LOCAL_ON 管(0.1.28 main 關著、測試包分支開)", !!presFlag && !!caplFlag
+  ok("⓪ trade.js 有 PRES_LOCAL_ON 旗標,下拉的「台股」組與 change 都看它(cxPresListed);群益本機另受 CAPL_LOCAL_ON 管(0.1.50 起開)", !!presFlag && !!caplFlag
     && /const tw = CXF\.env !== "local" \? \[\[CAPITAL, "cap\.venue"\]\] : \[cxPresListed\(\) \? \["president", "pres\.venue"\] : null, cxCaplListed\(\) \? \[CAPITAL, "cap\.venue"\] : null, \["sinopac", "sino\.venue"\]\]\.filter\(Boolean\);/.test(tradeSrc)
     && /\(sel\.value === "sinopac" && CXF\.env === "local"\)/.test(tradeSrc)
     && /\(sel\.value === "president" && CXF\.env === "local" && cxPresListed\(\)\)/.test(tradeSrc)
@@ -177,16 +177,14 @@ app.whenReady().then(async () => {
   // 這台電腦
   await js(`(() => { envSwitch("local"); TR_BAGS.local.st = { alive: true, report: { venues: {} } }; cxModalOpen(null, null), (($m) => { if ($m && !$m.checked) { $m.checked = true; $m.dispatchEvent(new Event("change")); } })($("cx-mode-real")); })()`);
   await wait(150);
-  // 群益只在雲端(Wei 0.1.18 拿掉這台電腦那條:電腦版不接群益);統一只在這台電腦視角,而且受 trade.js PRES_LOCAL_ON 管
-  // (0.1.18 關著只藏入口、0.1.19 開):關著時「台股」那一組整個不出;開著時那一組只有統一
-  // 群益本機受 CAPL_LOCAL_ON 管(0.1.28):開著時「台股」組在統一後面多一個群益
+  // 這台電腦的「台股」組:統一受 trade.js PRES_LOCAL_ON 管、群益本機受 CAPL_LOCAL_ON 管(0.1.50 起兩個都開,群益排在統一後面)
   // 永豐金(AutoTradeSys fork)一定在「台股」組的最後一項,所以這台電腦的「台股」組永遠在
   ok("③ 這台電腦(「真實帳戶」):七家 + 「台股」組" + (presOn ? "有統一" : "(PRES_LOCAL_ON 關著 → 沒有統一)") + (caplOn ? "、群益本機" : "(CAPL_LOCAL_ON 關著 → 沒有群益)") + "、永豐金",
     J(await js(`[...$("cx-venue").options].map((o) => o.value)`)) === J(["binance", "okx", "bingx", "gateio", "bybit", "stockcoin", "bitget"].concat(presOn ? ["president"] : [], caplOn ? ["capital"] : [], ["sinopac"]))
     && J(await js(`[...$("cx-venue").querySelectorAll("optgroup")].map((g) => g.label)`)) === J(await js(`[t("cx.group.crypto"), t("cap.group.tw")]`)));
   if (!presOn) { await pick("president"); ok("③ 旗標關著硬選 president(選單裡沒有那一項):退回第一家", (await js(`CXF.venue`)) === "binance"); }
   await pick("capital");
-  // 群益本機受 CAPL_LOCAL_ON 管:關著時選單裡沒有、硬選退回第一家;開著(測試包)時整個框交給 capital_local.js(Mac 上是 m-mac)
+  // 群益本機受 CAPL_LOCAL_ON 管:關著時選單裡沒有、硬選退回第一家;開著時整個框交給 capital_local.js(Mac 上是 m-mac)
   if (caplOn) ok("③ CAPL_LOCAL_ON 開著:這台電腦選 capital → 群益本機的框(標題「連接群益期貨」、這台電腦)", (await js(`CXF.venue`)) === "capital"
     && (await js(`$("cx-title").textContent === t("cap.title") && !$("cx-env").hidden`)));
   else ok("③ 這台電腦硬選 capital(選單裡沒有那一項):退回第一家、主鈕照在", (await js(`CXF.venue`)) === "binance" && (await js(`!$("cx-go").hidden`)));

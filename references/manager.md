@@ -117,7 +117,7 @@ Polls every 5 seconds; only reconciles when a strategy's `state.json` mtime chan
 **Auto-halt on exchange disconnect:** `reconciler.py` wraps `get_positions()` in `_get_positions_guarded()`, which classifies every failed read with the bound venue's `lib/account_<venue>.classify(exc)` (shared floor: `lib/venue_errors.py`) — body error code first, HTTP status as fallback, tables taken from each venue's official error-code docs (never from ccxt's maps, which disagree with the docs):
 - **TRANSIENT** — venue busy / down / rate-limited, timeouts, connection errors, HTTP 408/429/502/503/504. The round is skipped (no orders at all) and the failure neither counts toward nor resets the halt counter. After 30 minutes of continuous failure the machine emits one `exchange_unreachable` event (the platform notifies the user); when reads come back after that, `exchange_recovered`. It never halts: a 15-minute OKX `50001`/`50013` spell used to halt a live account until the user noticed, four days later.
 - **CREDENTIAL** — key invalid / revoked / expired, IP or permission refused, HTTP 401. HALT at once; only the user can fix a key.
-- **UNKNOWN** — everything else, including clock-skew codes, Capital and paper errors. Counted: `DISCONNECT_HALT_AFTER = 3` consecutive → HALT. Each one is logged with venue, exception class and code; grow a venue's table only from a code seen there AND documented by the venue.
+- **UNKNOWN** — everything else, including clock-skew codes, paper errors and Capital worker errors other than a lost link (Capital `1000`/`1041`/`1108`/`1109` from SKCOM's manual, or a query whose reply never came, are TRANSIENT; `300`/`307` stop only Capital, as President's failed login does). The query timeout is the worker's own marker, not a broker code, and a fault a restart does not fix lands there too — so a Capital outage never halts but re-sends `exchange_unreachable` every 2 hours after the first (`UNREACHABLE_REPEAT_S`), with the running minutes. Counted: `DISCONNECT_HALT_AFTER = 3` consecutive → HALT. Each one is logged with venue, exception class and code; grow a venue's table only from a code seen there AND documented by the venue.
 
 A good read resets the counter and the outage clock. `CapitalCacheLagError` (capital's Read-Your-Writes guard, `_capital_check_snapshot_caught_up`) is TRANSIENT, retried on the next poll instead of the 5-minute heartbeat, and neither opens an outage nor re-arms the account guard below. A venue lib without `classify` gets only the agnostic floor (network errors and HTTP status). Never catch-and-return `{}` in `get_positions()` — the classifier can only judge exceptions it sees.
 
@@ -191,8 +191,25 @@ the bind — the key's fingerprint is recorded instead, and a verified id is
 never replaced by a fingerprint-only record.
 `lib.portfolio.book_account_check` compares it at bind, at the reconciler's
 start, on every credentials change, and in close-all before it sells anything:
-- same id → the book is kept. A rotated key on the same account keeps it; a
-  full unbind keeps it too.
+- same id → the book is kept. A rotated key on the same account keeps it.
+- unbind → when the page sends `clear_book: true` (it told the user), that
+  venue's book is emptied the moment its keys leave `.env` (`credentials_remove`,
+  close-then-unbind; runtime → `lib.portfolio.reset_venue_book`); without the
+  flag (an older page) the book is kept. Binding another venue over it never
+  empties it, flag or not: seed `venue_reset`, its
+  `venue_account` and migration `pending` dropped, its parked unconfirmed
+  orders released, 統一/群益 `*_pending_sent.json` deleted, and the last
+  snapshot (`manager/last_reconcile.json`) removed. Whatever stays on the
+  account is the user's — bound back, even to the same account, those
+  positions are manual and a strategy may open its own on top. Other venues'
+  rows and fills, `seeded_at` and `own_only_basis` are untouched; never
+  delete or rewrite `manager/ledger_seed.json` to do this by hand. Every
+  read-modify-write of the seed holds `state/ledger_seed.lock`
+  (`lib.portfolio._seed_lock`). Cleanup the reset could not finish (a locked
+  file, an unreadable park file) is owed in `state/venue_reset_todo.json` and
+  retried whenever that venue's book is read. A parked order or a late fill
+  sent before the venue's `venue_reset` is never booked, whether or not its
+  record was deleted.
 - another id → that venue's book restarts empty at once (seed `venue_reset`),
   before anything reads it — binding over the old account, or unbind → another
   venue → back with another account, alike. On a real venue the machine also

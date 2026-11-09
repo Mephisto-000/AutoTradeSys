@@ -43,8 +43,22 @@ t("ack 錯誤字串的組法還是 f\"{type(e).__name__}: {e}\"(雲端 listener 
 const wire = (code, detail) => REFUSED + ": " + code + ": " + detail;
 { const E = (r) => JSON.stringify(hoErr(r));
   t("拒絕對字:機器的 ack 字串(" + wire("NOT_PORTABLE", "lib.foo") + ")取代碼與點名的檔／模組", E({ ok: false, kind: "rejected", error: wire("NOT_PORTABLE", "lib.foo") }) === '{"key":"ho.err.portable","vars":{"x":"lib.foo"}}'
-    && E({ ok: false, kind: "rejected", error: wire("NAME_MISMATCH", "x") }).includes("ho.err.name") && E({ ok: false, kind: "rejected", error: wire("NO_STRATEGY_NAME", "helper.py") }).includes("ho.err.name")
+    && E({ ok: false, kind: "rejected", error: wire("NAME_MISMATCH", "x") }).includes("ho.err.name\"")
     && E({ ok: false, kind: "rejected", error: wire("BAD_FILES", "a b.py") }).includes("ho.err.files") && E({ ok: false, kind: "rejected", error: "NOT_PORTABLE: lib.foo" }).includes("ho.err.portable"));
+  /* NO_STRATEGY_NAME:detail「<why>: <檔名>」分三句,{x} 只放檔名;runtime 那邊送的就是這三個前綴(逐字釘住);
+     1.1.159 以前的英文 detail 也歸得到同三類 */
+  const N = (d) => E({ ok: false, kind: "rejected", error: wire("NO_STRATEGY_NAME", d) });
+  t("NO_STRATEGY_NAME 依原因分三句、{x} 是檔名:helpers → nameOnce、wildcard → nameStar、literal → nameLiteral",
+    N("helpers: scan.py, plot.py") === '{"key":"ho.err.nameOnce","vars":{"x":"scan.py, plot.py"}}'
+    && N("wildcard: strategy.py") === '{"key":"ho.err.nameStar","vars":{"x":"strategy.py"}}'
+    && N("literal: strategy.py") === '{"key":"ho.err.nameLiteral","vars":{"x":"strategy.py"}}'
+    && /Refused\("NO_STRATEGY_NAME", "helpers: " \+ ", "\.join\(helpers\)\)/.test(stSrc) && /Refused\("NO_STRATEGY_NAME", "wildcard: " \+ ", "\.join\(stars\)\)/.test(stSrc)
+    && (stSrc.match(/Refused\("NO_STRATEGY_NAME", "literal: strategy\.py"\)/g) || []).length === 2
+    && (stSrc.match(/Refused\("NO_STRATEGY_NAME"/g) || []).length === 4);
+  t("舊雲端 runtime 的英文 detail 也歸到同三類",
+    N("STRATEGY_NAME belongs in strategy.py only, also found in helper.py, scan.py") === '{"key":"ho.err.nameOnce","vars":{"x":"helper.py, scan.py"}}'
+    && N("`import *` could rebind STRATEGY_NAME (strategy.py)") === '{"key":"ho.err.nameStar","vars":{"x":"strategy.py"}}'
+    && N('strategy.py needs exactly one STRATEGY_NAME = "momo" at the top level') === '{"key":"ho.err.nameLiteral","vars":{"x":"strategy.py"}}');
   t("這台電腦讀檔就擋下(kind local):代碼在 error、檔名在 detail", E({ ok: false, kind: "local", error: "TOO_LARGE", detail: "big.py" }) === '{"key":"ho.err.files","vars":{"x":"big.py"}}');
   t("雲端 runtime 太舊:unknown command／UNKNOWN_COMMAND／BAD_COMMAND → 更新那句,不退回 agent", ["UNKNOWN_COMMAND", "BAD_COMMAND"].every((e) => E({ ok: false, kind: "undelivered", error: e }) === '{"key":"ho.err.old"}')
     && E({ ok: false, kind: "rejected", error: "ValueError: unknown command 'strategy_import'" }) === '{"key":"ho.err.old"}' && /raise ValueError\(f"unknown command \{cmd!r\}"\)/.test(clSrc));
@@ -183,7 +197,7 @@ t("那一態側欄出 side.cloud.emptyReady,其餘狀態整句不出(emptyGate �
 t("那張卡:不畫賣點與價格、主鈕 data-k=\"main\"(登入回來焦點正好在它身上)、次鈕是［留在雲端］", (() => {
   const i = trSrc.indexOf("function envPaintEmpty("), ep = trSrc.slice(i, trSrc.indexOf("\n}\n", i));
   return /const ready = kind === "running" && !!pid;/.test(ep) && /view = ready \? "ready" : envOpenView\(/.test(ep)
-    && /if \(view === "ready"\) st\.append\(trEl\("h4", "", t\("ho\.ready\.h"\)\), trEl\("p", "", t\("ho\.ready\.body", \{ id: pid \}\)\)\);/.test(ep)
+    && /if \(view === "ready"\) st\.append\(trEl\("h4", "", t\("ho\.ready\.h"\)\), trEl\("p", "", t\("ho\.ready\.body", \{ id: typeof hoLabel === "function" \? hoLabel\(pid, RP\.list\) : pid \}\)\)\);/.test(ep)
     && !/view === "ready"[^\n]*env\.open\.h/.test(ep) && /\["starting", "unreach", "unknown", "relogin", "ready"\]\.includes\(view\)/.test(ep)
     && /main = btn\("btn-fill", t\("ho\.back\.btn"\), \(\) => hoBack\(pid\), "main"\)/.test(ep)
     && /\|\| view === "ready" \? null : planErr/.test(ep) && /JSON\.stringify\(\[view, pid \|\| null,/.test(ep); })());
@@ -230,6 +244,7 @@ t("確認框那句依方向拆:up 講「在雲端重跑一次回測」、down �
   const el = () => { const n = { kids: [], textContent: "", className: "", append(...x) { n.kids.push(...x); }, appendChild(x) { n.kids.push(x); return x; } }; return n; };
   const texts = (n) => (n && typeof n === "object" ? [n.textContent || "", ...(n.kids || []).flatMap(texts)] : []);
   const xpSrc = fs.readFileSync(path.join(R, "export.js"), "utf8");
+  const trLabelSrc = "\n" + trSrc.slice(trSrc.indexOf("const TR_LABEL_MAX"), trSrc.indexOf("\n}\n", trSrc.indexOf("function trStratLabel(")) + 3).replace(/^const /gm, "var ");
   const run = (dir, cloudCfg, localCfg, cloudList = [], localList = [], code = null) => {
     const boxes = [], runs = [];
     const c = { HO: { on: true, pending: null, jobs: new Map() }, HO_ID_RE: /^[A-Za-z0-9_-]{1,64}$/, running: false, ENV: { cur: dir === "up" ? "local" : "cloud" },
@@ -240,13 +255,21 @@ t("確認框那句依方向拆:up 講「在雲端重跑一次回測」、down �
       HO_NOTE: { "": ["ho.note.up", "ho.note.down"], B: ["ho.noteB.up", "ho.noteB.down"] },
       hoRun: (d, id, to, typeB) => runs.push({ dir: d, id, to, typeB }), UPD: {}, csTabRunning: () => false, trackFeature: () => {} };
     vm.createContext(c);
-    vm.runInContext(["hoMovesRow", "hoStaysRow", "hoFreeName", "hoKind", "hoBlocked", "hoAsk"].map((n) => cut(src, n)).join("\n") + cut(trSrc, "cdelInUse")
+    vm.runInContext(["hoMovesRow", "hoStaysRow", "hoFreeName", "hoKind", "hoBlocked", "hoLabel", "hoAsk"].map((n) => cut(src, n)).join("\n") + cut(trSrc, "cdelInUse") + trLabelSrc
       + xpSrc.slice(xpSrc.indexOf("function xpIsTypeB("), xpSrc.indexOf("\n", xpSrc.indexOf("function xpIsTypeB("))), c);
     c.hoAsk(dir, "btc_rsi", {});
     const b = boxes[0]; if (!b) return null;
     b.onOk();
-    return { single: !!b.single, ok: b.ok, dis: !!b.okDisabled, alt: b.alt, txt: texts(b.extra).join("|"), run: runs[0] };
+    return { single: !!b.single, ok: b.ok, dis: !!b.okDisabled, alt: b.alt, txt: texts(b.extra).join("|"), run: runs[0], title: b.title };
   };
+  // 確認框標題寫策略名稱(canon notifications §3.1,規則 = trade.js trStratLabel):過不了規則／清單沒有 → 代號;同清單別支同名 → 補（代號）。送出去的仍是代號
+  { const L = (n, d) => ({ name: n, displayName: d });
+    const up = (list) => run("up", {}, {}, [], list), down = (list) => run("down", {}, {}, list, []);
+    const a = up([L("btc_rsi", "BTC 均線 A")]), b = down([L("btc_rsi", "BTC 均線 A")]);
+    t("搬家確認框標題:送上雲端／拉回都寫名稱,送出去的仍是代號", a.title === 'ho.up.title{"id":"BTC 均線 A"}' && a.run.id === "btc_rsi" && b.title === 'ho.down.title{"id":"BTC 均線 A"}' && b.run.id === "btc_rsi", JSON.stringify([a.title, b.title]));
+    t("搬家確認框標題:沒有名稱、名稱過不了規則(包 [ ]、含「:」)、清單沒有這支 → 代號",
+      [[L("btc_rsi", "")], [L("btc_rsi", "[策略名稱]")], [L("btc_rsi", "均線:快")], []].every((l) => up(l).title === 'ho.up.title{"id":"btc_rsi"}'));
+    t("搬家確認框標題:同一份清單別支也叫這個名字 → 名稱後補（代號）", up([L("btc_rsi", "均線"), L("eth_rsi", "均線")]).title === 'ho.up.title{"id":"均線（btc_rsi）"}'); }
   // e2e 0.1.8 H:Type B 沒有回測——確認框不提回測;判別用檔頭 `# Type: B`(同轉出選單),結果畫成試跑那幾句。
   // 字講「確認它跑得起來」,不講「試跑一次」:會下單的 Type B 不試跑、只檢查(references/cloud-handoff.md 1.3、6B),現在式的承諾要對每一種都成立
   { const B = "# Strategy: 資金費率監控\n# Type:     B (monitor only, no orders)\nSTRATEGY_NAME = 'w'\n", A = "# Strategy: x\n# Type:     A\n";
@@ -292,11 +315,11 @@ t("確認框那句依方向拆:up 講「在雲端重跑一次回測」、down �
   r = run("down", {}, {});
   t("拉回、這台電腦沒有同名 → 沒有改名那一行,原名送出", sendable(r) && !/ho\.rename/.test(r.txt) && r.run.to === "btc_rsi");
   t("擋下態與覆蓋態整段退場(程式與字串表都沒有 ho.block.up/down、ho.over.*、goLocal、hoState、okDisabled、alt)", !/ho\.block\.(up|down)"|ho\.over\.|goLocal/.test(strings) && !/ho\.block\.(up|down)\b|ho\.over\.|goLocal|hoState|hoAmount|okDisabled|alt:/.test(src));
-  t("改名那幾句的字", /"ho\.rename\.up": "雲端已經有同名的 \{id\}，這份會存成新策略 \{to\}；原本那支不動。"/.test(strings) && /"ho\.rename\.down": "這台電腦已經有同名的 \{id\}，這份會存成新策略 \{to\}；原本那支不動。"/.test(strings)
+  t("改名那幾句的字", /"ho\.rename\.up": "雲端已經有同名的 \{id\}，這份會存成新策略 \{to\}。原本那支不動。"/.test(strings) && /"ho\.rename\.down": "這台電腦已經有同名的 \{id\}，這份會存成新策略 \{to\}。原本那支不動。"/.test(strings)
     && /"ho\.rename\.maybeUp": "若雲端已有同名策略，會改存成新名字，原本那支不動。"/.test(strings));
   t("舊的來源擋下態整段退場(ho.block.srcUp / srcDown 不在程式與字串表)", !/ho\.block\.src/.test(src + strings));
   t("那一句的字:兩個方向都講「照常下單」與「給金額才會開始下單」", ["up", "down"].every((d) => (strings.match(new RegExp('"ho\\.srcLive\\.' + d + '": "[^"]*"', "g")) || []).length === 2)
-    && /"ho\.srcLive\.up": "這台電腦這一支照常下單；雲端那份[^"]*給金額，才會開始下單。"/.test(strings) && /"ho\.srcLive\.down": "雲端那一支照常下單；[^"]*給金額，才會開始下單。"/.test(strings));
+    && /"ho\.srcLive\.up": "這台電腦這一支照常下單。雲端那份[^"]*給金額，才會開始下單。"/.test(strings) && /"ho\.srcLive\.down": "雲端那一支照常下單。[^"]*給金額，才會開始下單。"/.test(strings));
   // 0.1.12 市場檢查出貨前整個拿掉:送上雲端 / 拉回不看市場(美股不在這裡擋,也不多那一行「對不上」)
   t("送上雲端 / 拉回不看市場:handoff.js 沒有 trGateOf / market_gate / ho.gate.usstock / ho.gate.mismatch;字串表也沒有那三句",
     !/trGateOf|market_gate|ho\.gate\.(usstock|mismatch)/.test(src) && !/ho\.gate\.(usstock|mismatch)/.test(strings)); }

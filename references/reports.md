@@ -300,7 +300,9 @@ publish(pack, narrative={
   report by hand. Asked for them, answer in chat with `lib.data.fetch_tw_breadth_public()` (上市
   up / down / flat) and `fetch_tw_sector_breadth(headers)` (per-industry counts and equal-weighted
   average change): desktop only — on a cloud machine both raise `TwPublicUnavailable`, so say the
-  figure is not available there; 上市 only, never 上櫃; the finished session, never intraday — check
+  stock counts are not available there (a sector-level answer there is
+  `fetch_twstock_sector_overview`: sector index returns, its up / down count sectors, not stocks —
+  `references/twstock.md` › *Sector rotation*); 上市 only, never 上櫃; the finished session, never intraday — check
   the returned `date` is the day you are describing; our own count over 4-digit codes, so it can
   differ from TWSE's official 漲跌家數 (`references/lib.md`). A report that cites the holiday table (「9/25
   中秋節休市」) copies its attribution into the footnote verbatim (`references/lib.md` ›
@@ -1015,6 +1017,11 @@ transient failure. Same status code, different channel, opposite handling.
   `publish()` refuses a pack edited that way. A report you write by hand with
   `write_report`: put `file` and `source` into an `image` block unchanged; do
   not pass the picture through `write_report(images=…)`.
+- **A report asked from the cloud view** is written on the cloud machine, so
+  its pictures cross by `references/cloud-handoff.md` R7.4: that file's fixed
+  scripts move them and hand them to `write_report(images=…)` there — the one
+  exception to the two rules above. You still never move a picture or pass
+  `images=` yourself.
 - **A cited image the user asked for always goes in.** A capture that is not
   in the report makes `publish()` refuse until you either cite it or give
   `narrative["images_unused"]` (one sentence saying why); captures left out

@@ -1204,6 +1204,20 @@ def can_close_unbind(vens):
             and can_flatten(vens))
 
 
+def unbind_clears_book():
+    """An unbind the page sends with `clear_book: true` empties that venue's book here:
+    this runtime honours the flag (command_listener._cmd_credentials_remove,
+    close_then_unbind, a bind's eviction) whenever the workspace lib has
+    reset_venue_book. A page that sends the flag says a rebound account's positions are
+    manual only when this is true; one that does not send it (desktop ≤0.1.47) never
+    clears, whatever this says."""
+    try:
+        with open(os.path.join(WORKSPACE, "lib", "portfolio.py"), encoding="utf-8") as f:
+            return "def reset_venue_book(" in f.read()
+    except OSError:
+        return False
+
+
 def manual_close_venues(vens):
     """Bound venues a flatten here skips for identity (= command_listener._manual_venues)."""
     gated = sorted(v for v in (vens or {}) if venue_traits.has(v, "windows_identity"))
@@ -1667,6 +1681,7 @@ def halt_state(hb=None, last=None):
     guard_state = guard_state if isinstance(guard_state, dict) else {}
     hold, mark = guard_state.get("book_hold"), guard_state.get("bind_reset")
     mismatch = _halt_mismatch(info.get("mismatch"))
+    unexplained = _halt_unexplained(info.get("unexplained"))
     return {
         "halted": True,
         "at": info.get("ts"),
@@ -1676,6 +1691,7 @@ def halt_state(hb=None, last=None):
         # absent on every other HALT and on runtimes before it
         **({"closing": info["closing"]} if isinstance(info.get("closing"), bool) else {}),
         **({"mismatch": mismatch} if mismatch else {}),
+        **({"unexplained": unexplained} if unexplained else {}),
         "blocked": _halt_denials(info.get("ts")),
         # true = no Blave order of any kind, closes and exits included: every
         # HALT on a freezing lib (`freeze`), or on an older one an account-guard
@@ -1692,6 +1708,21 @@ def halt_state(hb=None, last=None):
 
 def _halt_num(x):
     return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) else None
+
+
+def _halt_unexplained(rows):
+    """Parked orders the account did not explain while a HALT was already on (lib/guard.annotate_halt):
+    [{park_id, venue, symbol, at, reason}], at most 5. The api raises a halt P1 per new park_id."""
+    out = []
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict) or not isinstance(r.get("park_id"), str) or not r["park_id"]:
+            continue
+        at = _halt_num(r.get("at"))
+        out.append({"park_id": r["park_id"][:80],
+                    "venue": r.get("venue")[:32] if isinstance(r.get("venue"), str) else None,
+                    "symbol": r.get("symbol")[:40] if isinstance(r.get("symbol"), str) else None,
+                    "at": at, "reason": r.get("reason")[:200] if isinstance(r.get("reason"), str) else None})
+    return out[-5:]
 
 
 def _halt_mismatch(m):
@@ -2435,6 +2466,9 @@ def build_report(reporter=None):
         # flatten.py can be scoped to the venue and reports its result — keyed on the artifact,
         # like can_flatten. Absent (old runtime) = the pages offer keep-and-unbind only.
         "can_close_unbind": can_close_unbind(vens),
+        # an unbind sent with clear_book empties that venue's book (Wei 2026-11-06); absent or
+        # false = it is kept either way, and the pages do not say the positions count as manual
+        "unbind_clears_book": unbind_clears_book(),
         # bound venues this machine can't close (群益 under a non-Administrator identity):
         # close_then_unbind keeps their positions and unbinds them with the rest
         "close_unbind_manual": manual_close_venues(vens),
@@ -2517,7 +2551,7 @@ def build_report(reporter=None):
         if isinstance(stop, dict):
             pres = dict(pres, login_stop={"kind": str(stop.get("kind") or "UNKNOWN"), "at": stop.get("at")})
         report["president_connect"] = pres
-    # which feed the last 台指期 live tick read its bars from (lib/data._with_president_tail,
+    # which feed the last 台指期 live tick read its bars from (lib/data._with_broker_tail,
     # 統一-bound desktop only) — the trade page's one-line 「行情:…」
     src = _read_json(os.path.join(WORKSPACE_STATE, "twfutures_live_source.json"))
     if isinstance(src, dict):

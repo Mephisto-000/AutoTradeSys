@@ -496,6 +496,8 @@ function updater() {
     signed: feedUrl && process.platform === "win32" ? { keys: require("./update-keys.json") } : null,
     feedUrl, currentVersion: app.getVersion(),
     isTrading: () => !!tradeMaybeLive(),   // 保守判定:可能還在下單就不裝
+    // 正要裝的這段(確認框、停單收工、閒著自動裝在問畫面)不准查到新版就換掉已下載的那版
+    busy: () => !!(restarting || quitAsking || moveAsking || quitConfirmed || quitting || _schedRunning),
     onState,
     log: (m) => console.error("[updater] " + m),
     onFail: (stage) => tm().track("update_failed", { stage }),
@@ -544,6 +546,7 @@ function clearToken() {
   clearDataKey();
   clearAppSecret();
   rptCloudInvalidate();   // 雲端報告的清單與本體是這個帳號的
+  libBbMarkSet(null);   // 綁卡即購買在等的那一筆也是這個帳號的:換人不白等(程式稽核 D2)
 }
 
 /* app_secret:登入時 api 多發的一顆、**只有這支主行程拿得到**的憑證。帳號 token 會進 agent 的
@@ -2629,9 +2632,12 @@ async function hasBlaveData() {
    (09-24 真機)——外殼明明知道原因。no_card / no_balance 是切換前(按小時)的兩種;no_plan / plan_failed 是方案制的兩種。
    account_status 的 reason 只在 can_run=false 時有值(NO_CARD / NO_CREDIT);data_access=none 而 reason 空的組合(api 沒禁)當餘額不夠。
    方案制的「有沒有卡」看 has_card(跟 can_run 脫鉤:手上還有綁卡前額度的新人 reason 是空的);舊 api 沒這欄才退回 reason——同 renderer acctNoCard。
-   查不到(沒打到 / 太舊)就 unknown,不沿用舊答案,同 hasBlaveData。舊 api 只有 data_included:false、沒有 data_access:也 unknown。 */
+   查不到(沒打到 / 太舊)就 unknown,不沿用舊答案,同 hasBlaveData。舊 api 只有 data_included:false、沒有 data_access:也 unknown。
+   token 在、伺服器不認(account_status 401／ACCOUNT_TOKEN_INVALID 設的 authRevoked)→ relogin:跟方案無關,不能讓模型講「要開通方案」;
+   網路錯、逾時不動 authRevoked,照舊 unknown */
 function dataAccessWhy(signedIn) {
   if (!signedIn) return "signed_out";
+  if (authRevoked) return "relogin";
   const b = lastAcct && Date.now() - lastAcct.at <= ACCT_FRESH_MS ? lastAcct.body : null;
   if (!b) return "unknown";
   const a = dataAccessOf(b);
@@ -2761,8 +2767,12 @@ async function libraryReport(id, langRaw) {
 function libPurchaseBody(b) {
   if (!b || typeof b !== "object") return null;
   const s = (v) => (typeof v === "string" ? v.slice(0, 200) : null), n = (v) => (typeof v === "number" && isFinite(v) ? v : null);
-  return { status: s(b.status), error: s(b.error), error_code: s(b.error_code), needs_topup: b.needs_topup === true, has_card: b.has_card === true, balance: n(b.balance), required: n(b.required) };
+  // amount_twd / reason:卡刷了卻沒買成(402 / 400 / 500),錢在錢包(spec library-buy-with-bind §9)
+  return { status: s(b.status), error: s(b.error), error_code: s(b.error_code), needs_topup: b.needs_topup === true, has_card: b.has_card === true, balance: n(b.balance), required: n(b.required),
+    amount_twd: n(b.amount_twd), reason: libCode(b.reason), reason_code: libCode(b.reason_code) };
 }
+// api 的原因代號:只收小寫代號。failed 時 reason 是藍新的中文句,過不了這道,畫面也不拿它分流
+function libCode(v) { return typeof v === "string" && /^[a-z_]{1,40}$/.test(v) ? v : null; }
 async function libraryPurchase(strategyId, confirmTopup) {
   if (!Number.isInteger(strategyId) || strategyId <= 0) return { status: 400, body: { error_code: "STRATEGY_ID_REQUIRED" } };
   const token = loadToken(), secret = loadAppSecret();
@@ -2772,7 +2782,151 @@ async function libraryPurchase(strategyId, confirmTopup) {
   try { r = await postJSON(`${API_BASE}/oauth/desktop/marketplace/purchase`, { token, app_secret: secret, strategy_id: strategyId, confirm_topup: confirmTopup === true }); }
   catch (_) { return { status: 0, body: null }; }
   libCache = null;   // 買了(或另一台正在買)之後 purchased 會變:下次開清單重打
+  if (_balance) _balance.reset();   // 錢包剛扣過:買完自動安裝要拿扣後的餘額判斷
   return { status: r.status, body: libPurchaseBody(r.body) };
+}
+/* 綁卡即購買(spec library-buy-with-bind-2026-11-06):沒卡又錢包不夠的人,綁卡與購買同一筆藍新付款。
+   POST /oauth/desktop/marketplace/bind_purchase:不帶 confirm 是報價(409 PRICE_CONFIRM_REQUIRED／PLAN_REQUIRED,錢不動);
+   帶 confirm = 畫面給用戶看過的價,api 回藍新表單。表單不進畫面:主行程在 127.0.0.1 起一頁自動送出的表單,用瀏覽器打開。
+   回 { status, opened: true } 或 { status, body }(只留畫面分流要的欄位)。 */
+function libBindBuyBody(b) {
+  if (!b || typeof b !== "object") return null;
+  const s = (v) => (typeof v === "string" ? v.slice(0, 200) : null), n = (v) => (typeof v === "number" && isFinite(v) ? v : null);
+  return { error: s(b.error), error_code: s(b.error_code), price_twd: n(b.price_twd), trial: b.trial === true, trial_days: n(b.trial_days),
+    plan_monthly_twd: n(b.plan_monthly_twd), plan_due_twd: n(b.plan_due_twd), plan_renews_card: b.plan_renews_card === true,
+    // 0.1.50 帶 accept_plan 的報價(spec library-free-data-one-step §5.1):方案第一期＋策略一筆刷
+    plan: b.plan === true, plan_twd: n(b.plan_twd), total_twd: n(b.total_twd), plan_renews_on: libDay(typeof b.plan_renews_on === "string" ? b.plan_renews_on.slice(0, 10) : null) };
+}
+// 藍新正式／測試兩個網域;api 給的 url 不在這裡就不開
+const LIB_PAY_HOSTS = ["core.newebpay.com", "ccore.newebpay.com"];
+function libPayForm(b) {
+  if (!b || typeof b !== "object") return null;
+  let u = null; try { u = new URL(b.url); } catch (_) { return null; }
+  if (u.protocol !== "https:" || !LIB_PAY_HOSTS.includes(u.hostname) || u.username || u.password) return null;
+  const ok = (v, re) => typeof v === "string" && re.test(v);
+  if (!ok(b.MerchantID, /^[A-Za-z0-9_]{1,30}$/) || !ok(b.TradeInfo, /^[0-9a-fA-F]{32,16000}$/) || !ok(b.TradeSha, /^[0-9a-fA-F]{64}$/) || !ok(b.Version, /^[0-9.]{1,6}$/)) return null;
+  return { url: u.href, fields: { MerchantID: b.MerchantID, TradeInfo: b.TradeInfo, TradeSha: b.TradeSha, Version: b.Version } };
+}
+function libPayHtml(form, nonce) {
+  const esc = (v) => String(v).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const inputs = Object.keys(form.fields).map((k) => `<input type="hidden" name="${esc(k)}" value="${esc(form.fields[k])}">`).join("");
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>Blave</title></head><body>`
+    + `<form id="f" method="POST" action="${esc(form.url)}">${inputs}<noscript><button type="submit">Continue</button></noscript></form>`
+    + `<script nonce="${nonce}">document.getElementById("f").submit();</script></body></html>`;
+}
+// 一次只留一頁、兩分鐘後收掉;路徑帶隨機碼,別的本機程式猜不到
+let libPaySrv = null;
+const LIB_PAY_TTL_MS = 2 * 60 * 1000;
+async function libPayOpen(form) {
+  if (libPaySrv) { try { libPaySrv.close(); } catch (_) { } libPaySrv = null; }
+  const pathKey = "/pay/" + crypto.randomBytes(16).toString("hex"), nonce = crypto.randomBytes(16).toString("base64");
+  const html = libPayHtml(form, nonce);
+  const srv = http.createServer((req, res) => {
+    if (req.method !== "GET" || req.url !== pathKey) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
+      "Content-Security-Policy": `default-src 'none'; script-src 'nonce-${nonce}'; base-uri 'none'` });
+    res.end(html);
+  });
+  await new Promise((ok, no) => { srv.once("error", no); srv.listen(0, "127.0.0.1", ok); });
+  libPaySrv = srv;
+  setTimeout(() => { try { srv.close(); } catch (_) { } if (libPaySrv === srv) libPaySrv = null; }, LIB_PAY_TTL_MS).unref();
+  await shell.openExternal(`http://127.0.0.1:${srv.address().port}${pathKey}`);
+}
+/* 等結果的記號:{ id, at },存 userData。付款頁開著時 app 被關掉,重開進策略庫還查得到;拿到這支的終態或超過付款頁效期就清 */
+const LIB_BB_MARK_MS = 40 * 60 * 1000;   // 付款單 30 分鐘有效(spec §3.6),多留 10 分鐘等回呼
+const libBbMarkPath = () => path.join(app.getPath("userData"), "lib-bindbuy.json");
+function libBbMarkGet(now) {
+  let m = null; try { m = JSON.parse(fs.readFileSync(libBbMarkPath(), "utf8")); } catch (_) { return null; }
+  if (!m || !Number.isInteger(m.id) || m.id <= 0 || typeof m.at !== "number" || !(now - m.at < LIB_BB_MARK_MS && m.at <= now)) { libBbMarkSet(null); return null; }
+  // plan / free:開方案的單(刷卡失敗的結果不帶 plan,重開 app 後埋點與等待態靠這兩格認)
+  return { id: m.id, at: m.at, plan: m.plan === true, free: m.free === true };
+}
+function libBbMarkSet(m) {
+  try { if (m) wsfile.replace(libBbMarkPath(), JSON.stringify(m)); else fs.rmSync(libBbMarkPath(), { force: true }); } catch (_) { }
+}
+async function libraryBindBuy(strategyId, opts) {
+  if (!Number.isInteger(strategyId) || strategyId <= 0) return { status: 400, body: null };
+  const token = loadToken(), secret = loadAppSecret();
+  if (!token || !secret) return { status: 401, body: libBindBuyBody({ error_code: token ? "APP_SECRET_REQUIRED" : "INVALID_CREDENTIALS" }) };
+  const o = opts && typeof opts === "object" ? opts : {};
+  const body = { token, app_secret: secret, strategy_id: strategyId, lang: o.lang === "en" ? "en" : "zh" };
+  // 方案單只認合計(confirm_total_twd);帶了 confirm_price_twd 的方案單 api 一樣當報價
+  const plan = o.acceptPlan === true;
+  if (plan) body.accept_plan = true;
+  if (plan && Number.isInteger(o.confirmTotal) && o.confirmTotal > 0) body.confirm_total_twd = o.confirmTotal;
+  else if (!plan && Number.isInteger(o.confirm) && o.confirm > 0) body.confirm_price_twd = o.confirm;
+  if (o.restart === true) body.restart = true;
+  let r = null;
+  try { r = await postJSON(`${API_BASE}/oauth/desktop/marketplace/bind_purchase`, body); } catch (_) { return { status: 0, body: null }; }
+  if (r.status !== 200) return { status: r.status, body: libBindBuyBody(r.body) };
+  const form = libPayForm(r.body);
+  if (!form) return { status: 0, body: null };
+  try { await libPayOpen(form); } catch (_) { return { status: 0, body: null }; }
+  libBbMarkSet(plan ? { id: strategyId, at: Date.now(), plan: true, free: o.free === true } : { id: strategyId, at: Date.now() });
+  return { status: 200, opened: true };
+}
+// bind_purchase_result 的那一筆:形狀不對整筆當沒有。reason 只留代號(failed 時是中文句,丟掉;代號在 reason_code)
+function libBindResultOut(b) {
+  const r = b && typeof b === "object" ? b.bind_purchase : null;
+  if (!r || typeof r !== "object" || !["pending", "ok", "wallet", "failed"].includes(r.status) || !Number.isInteger(r.strategy_id)) return null;
+  const n = typeof r.amount_twd === "number" && isFinite(r.amount_twd) && r.amount_twd > 0 ? r.amount_twd : null;
+  const until = typeof r.trial_until === "string" && /^\d{4}-\d{2}-\d{2}/.test(r.trial_until) ? r.trial_until.slice(0, 40) : null;
+  const out = { status: r.status, strategy_id: r.strategy_id, amount_twd: n, reason: libCode(r.reason), reason_code: libCode(r.reason_code), trial_until: until };
+  if (r.plan !== true) return out;
+  // 方案單(0.1.50):amount_twd 是刷的總額;留在錢包的是 wallet_twd(null = 分不出來,不寫數字)
+  const f = (v) => (typeof v === "number" && isFinite(v) && v >= 0 ? v : null);
+  return Object.assign(out, { plan: true, plan_twd: f(r.plan_twd), price_twd: f(r.price_twd), wallet_twd: f(r.wallet_twd),
+    plan_status: ["ok", "active", "failed"].includes(r.plan_status) ? r.plan_status : null, plan_reason: typeof r.plan_reason === "string" && /^[A-Za-z_]{1,40}$/.test(r.plan_reason) ? r.plan_reason : null });
+}
+/* 策略庫一步開通(spec library-free-data-one-step;api 契約 output/backend/library-one-step-api §A／§C)。
+   checkout_quote:唯讀,下一步要的卡、末四碼、錢包、試用資格、方案價、今天錢從哪扣;card_checkout:有卡或錢包夠總額的框 ② 按 OK 後,
+   先開方案再買策略(動錢,帶確認的合計與框上寫的來源)。兩支都帶 token + app_secret;回 { status, body },body 只留畫面要的欄位 */
+const LIB_PAY_SRC = ["wallet", "card", "none", "free"];
+function libCheckoutBody(b) {
+  if (!b || typeof b !== "object") return null;
+  const n = (v) => (typeof v === "number" && isFinite(v) ? v : null), src = (v) => (LIB_PAY_SRC.includes(v) ? v : null);
+  const code = (v) => (typeof v === "string" && /^[A-Z0-9_]{1,40}$/.test(v) ? v : null);
+  return { error_code: code(b.error_code), status: ["ok", "partial"].includes(b.status) ? b.status : null, strategy_id: Number.isInteger(b.strategy_id) ? b.strategy_id : null,
+    price_twd: n(b.price_twd), plan_twd: n(b.plan_twd), total_twd: n(b.total_twd), plan: b.plan === true,
+    plan_required: b.plan_required === true, data_included: b.data_included === true, needs_data: b.needs_data !== false,
+    plan_blocked: code(b.plan_blocked), has_card: b.has_card === true, card_last4: typeof b.card_last4 === "string" && /^\d{4}$/.test(b.card_last4) ? b.card_last4 : null,
+    balance: n(b.balance), trial_eligible: b.trial_eligible === true, trial_days: n(b.trial_days),
+    plan_renews_on: libDay(typeof b.plan_renews_on === "string" ? b.plan_renews_on.slice(0, 10) : null),
+    plan_source: src(b.plan_source), price_source: src(b.price_source),
+    plan_status: ["ok", "active", "none", "failed"].includes(b.plan_status) ? b.plan_status : null,
+    purchase_status: ["ok", "failed", "none"].includes(b.purchase_status) ? b.purchase_status : null, purchase_reason: libCode(b.purchase_reason), amount_twd: n(b.amount_twd) };
+}
+async function libraryCheckoutQuote(strategyId) {
+  if (!Number.isInteger(strategyId) || strategyId <= 0) return { status: 400, body: null };
+  const token = loadToken(), secret = loadAppSecret();
+  if (!token || !secret) return { status: 401, body: null };
+  let r = null;
+  try { r = await postJSON(`${API_BASE}/oauth/desktop/marketplace/checkout_quote`, { token, app_secret: secret, strategy_id: strategyId }); } catch (_) { return { status: 0, body: null }; }
+  return { status: r.status, body: libCheckoutBody(r.body) };
+}
+async function libraryCardCheckout(strategyId, o) {
+  if (!Number.isInteger(strategyId) || strategyId <= 0 || !o || typeof o !== "object" || !Number.isInteger(o.total) || o.total <= 0) return { status: 400, body: null };
+  const token = loadToken(), secret = loadAppSecret();
+  if (!token || !secret) return { status: 401, body: null };
+  const src = (v) => (LIB_PAY_SRC.includes(v) ? v : null);
+  let r = null;
+  try { r = await postJSON(`${API_BASE}/oauth/desktop/marketplace/card_checkout`, { token, app_secret: secret, strategy_id: strategyId, confirm_total_twd: o.total, confirm_plan_source: src(o.planSrc), confirm_price_source: src(o.priceSrc) }); }
+  catch (_) { return { status: 0, body: null }; }
+  lastAcct = null; libCache = null;   // 方案與 purchased 可能都變了(含 partial)
+  if (_balance) _balance.reset();   // 錢包剛扣過:付完自動安裝要拿扣後的餘額判斷(10 秒快取會給扣前的)
+  return { status: r.status, body: libCheckoutBody(r.body) };
+}
+/* 回 { mark, res }:沒有等著的就不打 api(mark null)。拿到這支的終態就清記號,帳號狀態與清單作廢(綁了卡、可能開了試用) */
+async function libraryBindResult() {
+  const mark = libBbMarkGet(Date.now());
+  if (!mark) return { mark: null, res: null };
+  const token = loadToken(), secret = loadAppSecret();
+  if (!token || !secret) return { mark, res: null };
+  let r = null;
+  try { r = await postJSON(`${API_BASE}/oauth/desktop/marketplace/bind_purchase_result`, { token, app_secret: secret }); } catch (_) { return { mark, res: null }; }
+  const res = r.status === 200 ? libBindResultOut(r.body) : null;
+  if (res && res.strategy_id === mark.id && res.status !== "pending") { libBbMarkSet(null); lastAcct = null; libCache = null; if (_balance) _balance.reset(); }   // 錢包與試用額度都可能變了
+  return { mark, res };
 }
 /* 代下載策略碼(spec-0.1.13-library-conversion §4.2 / D1):付不出資料費的帳號,workspace `.env` 裡沒有 Blave key(syncDataEnv),
    agent 自己打 /code 會撞牆。但 /code 不收資料費、不回任何資料,桌面 key 本來就在它的允許範圍(api decorators.DESKTOP_KEY_ALLOWED),
@@ -3093,7 +3247,7 @@ function stopTurn(sidArg, by) {
 let _tradeHost = null;
 /* 平倉後解除(統一／群益在這台電腦,close_then_unbind):機器平完、重讀歸零才自己刪金鑰,所以這裡存的帳密
    不能在指令回來時就丟——那時金鑰還在、平倉也還沒結束(spec unbind-positions §5.5)。記下來,等回報裡那一家不見了才丟;
-   停住(held)的那一家留著,用戶選「保留部位並解除」時走原本那條、當場丟。app 關著時不會丟,下次開 app 看到不見了才丟 */
+   停住(held)的那一家留著,用戶選「自己處理並解除」時走原本那條、當場丟。app 關著時不會丟,下次開 app 看到不見了才丟 */
 const _forgetWhenGone = {};
 function forgetWhenGone(report) {
   const v = report && report.venues;
@@ -3105,9 +3259,9 @@ function forgetWhenGone(report) {
   }
 }
 async function unbindAfterClose(id, names, requestId, forget) {
-  const args = { env: names.map((k) => k.toLowerCase()) };
+  const h = tradeHost(), args = { env: names.map((k) => k.toLowerCase()), ...clearBookArg(h) };
   if (typeof requestId === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(requestId)) args.request_id = requestId;
-  const h = tradeHost(), r = await h.send("close_then_unbind", args);
+  const r = await h.send("close_then_unbind", args);
   if (r && r.ok) _forgetWhenGone[id] = forget;
   return r;
 }
@@ -3144,7 +3298,7 @@ function president() {
 /* 群益本機開通的憑證那一段(capital_local.js;畫面 renderer/capital_local.js):回給畫面的只有代號、張數、到期日;
    憑證檔路徑與匯出密碼只在這個行程。只有 Windows 走得到 */
 // = renderer/trade.js CAPL_LOCAL_ON(tests/check_shell_capital_local.js 釘兩處相同)
-const CAPL_LOCAL_ON = false;
+const CAPL_LOCAL_ON = true;
 let _capitalLocal = null;
 function capitalLocal() {
   if (!_capitalLocal) _capitalLocal = require("./capital_local").createCapitalLocal({
@@ -3341,6 +3495,10 @@ function engineKick() {
 let _binanceLink = null, binanceStarted = false;
 const binanceStatePath = () => path.join(app.getPath("userData"), "binance-link.json");
 // 真實交易所的金鑰只從這裡進 daemon(trusted:daemon.js TRUSTED_SETS 一家一組);renderer 的 trade-send 只收模擬交易
+/* 解除綁定(含平倉後解除)清不清那一家的帳本由畫面決定(Wei 2026-11-06):機器回報 unbind_clears_book 才帶
+   clear_book,解除框講「接回算手動部位」也看同一個值。綁定(credentials)一律不帶:換綁擠掉的那家畫面沒講,帳本不動 */
+const clearBookArg = (host) => { let r = null; try { r = host.status().report; } catch (_) { /* 沒有回報:不帶 */ }
+  return r && r.unbind_clears_book === true ? { clear_book: true } : {}; };
 const sendTrustedCreds = (env) => tradeHost().send("credentials", { env }, { trusted: true });
 function binanceLink() {
   if (!_binanceLink) {
@@ -3708,6 +3866,10 @@ async function runTurn(rec, { sessionId, message, model: rawModel, effort: rawEf
         try {
           const c = JSON.parse(line.slice(9)); if (c && c.type === "done") { rec.finalized = true; turnAwaiting = c.awaiting === true; sessWaitingSave(sessionId, turnAwaiting); }   // awaiting 只存;kinds 不存不畫
           if (c && c.type === "export") { const rec = noteExport(c, sessionId); if (rec) { c.id = rec.id; turnXp.push(rec); } }   // 卡重開要畫回來:快照先落地,id 給卡的「下載…」
+          if (c && c.type === "card") {
+            if (dataAccess === "own") continue;   // 用戶自己的 API 方案 key:出路在網站 API 頁,不出資料卡(runtime 本來就不送,這裡再擋一次)
+            if (c.code === "err005" || c.code === "err007") lastAcct = null;   // 帳號狀態在這 5 分鐘內變了:下一輪的 BLAVE_DATA_ACCESS 要重問
+          }
           sendTurn(sessionId, "turn-event", c);
         } catch (_) {}
       }
@@ -4127,7 +4289,7 @@ app.whenReady().then(() => {
   handle("capl-unbind", async (_e, o) => {
     const h = tradeHost(), CE = require("./daemon").CAPITAL_ENV;
     if (o && o.close === true) return unbindAfterClose("capital", CE, o.requestId, () => capitalLocal().unbound());
-    const r = await h.send("credentials_remove", { env: CE.map((k) => k.toLowerCase()) });
+    const r = await h.send("credentials_remove", { env: CE.map((k) => k.toLowerCase()), ...clearBookArg(h) });
     if (r && r.ok) { capitalLocal().unbound(); delete _forgetWhenGone.capital; }
     return r;
   }, { ok: false, error: "NOT_ALLOWED" });
@@ -4145,7 +4307,7 @@ app.whenReady().then(() => {
   /* 雲端主機的群益開通(cloud_capital.js;畫面 renderer/capital.js)。pfx 與匯出密碼只在這個行程裡封裝,renderer 只拿得到檔名與代號;
      指令只收固定那幾步。送完不管結果都要一份新狀態:長步驟的結果在主機回報的 capital_connect 裡,不在回條裡 */
   const capital = () => _capital || (_capital = require("./cloud_capital").createCapital({
-    send: (cmd, args, secrets, o) => cloudCmd().send(cmd, args, secrets, o),
+    send: (cmd, args, secrets, o) => cloudCmd().send(cmd, cmd === "credentials_remove" ? { ...args, ...clearBookArg(cloudHost()) } : args, secrets, o),
     pick: async () => { const w = BrowserWindow.getAllWindows()[0]; const r = await dialog.showOpenDialog(w, { properties: ["openFile"], filters: [{ name: "PFX", extensions: ["pfx", "p12"] }] }); return r.canceled ? null : r.filePaths[0]; },
     stat: (p) => fs.statSync(p), readFile: (p) => fs.readFileSync(p), basename: (p) => path.basename(p),
     after: () => { cloudHost().start(); cloudHost().refresh(true).catch(() => {}); },
@@ -4171,7 +4333,7 @@ app.whenReady().then(() => {
   handle("president-unbind", async (_e, o) => {
     const h = tradeHost(), PE = require("./daemon").PRESIDENT_ENV;
     if (o && o.close === true) return unbindAfterClose("president", PE, o.requestId, () => president().forget());
-    const r = await h.send("credentials_remove", { env: PE.map((k) => k.toLowerCase()) });
+    const r = await h.send("credentials_remove", { env: PE.map((k) => k.toLowerCase()), ...clearBookArg(h) });
     if (r && r.ok) { president().forget(); delete _forgetWhenGone.president; }
     return r;
   }, { ok: false, error: "NOT_ALLOWED" });
@@ -4264,6 +4426,10 @@ app.whenReady().then(() => {
   handle("library-list", (_e, lang, force) => libraryList(lang, force === true), null);
   handle("library-report", (_e, id, lang) => libraryReport(id, lang), null);
   ipcMain.handle("library-purchase", (e, id, confirmTopup) => (fromOurPage(e) ? libraryPurchase(id, confirmTopup) : { status: 0, body: null }));
+  handle("library-bind-buy", (_e, id, opts) => libraryBindBuy(id, opts), { status: 0, body: null });
+  handle("library-bind-result", () => libraryBindResult(), { mark: null, res: null });
+  handle("library-checkout-quote", (_e, id) => libraryCheckoutQuote(id), { status: 0, body: null });
+  handle("library-card-checkout", (_e, id, o) => libraryCardCheckout(id, o), { status: 0, body: null });   // 動錢:handle() 先過 fromOurPage
   handle("library-installed", (_e, patch) => libraryInstalled(patch), {});
   // 側欄偏好(renderer/stratflags.js):順序與旗標只收自家頁面;拒絕時回空的 = 照預設序、沒旗標
   handle("keep-awake", () => keepAwakeGet(), true);
@@ -4448,10 +4614,14 @@ let tmLabels = { running: "Auto trading is running", paperVenue: "Paper trading"
   ev_execution_stuck: "Execution is stuck", ev_execution_stuck_n: "Later orders for this symbol are waiting on it.",
   ev_machine_restart_stopped: "Machine restarted — trading paused", ev_machine_restart_stopped_n: "No orders are going out — nothing is managing your positions, and exits and stops won't run. Press Start trading to resume.",
   ev_venue_stops_missing: "Bitget positions without a stop-loss", ev_venue_stops_missing_n: "After the account switch some positions have no stop-loss on Bitget. Trading continues; Blave won’t re-place them.",
+  ev_data_gap_exposed: "No new bars, open position not managed", ev_data_gap_exposed_n: "The signal is stuck on the last bar, so the strategy won't adjust its open position. Check the position.",
   ev_venue_login_blocked: "President login stopped", ev_venue_login_blocked_n: "New orders and closes can't go out. Press Sign In Again on the auto-trading page.",
   ev_venue_login_blocked_capital: "Capital login stopped", ev_venue_login_blocked_capital_n: "New orders and closes can't go out. Enter the trading password again on the auto-trading page.",
   ev_venue_login_blocked_capital_locked_n: "New orders and closes can't go out. Unlock it with Capital, then enter the trading password again on the auto-trading page.",
+  ev_exchange_unreachable_capital: "Capital account unreadable for {hours} h",
+  ev_exchange_unreachable_capital_n: "Capital strategies place no orders and no closes meanwhile. Check the Capital connection, or restart Blave.",
   ev_halt_unconfirmed_n: "An order may have filled, so nothing goes out. Don't place it again yourself: tell your agent how much filled, then press Start trading.",
+  ev_halt_unexplained: "Position mismatch",
   ev_order_unconfirmed_close_all: "Not closed with the rest", ev_order_unconfirmed_close_all_n: "An order here has an unknown outcome and was left out of this close. Don't trade it yourself: tell your agent how much filled, then press Pause and close positions again.",
   ev_order_unconfirmed: "Order outcome unknown", ev_order_unconfirmed_n: "This order may have filled — don't place it again yourself. New entries on this symbol are paused; closes still run.",
   ev_clock_skew_hold: "TAIEX futures entries paused", ev_clock_skew_hold_n: "This computer’s clock is off, so TAIEX futures entries are paused; closes still run. Open Blave to see how to fix it.",
@@ -4878,9 +5048,10 @@ async function scheduledInstall(now = Date.now()) {
       if (bg) tm().track("feature_used", { name: "upd_idle_run" });
       else tm().track("feature_used", { name: "upd_sched_run" });
     } catch (_) { /* 追蹤不擋 */ }
-    if (bg) { bgAuto = true; try { uiPrefsPatch({ updHiddenBoot: { v: st.version, at: Date.now() } }); } catch (_) { /* 記不下:重開時視窗會出現,不擋更新 */ } }
+    const target = updater().state().version;   // 不用開頭那份 st:等畫面回話那段,已下載的那版可能被換成更新的
+    if (bg) { bgAuto = true; try { uiPrefsPatch({ updHiddenBoot: { v: target, at: Date.now() } }); } catch (_) { /* 記不下:重開時視窗會出現,不擋更新 */ } }
     const res = updater().install(bg && process.platform === "win32" ? { silent: true } : undefined);
-    if (res.ok) { try { uiPrefsPatch({ updSchedTarget: st.version }); } catch (_) { /* 記不下:下次啟動不會發現失敗,只是少一道防重開 */ } installWatch(); }
+    if (res.ok) { try { uiPrefsPatch({ updSchedTarget: target }); } catch (_) { /* 記不下:下次啟動不會發現失敗,只是少一道防重開 */ } installWatch(); }
     else { draftOk = false; bgAuto = false; setRestarting(null); try { uiPrefsPatch({ updSchedTarget: null, updHiddenBoot: null }); } catch (_) { /* 照舊 */ } }
     return { go: res.ok, why: res.ok ? "go" : "install:" + res.error };
   } finally { _schedRunning = false; }
@@ -5000,7 +5171,7 @@ function traySync() {
    - 點通知 = 把視窗叫出來;視窗回前景就清紅點。 */
 // machine_restart_stopped 取代 downtime_paused(api 已改;設計定稿:不講時間,講部位沒人管、平倉停損不會執行、按啟動下單)
 const P1_TYPES = ["halt", "order_error", "execution_interrupted", "execution_fallback_market", "execution_stuck", "machine_restart_stopped",
-  "venue_stops_missing", "venue_login_blocked", "order_unconfirmed", "clock_skew_hold", "tw_entry_hold"];   // 全部十一型(標籤用)
+  "venue_stops_missing", "venue_login_blocked", "order_unconfirmed", "clock_skew_hold", "tw_entry_hold", "data_gap_exposed"];   // 全部十二型(標籤用)
 // order_unconfirmed 與台指期那三種(manager/reconciler KIND_*)跟拒單同一個來源:order_errors[] 帶 kind 的那列,不在 events 裡
 const P1_ERR_KINDS = ["order_unconfirmed", "clock_skew_hold", "tw_entry_hold"];
 // 全部平倉刻意沒送單的那列(manager/flatten):同 api agent_overview 的分流,認得的券商＋原因才叫 manual_close_required,
@@ -5012,12 +5183,19 @@ function p1ManualClose(e) {
   return { reason: r, until: typeof e.until === "number" && isFinite(e.until) && e.until > 0 ? e.until : null };
 }
 function p1TwClock(sec) { return new Date(sec * 1000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Taipei" }); }
-const P1_EVENT_TYPES = P1_TYPES.filter((ty) => ty !== "halt" && ty !== "order_error" && P1_ERR_KINDS.indexOf(ty) < 0);   // 會出現在 events 裡的六型
+const P1_EVENT_TYPES = P1_TYPES.filter((ty) => ty !== "halt" && ty !== "order_error" && P1_ERR_KINDS.indexOf(ty) < 0);   // 會出現在 events 裡的七型
+// 群益一直讀不到帳戶:exchange_unreachable 是 P2,第二則(≥150 分,對帳器每 2 小時一則)起升 P1。同 api level_for、renderer trExUnreachLong
+const P1_UNREACH_MIN = 150;
+const p1UnreachLong = (ev) => ev.type === "exchange_unreachable" && !!ev.payload && ev.payload.venue === "capital"
+  && typeof ev.payload.minutes === "number" && ev.payload.minutes >= P1_UNREACH_MIN;
+const p1Event = (ev) => P1_EVENT_TYPES.indexOf(ev.type) >= 0 || p1UnreachLong(ev);
 const HALT_AUTO_SOURCES = ["reconciler", "portfolio"];   // 同 api openclaw/agent_events._HALT_AUTO_SOURCES
 const notifiedPath = () => path.join(app.getPath("userData"), "p1-notified.json");
 let p1Marks = undefined, p1Badge = 0; const p1LastShown = {}, p1Alive = new Set();   // p1Alive:Notification 沒人持有會被 GC,click 就不觸發
 const p1Num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
-function p1Load() { try { const j = JSON.parse(fs.readFileSync(notifiedPath(), "utf8")); return { id: p1Num(j.id), halt: p1Num(j.halt), err: p1Num(j.err) }; } catch (_) { return { id: null, halt: null, err: null }; } }
+const P1_UNX_KEEP = 20;   // 記住發過的 park_id 數(HALT 檔最多帶 5 筆,lib/guard.UNEXPLAINED_MAX)
+const p1Ids = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x).slice(-P1_UNX_KEEP) : null);
+function p1Load() { try { const j = JSON.parse(fs.readFileSync(notifiedPath(), "utf8")); return { id: p1Num(j.id), halt: p1Num(j.halt), err: p1Num(j.err), unx: p1Ids(j.unx) }; } catch (_) { return { id: null, halt: null, err: null, unx: null }; } }
 function p1Save(m) { try { fs.writeFileSync(notifiedPath(), JSON.stringify(m), { mode: 0o600 }); } catch (_) { /* 最壞=重開後同一則再發一次 */ } }
 // 時間 → epoch 秒(保留小數:解除後同秒再 HALT 靠微秒分得開)。真實格式是 ISO 字串(稽核 M1'):halt.at 帶時區
 // (lib/guard.py),拒單的 ts 是**不帶時區的 UTC**(lib/portfolio.py 的 utcnow().isoformat())——沒有時區尾碼要先補 Z,
@@ -5036,14 +5214,26 @@ function p1HaltPayload(h) {
   const m = unconfirmed ? /^\[order_unconfirmed_unparked\] (\S+?):/.exec(reason) : null;
   return m ? { unconfirmed, symbol: m[1] } : { unconfirmed };
 }
-function p1FromState(r, mark, nowS) {   // 純函式:halt / 拒單從狀態檔現況推導。mark = { halt, err }(null = 第一次,只記不發)
-  const out = { halt: mark.halt, err: mark.err, show: [] }, h = r && r.halt;
+function p1FromState(r, mark, nowS) {   // 純函式:halt / 拒單從狀態檔現況推導。mark = { halt, err, unx }(null = 第一次,只記不發)
+  const out = { halt: mark.halt, err: mark.err, unx: mark.unx, show: [] }, h = r && r.halt;
   const at = h && h.halted ? p1Sec(h.at) : NaN;
   if (at > (mark.halt == null ? -1 : mark.halt)) {
     out.halt = at;
     if (mark.halt != null && HALT_AUTO_SOURCES.indexOf(h.source) >= 0 && nowS - at <= 900)
       out.show.push({ type: "halt", ts: at, payload: p1HaltPayload(h) });
   } else if (mark.halt == null) out.halt = 0;
+  // HALT 已在(多半是用戶自己按的)時停放單帳戶讀 3 次對不上:對帳器不改 HALT 的來源與原因,記進 halt.unexplained
+  // (lib/guard.annotate_halt)。每個 park_id 一則 halt,同 api agent_overview 的 halt P1;unx = 發過的 park_id
+  const seen = mark.unx || [], unx = seen.slice();
+  for (const u of h && h.halted && Array.isArray(h.unexplained) ? h.unexplained : []) {
+    if (!u || typeof u.park_id !== "string" || !u.park_id || unx.indexOf(u.park_id) >= 0) continue;
+    unx.push(u.park_id);
+    const uat = p1Sec(u.at);
+    if ((mark.unx != null || mark.halt != null) && nowS - uat <= 900)   // 升級前的紀錄沒有 unx:看 halt 水位線,不必等下一輪
+      out.show.push({ type: "halt", ts: uat, payload: { unexplained: true, reason: typeof u.reason === "string" ? u.reason.slice(0, 200) : "",
+        symbol: typeof u.symbol === "string" ? u.symbol : "" } });
+  }
+  out.unx = unx.slice(-P1_UNX_KEEP);
   let top = mark.err == null ? -1 : mark.err;
   for (const e of r && Array.isArray(r.order_errors) ? r.order_errors : []) {
     const ts = e && typeof e === "object" ? p1Sec(e.ts) : NaN;
@@ -5074,7 +5264,7 @@ function p1Pick(events, mark, nowS) {   // 純函式(tests/check_shell_p1_notify
   for (const ev of Array.isArray(events) ? events : []) {
     if (!ev || typeof ev.id !== "number" || typeof ev.type !== "string" || ev.id <= (mark == null ? -1 : mark)) continue;
     if (ev.id > top) top = ev.id;
-    if (mark == null || P1_EVENT_TYPES.indexOf(ev.type) < 0 || !(nowS - Number(ev.ts) <= 900)) continue;
+    if (mark == null || !p1Event(ev) || !(nowS - Number(ev.ts) <= 900)) continue;
     show.push(ev);
   }
   return { mark: top < 0 ? (mark == null ? 0 : mark) : top, show };
@@ -5088,30 +5278,37 @@ function p1Sync() {
   if (p1Marks === undefined) p1Marks = p1Load();
   const now = Date.now() / 1000, ev = p1Pick(r.events, p1Marks.id, now);
   // 狀態檔這輪 build 失敗(只有 error)時沒有 halt / order_errors:那一輪不動這兩條水位線
-  const stt = r.error ? { halt: p1Marks.halt, err: p1Marks.err, show: [] } : p1FromState(r, p1Marks, now);
-  if (ev.mark !== p1Marks.id || stt.halt !== p1Marks.halt || stt.err !== p1Marks.err) { p1Marks = { id: ev.mark, halt: stt.halt, err: stt.err }; p1Save(p1Marks); }
+  const stt = r.error ? { halt: p1Marks.halt, err: p1Marks.err, unx: p1Marks.unx, show: [] } : p1FromState(r, p1Marks, now);
+  if (ev.mark !== p1Marks.id || stt.halt !== p1Marks.halt || stt.err !== p1Marks.err || String(stt.unx) !== String(p1Marks.unx)) {
+    p1Marks = { id: ev.mark, halt: stt.halt, err: stt.err, unx: stt.unx }; p1Save(p1Marks);
+  }
   const show = stt.show.concat(ev.show);
   for (const e of show) {
     p1Badge++;
-    if (Date.now() - (p1LastShown[e.type] || 0) < 60000) continue;
-    p1LastShown[e.type] = Date.now();
+    const throttle = e.type + (e.type === "halt" && e.payload && e.payload.unexplained ? ":unexplained" : "");   // 跟同一刻的自動 HALT 分開算
+    if (Date.now() - (p1LastShown[throttle] || 0) < 60000) continue;
+    p1LastShown[throttle] = Date.now();
     const sym = e.payload && typeof e.payload.symbol === "string" ? e.payload.symbol.replace(/@spot$/, "").slice(0, 24) : "";
     if (!Notification.isSupported()) continue;
     // 這裡的事件全部來自這台電腦的狀態檔:標題第一個詞講是哪一邊(雲端的通知之後由它自己的來源加 notifPrefixCloud)
     const closeAll = e.type === "order_unconfirmed" && e.payload && e.payload.close_all === true;
     const stuck = !closeAll && e.type === "order_unconfirmed" && e.payload && e.payload.stuck === true;
-    const capital = e.type === "venue_login_blocked" && e.payload && e.payload.venue === "capital";
+    const capital = (e.type === "venue_login_blocked" && e.payload && e.payload.venue === "capital") || p1UnreachLong(e);
     const mcr = e.type === "manual_close_required" && e.payload ? e.payload.reason : null;
     const variant = closeAll ? "_close_all" : stuck ? "_stuck" : capital ? "_capital"
       : mcr === "snapshot_lag" ? "_lag" : mcr === "queued" ? "_queued" : "";
-    const head = tmLabels["ev_" + e.type + variant] || tmLabels["ev_" + e.type];
+    const unexplained = e.type === "halt" && e.payload && e.payload.unexplained === true && !!e.payload.reason;
+    const head = (unexplained && tmLabels.ev_halt_unexplained) || tmLabels["ev_" + e.type + variant] || tmLabels["ev_" + e.type];
+    const title = p1UnreachLong(e) && head ? head.replace("{hours}", () => String(Math.floor(e.payload.minutes / 60))) : head;
     // 下單結果不明、追蹤不了而整台暫停:講可能已成交、不要手動補單、怎麼恢復,不是只有「什麼單都不送」
-    const note = e.type === "halt" && e.payload && e.payload.unconfirmed && tmLabels.ev_halt_unconfirmed_n ? tmLabels.ev_halt_unconfirmed_n
+    // 帳戶對不上(unexplained):標題講對不上,內文是機器寫的那句原因(已帶核對步驟)
+    const note = unexplained ? e.payload.reason
+      : e.type === "halt" && e.payload && e.payload.unconfirmed && tmLabels.ev_halt_unconfirmed_n ? tmLabels.ev_halt_unconfirmed_n
       : capital && e.payload.reason === "LOCKED" && tmLabels.ev_venue_login_blocked_capital_locked_n ? tmLabels.ev_venue_login_blocked_capital_locked_n
       : mcr === "queued" ? (e.payload.until ? String(tmLabels.ev_manual_close_required_queued_n || "").replace("{at}", p1TwClock(e.payload.until))
         : tmLabels.ev_manual_close_required_queued_soon_n)
       : tmLabels["ev_" + e.type + variant + "_n"] || tmLabels["ev_" + e.type + "_n"];
-    const n = new Notification({ title: TT.notifTitle(tmLabels.notifPrefixLocal, head + (sym ? " · " + sym : "")), body: p1WithStrat(e.payload && (Array.isArray(e.payload.strategies) ? e.payload.strategies : typeof e.payload.strategy === "string" ? [e.payload.strategy] : null), note, p1StratLabel) });
+    const n = new Notification({ title: TT.notifTitle(tmLabels.notifPrefixLocal, title + (sym ? " · " + sym : "")), body: p1WithStrat(e.payload && (Array.isArray(e.payload.strategies) ? e.payload.strategies : typeof e.payload.strategy === "string" ? [e.payload.strategy] : null), note, p1StratLabel) });
     p1Alive.add(n); const drop = () => p1Alive.delete(n);
     n.on("click", () => { drop(); showMain(); }); n.on("close", drop); n.on("failed", drop); notifWatch(n, "p1 " + e.type);
     if (p1Alive.size > 20) p1Alive.delete(p1Alive.values().next().value);

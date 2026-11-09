@@ -95,7 +95,7 @@ ok("② 有結果、新鮮:頂列(meta＋〔重新測試〕描邊那格)→ 結�
   && full.cls("rob-verdict").length === 1 && full.cls("rob-verdict")[0].textContent === "晚一根 Sharpe 掉 24%。每邊成本多 0.02%，Sharpe 從 1.62 掉到 1.06。"
   && full.cls("xt-sec").length === 2 && full.text.includes("晚幾根成交") && full.text.includes("成本高一點") && full.cls("xt-stale").length === 0 && full.box.kids[0].dataset.xtMineRun === "false",
   full.cls("rob-verdict").map((n) => n.textContent));
-ok("② meta 只交標的／週期／期間(全頁叫交易成本,費率由成本段標題列講)", JSON.stringify(Object.keys(metaSeen[0])) === '["symbol","interval","start","end"]' && full.text.includes("現行每邊 0.005%・年換手 511 倍"));
+ok("② meta 只交標的／週期／期間(全頁叫交易成本,費率由成本段標題列講)", JSON.stringify(Object.keys(metaSeen[0])) === '["symbol","interval","start","end"]' && full.text.includes("現行每邊 0.005% · 年換手 511 倍"));
 ok("② 晚幾根的圖:橫軸 現行 +1…+10、Sharpe 不帶單位、虛線在現行;1 根＝1 小時", (() => { const s = full.cls("levels")[0].spec; return s.labels.join() === "現行,+1,+2,+3,+5,+10" && s.unit === "" && s.base === 1.618 && s.cur === 0; })() && full.text.includes("1 根＝1 小時，晚 10 根＝10 小時"));
 ok("② 收盤成交差 ≥2%:講一句(吃掉 11%)", full.text.includes("訊號那根收盤就成交：Sharpe 1.80（現行 1.62）。開盤跳空吃掉 11%。"));
 const pick = full.box.querySelector('button[data-xt-sec="lag"][data-xt-key="ann"]');
@@ -199,5 +199,12 @@ ok("③ 失敗句 xt.updFail = 「沒測成功」;§3.6 新字都在", /perfFail
   && zh["xt.btnRun"] === "開始測試" && zh["xt.btnRerun"] === "重新測試" && zh["xt.btnBusy"] === "測試中" && zh["xt.btnTip"] === "用最新資料重跑回測，績效會一起更新。"
   && zh["xt.verdictStale"] === "績效更新過，重新測試後才會更新。" && zh["xt.busyRefresh"] === "績效正在更新，跑完再按一次。" && !("xt.busyTurn" in zh)
   && !("xt.fog" in zh) && !/xt\.fog"/.test(R("renderer/report-xt.js")));
+// 表頭選指標(canon tables.md「表頭選指標」,0.1.50):選中不畫底線(底線是分頁語言,會被讀成排序);兩張表的說明句都告訴人表頭能點
+{ const css = R("renderer/report-xt.css"), pick = [...css.matchAll(/^\.xt-pick[^{]*\{[^}]*\}/gm)].map((m) => m[0]).join("\n");
+  const en = {}; for (const m of R("i18n/en.po").matchAll(/^msgid "([^"]+)"\nmsgstr "((?:[^"\\]|\\.)*)"$/gm)) en[m[1]] = JSON.parse('"' + m[2] + '"');
+  ok("③ 表頭選指標:.xt-pick 不畫底線,選中 = ink 600", !!pick && !/box-shadow|border-bottom|text-decoration/.test(pick)
+    && /\.xt-pick th\.is-on \.pick \{[^}]*color: var\(--ink\);[^}]*font-weight: 600;/.test(css), pick);
+  ok("③ 成本表說明句也講「點表頭換圖上的指標」(zh / en 跟 lagHow 同一句)", zh["xt.costHow"].endsWith("點表頭換圖上的指標。") && zh["xt.lagHow"].endsWith("點表頭換圖上的指標。")
+    && en["xt.costHow"].endsWith(" Click a column header to chart it.") && en["xt.lagHow"].endsWith(" Click a column header to chart it."), [zh["xt.costHow"], en["xt.costHow"]]); }
 
 console.log(red ? `\n${red} 紅` : "\nALL PASS"); process.exit(red ? 1 : 0);

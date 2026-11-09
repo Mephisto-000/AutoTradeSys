@@ -27,7 +27,7 @@ msgid "cn.blave.descSetNoNum"
 msgstr "Pay per use from your Blave balance"
 
 msgid "cn.blave.btn"
-msgstr "Sign in to Blave"
+msgstr "Sign In to Blave"
 
 msgid "cn.blave.try"
 msgstr "Try Blave AI first"
@@ -400,7 +400,7 @@ msgid "fault.authInvalid"
 msgstr "This computer’s Blave sign-in is no longer valid, so this turn didn’t run."
 
 msgid "fault.authBtn"
-msgstr "Sign In Again"
+msgstr "Sign In to Blave Again"
 
 msgid "fault.noCredit"
 msgstr "Your Blave balance is empty, so this turn didn’t run."
@@ -1192,7 +1192,7 @@ msgid "plan.err.relogin"
 msgstr "Sign in again before starting the plan. Your chats and strategies aren’t affected."
 
 msgid "plan.relogin"
-msgstr "Sign In Again"
+msgstr "Sign In to Blave Again"
 
 msgid "plan.err.server"
 msgstr "The plan didn’t start. Pressing again won’t create a second machine."
@@ -1401,7 +1401,7 @@ msgid "pv.more.once"
 msgstr "The first-card trial is once per person and once per card."
 
 msgid "pv.signin"
-msgstr "Sign in to Blave"
+msgstr "Sign In to Blave"
 
 msgid "pv.e.out"
 msgstr "This computer can’t reach Blave data yet. Sign in to Blave, and your first card starts a {t}‑day free trial. AI stays on your {name}."
@@ -1426,6 +1426,9 @@ msgstr "After that, data comes with the Blave Agent Cloud Plan at {p} TWD a mont
 
 msgid "pv.e.unknown"
 msgstr "This computer can’t reach Blave data yet. The account status couldn’t be checked. Check again under Settings › Account & plan."
+
+msgid "pv.e.relogin"
+msgstr "Blave sign-in on this computer has expired."
 
 msgid "pv.e.btn"
 msgstr "Account & Plan"
@@ -1638,6 +1641,10 @@ msgstr "last ran until {t}"
 
 msgid "tr.died"
 msgstr "Trading stopped, and not because you paused it · last ran {t}. Press Start trading to resume."
+
+# tr.died／tr.diedZ 開頭要加重的那一段(trade.js trDiedCut);兩句的開頭要跟它逐字相同
+msgid "tr.diedLead"
+msgstr "Trading stopped, and not because you paused it"
 
 msgid "tr.s.on"
 msgstr "Running"
@@ -1997,29 +2004,44 @@ msgstr "Auto-trading stops while the computer sleeps."
 msgid "set.awake.leadOffWin"
 msgstr "Auto-trading stops while the computer sleeps. With President Futures positions open, it still stays awake while plugged in."
 
-msgid "tr.quote.pres"
-msgstr "Live quotes: President Futures"
+# {broker} = the bound TW broker's full name (cap.venue / pres.venue)
+msgid "tr.quote.live"
+msgstr "Live quotes: {broker}"
 
 msgid "tr.quote.blave"
 msgstr "Live quotes: Blave cache, signals 1–2 minutes behind ({why})"
 
+# {b} in the tr.quote.why.* lines
+msgid "tr.quote.short.president"
+msgstr "President"
+
+msgid "tr.quote.short.capital"
+msgstr "Capital"
+
 msgid "tr.quote.why.noFile"
-msgstr "no quotes from President yet"
+msgstr "no quotes from {b} yet"
 
 msgid "tr.quote.why.stale"
-msgstr "President's quotes haven't updated for 90 seconds"
+msgstr "{b}'s quotes haven't updated for 90 seconds"
 
 msgid "tr.quote.why.notEnabled"
-msgstr "this President account has no quote permission — have your broker rep enable it"
+msgstr "this {b} account has no quote permission — have your broker rep enable it"
 
 msgid "tr.quote.why.noLogin"
-msgstr "President login stopped"
+msgstr "{b} login stopped"
 
 msgid "tr.quote.why.notOk"
-msgstr "President's quotes could not be read"
+msgstr "{b}'s quotes could not be read"
 
 msgid "tr.quote.why.noOverlap"
-msgstr "President's bars don't join up yet"
+msgstr "{b}'s bars don't join up yet"
+
+# 群益 on a settlement day, or while TX00's month is not the series month (lib/capital_quote.roll_guard)
+msgid "tr.quote.why.roll"
+msgstr "contract roll day, {b}'s quotes are set aside"
+
+msgid "tr.quote.why.connLimit"
+msgstr "{b}'s quote connection limit is reached"
 
 msgid "tr.tab.over"
 msgstr "Overview"
@@ -2437,13 +2459,19 @@ msgid "tr.ub.closeAll"
 msgstr "“Close and disconnect” closes every position here, including manual ones."
 
 msgid "tr.ub.keep"
-msgstr "With “Keep and disconnect” they go unmanaged. Handle them on {venue}."
+msgstr "After “Disconnect without closing”, strategies stop managing these positions for good. After reconnecting this account, they count as manual, so strategies may open duplicate positions."
 
 msgid "tr.ub.keepOld"
 msgstr "Handle them on {venue}."
 
+msgid "tr.ub.keepAskOld"
+msgstr "After “Disconnect without closing”, handle them on {venue}."
+
+msgid "tr.ub.keepRejoin"
+msgstr "After reconnecting this account, they count as manual, so strategies may open duplicate positions."
+
 msgid "tr.ub.keepGo"
-msgstr "Keep and disconnect"
+msgstr "Disconnect without closing"
 
 msgid "tr.ub.closeGo"
 msgstr "Close and disconnect"
@@ -2833,16 +2861,16 @@ msgid "tr.ov.evTargetStale"
 msgstr "Target position stale"
 
 msgid "tr.ov.evTargetStaleNote"
-msgstr "not updated for a while; can reduce but not add. Ask your agent why its runs fail"
+msgstr "reduce-only after a while without updates, so ask your agent to check its schedule and bars"
 
 msgid "tr.ov.evTargetStaleMin"
-msgstr "not updated for {n} min; can reduce but not add. Ask your agent why its runs fail"
+msgstr "reduce-only after {n} min without updates, so ask your agent to check its schedule and bars"
 
 msgid "tr.ov.evTargetStaleHour"
-msgstr "not updated for {n} hours; can reduce but not add. Ask your agent why its runs fail"
+msgstr "reduce-only after {n} hours without updates, so ask your agent to check its schedule and bars"
 
 msgid "tr.ov.evTargetStaleDay"
-msgstr "not updated for {n} days; can reduce but not add. Ask your agent why its runs fail"
+msgstr "reduce-only after {n} days without updates, so ask your agent to check its schedule and bars"
 
 msgid "tr.ov.evDeadMembers"
 msgstr "Members stopped updating"
@@ -2858,6 +2886,15 @@ msgstr "{venue} unreachable for {minutes} min"
 
 msgid "tr.ov.evExUnreachNote"
 msgstr "no orders meanwhile; resumes on its own"
+
+msgid "tr.ov.evExUnreachCap"
+msgstr "Capital account unreadable for {hours} h"
+
+msgid "tr.ov.evExUnreachCapNote"
+msgstr "Capital strategies place no orders and no closes meanwhile. Check the Capital connection."
+
+msgid "tr.ov.evExUnreachCapNoteLocal"
+msgstr "Capital strategies place no orders and no closes meanwhile. Check the Capital connection, or restart Blave."
 
 msgid "tr.ov.evExBack"
 msgstr "{venue} reachable again"
@@ -3018,19 +3055,19 @@ msgid "env.st.sending"
 msgstr "Sending a command"
 
 msgid "env.tip"
-msgstr "{where} — {money}, {state}"
+msgstr "{where} · {money} · {state}"
 
 msgid "env.tip1"
-msgstr "{where} — {x}"
+msgstr "{where} · {x}"
 
 msgid "env.cellAria1"
 msgstr "{where}: {x}"
 
 msgid "env.winTitle"
-msgstr "Blave — {where} · {money}"
+msgstr "Blave · {where} · {money}"
 
 msgid "env.winTitle0"
-msgstr "Blave — {where}"
+msgstr "Blave · {where}"
 
 msgid "tr.mode.real"
 msgstr "Real money"
@@ -3198,7 +3235,7 @@ msgid "chat.tgt.cloud"
 msgstr "Cloud machine"
 
 msgid "chat.ph.cloud"
-msgstr "Ask the agent to work on the cloud machine"
+msgstr "Describe a trading idea…"
 
 msgid "chat.sw.cloud"
 msgstr "Switched to Cloud · instructions from here run on the cloud machine"
@@ -3433,9 +3470,12 @@ msgid "priv.c.feat.4"
 msgstr "Sending an idea request: which entry point it came from"
 
 msgid "priv.c.feat.5"
-msgstr "Reply notifications: whether shown, whether clicked"
+msgstr "Changing the library sort: which sort you picked"
 
 msgid "priv.c.feat.6"
+msgstr "Reply notifications: whether shown, whether clicked"
+
+msgid "priv.c.feat.7"
 msgstr "Never the chat title or text"
 
 msgid "priv.c.stuck.h"
@@ -3827,10 +3867,10 @@ msgid "ho.down.aria"
 msgstr "Bring back to this computer"
 
 msgid "ho.up.title"
-msgstr "Send to Cloud: {id}"
+msgstr "Send to Cloud: “{id}”"
 
 msgid "ho.down.title"
-msgstr "Bring Back to This Computer: {id}"
+msgstr "Bring Back to This Computer: “{id}”"
 
 msgid "ho.row.moves"
 msgstr "Moves"
@@ -3866,13 +3906,13 @@ msgid "ho.block.goCloud"
 msgstr "View in Cloud"
 
 msgid "ho.emptyHint"
-msgstr "No strategies in the cloud yet. Open one on this computer and press Send to Cloud, or ask the agent to build one right here."
+msgstr "No strategies in the cloud yet. Send one up from this computer."
 
 msgid "ho.ready.h"
 msgstr "Your cloud machine is ready"
 
 msgid "ho.ready.body"
-msgstr "Go back to this computer and press Send to Cloud to put {id} up there."
+msgstr "Go back to this computer and press Send to Cloud to put “{id}” up there."
 
 msgid "ho.ready.stay"
 msgstr "Stay in the Cloud"
@@ -4017,7 +4057,7 @@ msgid "side.flagRemove"
 msgstr "Remove flag"
 
 msgid "side.flagTitle"
-msgstr "{name} — flag: {color}"
+msgstr "{name}, flag: {color}"
 
 msgid "side.flagAria"
 msgstr "{name}, flag: {color}"
@@ -5287,7 +5327,7 @@ msgid "lib.nav"
 msgstr "Strategy Library"
 
 msgid "lib.desc"
-msgstr "Returns are backtested. Verified first."
+msgstr "Returns are backtested."
 
 msgid "lib.mkt.aria"
 msgstr "Market"
@@ -5343,14 +5383,41 @@ msgstr "Blave Official"
 msgid "lib.community"
 msgstr "Community author"
 
-msgid "lib.years"
-msgstr "{n}-yr sample"
-
-msgid "lib.annLabel"
-msgstr "Annual Return"
-
 msgid "lib.installs"
 msgstr "{n} installs"
+
+# 策略庫排序選單(spec library-sort-rows-2026-11-06 §6):觸發器標籤與面板 aria 名。七項字樣逐字同網頁公開頁 bc_mp_sort_* / bc_mp_report_annual(parity)
+msgid "lib.sort.aria"
+msgstr "Sort"
+
+msgid "lib.sort.reco"
+msgstr "Recommended"
+
+msgid "lib.sort.installs"
+msgstr "Most installed"
+
+msgid "lib.sort.sample"
+msgstr "Longest backtest"
+
+msgid "lib.sort.sharpe"
+msgstr "Sharpe"
+
+msgid "lib.sort.mdd"
+msgstr "Shallowest drawdown"
+
+msgid "lib.sort.annual"
+msgstr "Annual Return"
+
+msgid "lib.sort.newest"
+msgstr "Newest"
+
+# 策略庫清單:照 Sharpe／最大回撤較淺／年化報酬排時,沉底那段正上方的組標籤(同 web workspace_lib_sink_head)
+msgid "lib.sinkHead"
+msgstr "Unverified or Under 1 Year"
+
+# 照「最新上架」排時,清單列副標接在標的後面
+msgid "lib.listedFor"
+msgstr "Listed {n}d"
 
 msgid "lib.error"
 msgstr "Couldn't load the library."
@@ -5529,7 +5596,7 @@ msgid "lib.buy.price"
 msgstr "Price {price}"
 
 msgid "lib.buy.lead"
-msgstr "Charged to your Blave Agent balance; the install and backtest start right after. No orders are placed."
+msgstr "Charged to your Blave Agent balance."
 
 msgid "lib.buy.ok"
 msgstr "Confirm Purchase"
@@ -5548,6 +5615,178 @@ msgstr "Charge & Purchase"
 
 msgid "lib.buy.noCard"
 msgstr "Not enough balance, and this account has no card on file. Add a card under Settings › Account & plan, then come back."
+
+msgid "lib.bb.ok"
+msgstr "Add Card & Buy"
+
+msgid "lib.bb.planBtn"
+msgstr "Start a Plan"
+
+msgid "lib.bb.today"
+msgstr "Strategy, charged today"
+
+msgid "lib.bb.trialRow"
+msgstr "Plan trial, {d} days"
+
+msgid "lib.bb.after"
+msgstr "Then every 30 days"
+
+msgid "lib.bb.trialNote"
+msgstr "This one needs a plan to run. Cancel during the trial and you pay nothing."
+
+msgid "lib.bb.plain"
+msgstr "Your card is charged {p} today for this strategy."
+
+msgid "lib.bb.needPlan"
+msgstr "This one needs a plan to run. The plan is {p} every 30 days."
+
+msgid "lib.bb.due"
+msgstr "Your plan is {p} overdue. Binding the card charges that too."
+
+msgid "lib.bb.renew"
+msgstr "When your plan renews, this card is charged if your balance is short."
+
+msgid "lib.bb.topup"
+msgstr "Auto top-up is on once you add a card: a balance below {lo} TWD triggers a {a} TWD top-up. You can turn it off anytime."
+
+msgid "lib.bb.waiting"
+msgstr "Waiting for Payment…"
+
+msgid "lib.bb.waitNote"
+msgstr "This updates once you've paid."
+
+msgid "lib.bb.reopen"
+msgstr "Reopen Payment Page"
+
+msgid "lib.bb.gone"
+msgstr "It was delisted, so it wasn't bought. {p} went to your balance."
+
+msgid "lib.bb.owned"
+msgstr "You already own it. {p} went to your balance."
+
+msgid "lib.bb.wallet"
+msgstr "Charged {p}. It went to your balance, but the strategy wasn't bought."
+
+msgid "lib.bb.walletNoAmt"
+msgstr "The strategy wasn't bought. The money went to your balance."
+
+msgid "lib.bb.trialOn"
+msgstr "Your trial still runs until {d}."
+
+msgid "lib.bb.failed"
+msgstr "The card charge failed. Nothing was charged."
+
+msgid "lib.bb.open"
+msgstr "Your last payment page is still open and can still be paid. Trying again opens a new page. If both get paid, the extra charge goes to your balance."
+
+msgid "lib.bb.expired"
+msgstr "The payment page expired. If you didn't pay, nothing was charged."
+
+msgid "lib.bb.rate"
+msgstr "Too many tries. Try again later."
+
+# 0.1.50 策略庫一步開通(spec library-free-data-one-step;bc_bindbuy_plan_* / has_server / bc_mp_login_* 逐字同網頁)
+msgid "lib.bb.planToday"
+msgstr "Today: plan {a} + strategy {p}"
+
+msgid "lib.bb.planRenew"
+msgstr "Renews every 30 days from {d}"
+
+msgid "lib.bb.planTail"
+msgstr "Renewals use your balance first, then your card. Cancel anytime on the plan page. No refunds."
+
+msgid "lib.bb.planOk"
+msgstr "Add Card & Pay {p}"
+
+msgid "lib.bb.planPart"
+msgstr "Plan started, but the strategy wasn't bought. {p} is in your balance."
+
+msgid "lib.bb.planPartNoAmt"
+msgstr "Plan started, but the strategy wasn't bought. The money is in your balance."
+
+msgid "lib.bb.planFail"
+msgstr "The plan didn't start. {p} is in your balance."
+
+msgid "lib.bb.planFailNoAmt"
+msgstr "The plan didn't start. The money is in your balance."
+
+msgid "lib.bb.planActive"
+msgstr "Your plan was already on. {p} is in your balance."
+
+msgid "lib.bb.hasServer"
+msgstr "You already have a cloud machine, so you don't need a new plan."
+
+msgid "lib.bb.unsettled"
+msgstr "Still confirming the charge. You won't be charged twice. Check back shortly."
+
+msgid "lib.bb.loginBuy"
+msgstr "Sign In & Buy · {p}"
+
+msgid "lib.bb.loginUse"
+msgstr "Sign In & Use"
+
+msgid "lib.bb.loginInstall"
+msgstr "Sign In & Install"
+
+msgid "lib.bb.loginUseNote"
+msgstr "New accounts can try it free for {t} days, then {p} every 30 days"
+
+msgid "lib.bb.renewNote"
+msgstr "Then {p} every 30 days. Cancel anytime."
+
+msgid "lib.bb.trialRenewNote"
+msgstr "{t}-day plan trial, then {p} every 30 days. Cancel anytime."
+
+msgid "lib.bb.cancelNote"
+msgstr "Cancel anytime."
+
+msgid "lib.bb.planB"
+msgstr "Start Plan · {p} / 30 Days"
+
+msgid "lib.bb.planD"
+msgstr "Start Plan & Buy · {p}"
+
+msgid "lib.bb.planTitle"
+msgstr "Start a Blave Agent Plan"
+
+msgid "lib.bb.todayCard"
+msgstr "Charged to your card today"
+
+msgid "lib.bb.todayPay"
+msgstr "Today"
+
+msgid "lib.bb.pay"
+msgstr "Pay {p}"
+
+msgid "lib.bb.srcCard"
+msgstr "Today's charge uses card {l}."
+
+msgid "lib.bb.srcCardAny"
+msgstr "Today's charge uses your card on file."
+
+msgid "lib.bb.srcWallet"
+msgstr "Today's charge uses your balance."
+
+msgid "lib.bb.srcMixWc"
+msgstr "The plan uses your balance, the strategy card {l}."
+
+msgid "lib.bb.srcMixWcAny"
+msgstr "The plan uses your balance, the strategy your card."
+
+msgid "lib.bb.srcMixCw"
+msgstr "The plan uses card {l}, the strategy your balance."
+
+msgid "lib.bb.srcMixCwAny"
+msgstr "The plan uses your card, the strategy your balance."
+
+msgid "lib.bb.partNoCharge"
+msgstr "Plan started, but the strategy wasn't bought or charged."
+
+msgid "lib.bb.srcChanged"
+msgstr "Your balance just changed, so the payment source was updated. Confirm again."
+
+msgid "lib.bb.paying"
+msgstr "Paying…"
 
 msgid "lib.buy.inProgress"
 msgstr "This purchase is already being processed. Check back in a moment."
@@ -5595,9 +5834,6 @@ msgstr "This strategy needs a newer Agent. Update the app, then press again."
 msgid "lib.dl.agentOldReopen"
 msgstr "This strategy needs a newer Agent. Reopen the app, then press again."
 
-msgid "lib.gate.login"
-msgstr "Sign in"
-
 msgid "lib.cf.title"
 msgstr "Install \"{title}\"?"
 
@@ -5606,9 +5842,6 @@ msgstr "The agent downloads it into strategies/ and runs a backtest on fresh dat
 
 msgid "lib.cf.l1Local"
 msgstr "It downloads to strategies/ on this computer. The agent checks the code and backtests on fresh data; results show in the sidebar."
-
-msgid "lib.cf.l2"
-msgstr "No orders are placed — whether to run it is your call."
 
 msgid "lib.cf.cloudNote"
 msgstr "This goes to the agent on your cloud machine; this computer isn't affected."
@@ -5780,13 +6013,13 @@ msgid "res.kind.cloudUpd"
 msgstr "Strategy updated"
 
 msgid "res.noBt"
-msgstr "No backtest"
+msgstr "no backtest"
 
 msgid "res.notRerun"
-msgstr "Not rerun yet"
+msgstr "not rerun yet"
 
 msgid "res.later"
-msgstr "Updated since"
+msgstr "updated since"
 
 msgid "res.gone.report"
 msgstr "This report was deleted"
@@ -5796,6 +6029,42 @@ msgstr "This strategy was deleted"
 
 msgid "res.more"
 msgstr "{n} more"
+
+# 卡的第二行寫成一句話(canon 介面標點 2):組與組之間接 res.sep,前後兩組都是數字時接 res.sepList;分隔字放在前一組裡,跟著不換行。en 的空格由 results.css 的 :lang(en) 間距補
+msgid "res.sep"
+msgstr ","
+
+msgid "res.sepList"
+msgstr ","
+
+# 報告卡:{type} = 閱讀頁的類型字或 res.type.*、沒有類型時用 rpt.nav;{time} = MM/DD HH:mm(.mono)
+msgid "res.report"
+msgstr "{type}, created {time}"
+
+msgid "res.type.research"
+msgstr "Research report"
+
+msgid "res.type.morning"
+msgstr "Briefing"
+
+msgid "res.type.performance"
+msgstr "Performance report"
+
+# 掃描卡的落點(接在逗號後,所以不沿用帶冒號的 rob.tag.*;回測頁的標籤字不動)
+msgid "res.pos.peak"
+msgstr "current params on a peak"
+
+msgid "res.pos.inside"
+msgstr "current params in the plateau"
+
+msgid "res.pos.outside"
+msgstr "current params outside the plateau"
+
+msgid "res.pos.outscan"
+msgstr "current params outside the scan"
+
+msgid "res.pos.atPlateau"
+msgstr "current params are the robust ones"
 
 # 兩個表單 modal 共用:submitMessage 回 false(引擎失敗 / 被擋)時腳的那一句;原因由對話講
 msgid "modal.sendFailed"
@@ -6021,7 +6290,7 @@ msgid "shr.gate"
 msgstr "Public links are tied to your Blave account. Sign in to publish."
 
 msgid "shr.gateGo"
-msgstr "Sign in"
+msgstr "Sign In to Blave"
 
 # 勾選列在捲動區外又還沒勾時,訊息槽的那一句(第十八批 DF2;同 web workspace_share_scroll_hint)
 msgid "shr.scrollHint"
@@ -6982,7 +7251,7 @@ msgid "ver.viewing"
 msgstr "Viewing {v}"
 
 msgid "ver.readonly"
-msgstr "— read-only"
+msgstr "· read-only"
 
 msgid "ver.back"
 msgstr "Back to current version"
@@ -9590,6 +9859,9 @@ msgstr "Certificates stay on your cloud machine"
 msgid "cx.bound"
 msgstr "To switch accounts, unbind in Settings first."
 
+msgid "cx.cancelSetup"
+msgstr "Connecting another account cancels the {venue} setup."
+
 msgid "cx.mode.paper"
 msgstr "Paper Trading"
 
@@ -9706,7 +9978,7 @@ msgid "capl.found"
 msgstr "Found a Capital certificate on this computer, expiring {date}. Next, enter your national ID number and trading password."
 
 msgid "capl.mac"
-msgstr "Capital needs Windows."
+msgstr "Capital needs Windows. On a Mac, start with paper trading, or use a Windows cloud machine."
 
 # 群益本機帳密表單之後(0.1.28;renderer/capital_local.js)。帳密存在哪(主行程 safeStorage)
 msgid "capl.store"
@@ -9994,7 +10266,7 @@ msgid "xt.clip"
 msgstr "Square points are below {v}; the table has the actual values."
 
 msgid "xt.costHow"
-msgstr "Each point adds X% cost per side. Trading cost covers fees, tax and slippage."
+msgstr "Each point adds X% cost per side. Trading cost covers fees, tax and slippage. Click a column header to chart it."
 
 msgid "xt.fogOld"
 msgstr "Older versions didn't save this tab's numbers."
@@ -10562,6 +10834,12 @@ msgstr "Ask the agent in chat."
 msgid "strat.renameJob"
 msgstr "Rerunning the backtest. Rename when it’s done."
 
+msgid "strat.renameLockTurn"
+msgstr "The agent is replying. Rename when it’s done."
+
+msgid "strat.renameLockJob"
+msgstr "This strategy is rerunning. Rename when it’s done."
+
 msgid "strat.renameFail"
 msgstr "Couldn’t rename. Press Enter to try again."
 
@@ -10649,6 +10927,15 @@ msgstr "It can’t move: it uses {x}, which the other side doesn’t have."
 
 msgid "ho.err.name"
 msgstr "It can’t move: STRATEGY_NAME in the file doesn’t match the folder name. Ask the agent to make them match first."
+
+msgid "ho.err.nameOnce"
+msgstr "It can’t move: in {x}, STRATEGY_NAME may only appear as s.STRATEGY_NAME, not in comments or strings either. Ask the agent to fix that first."
+
+msgid "ho.err.nameStar"
+msgstr "It can’t move: {x} uses import *, which could overwrite STRATEGY_NAME. Ask the agent to import names one by one."
+
+msgid "ho.err.nameLiteral"
+msgstr "It can’t move: strategy.py needs exactly one top-level line like STRATEGY_NAME = \"name\". Ask the agent to fix that first."
 
 msgid "ho.err.files"
 msgstr "It can’t move: {x} can’t be copied (too large, a file name outside the allowed characters, or not UTF-8)."
@@ -10763,3 +11050,33 @@ msgstr "Bring Back to This Computer…"
 
 msgid "ho.done.none"
 msgstr "Saved {at} as {dest}, but no backtest came out on that side."
+
+msgid "tr.ov.evDataGap"
+msgstr "No new bars, open position not managed"
+
+msgid "tr.ov.evDataGapNote"
+msgstr "no new bar for {minutes} min, signal stuck on the last one, so check your position"
+
+msgid "tm.evDataGapNote"
+msgstr "The signal is stuck on the last bar, so the strategy won't adjust its open position. Check the position."
+
+msgid "tr.ov.evFeedFallback"
+msgstr "{broker} live quotes dropped, using Blave data"
+
+msgid "tr.ov.evFeedFallbackNote"
+msgstr "signals run 1–2 minutes slower and switch back once quotes return"
+
+msgid "tr.haltUnexplained"
+msgstr "Your {symbols} position at {venue} doesn't match Blave's records."
+
+msgid "tr.ov.evHaltUnexplained"
+msgstr "Position mismatch"
+
+msgid "tr.ov.evHaltUnexplainedNote"
+msgstr "check it at {venue}"
+
+msgid "tr.haltUnexplainedNosym"
+msgstr "Your {venue} positions don't match Blave's records."
+
+msgid "tr.haltUnexplainedDo"
+msgstr "Check before you press {btn}. After that, any difference is yours to handle."

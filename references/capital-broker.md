@@ -4,8 +4,8 @@ Use this document when a user asks to connect their **Capital Securities (群益
 **Capital Futures (群益期貨)** account to Blave Agent — same corporate group, same underlying API,
 one certificate covers both markets. The integration uses the official **Capital API**
 (`SKCOM.dll`, a Windows COM component) — **Windows-only**: a **Windows cloud machine** (Steps 1–8
-below, walked by the agent), or — once the app build lists 群益 in its connect menu — the **desktop
-app on a Windows PC**, where the app's own connect flow does the whole setup and the agent does none
+below, walked by the agent), or the **desktop app on a Windows PC** (app 0.1.50 and later list 群益
+in the connect menu), where the app's own connect flow does the whole setup and the agent does none
 of it — see Step 0. Not on a Mac, not on a Linux cloud machine. There is no cross-platform package (unlike SinoPac/President).
 
 Steps 1–6 (verification test + agreement, certificate, component install, login, accounts) are
@@ -66,12 +66,10 @@ prefer the near-month aliases, or the V2.13.54+ `bstrCIDTandem`(`FITX`) + `bstrS
   Either way stop here: ask nothing more, install nothing, download nothing, never ask for the ID or the
   trading password, touch neither this computer nor the cloud machine.
   - **Connecting Capital on this computer** (no cloud-view line this turn):
-    - **Windows PC**: not every app build has it yet, and you cannot see the app's menu — so say both
-      ways in one reply: 「如果 app 的 自動下單 › 連接帳戶 選單裡有群益，就在那裡照畫面開通；沒有的話是這一版還沒開放，
-      要用 Windows 雲端主機：在網頁開雲端主機時選 Windows（開好之後不能換）。」/ "If Auto trading › Connect
-      Account in the app lists Capital, set it up there and follow the steps on screen. If it doesn't, this
-      build has not opened it yet: use a Windows cloud machine — choose Windows when you launch one on the
-      web (it can't be changed afterward)." Where the menu has it, the app connects it, not you: it
+    - **Windows PC**: app 0.1.50 and later list it; older builds don't, and you cannot see the app's
+      menu — so say it in one reply: 「到 app 的 自動下單 › 連接帳戶，選群益，照畫面開通。選單裡沒有群益的話，先把電腦版更新到最新版。」
+      / "Go to Auto trading › Connect Account in the app, pick Capital and follow the steps on screen. If
+      Capital isn't in the menu, update the desktop app to the latest version first." The app connects it, not you: it
       installs the component for this Windows account, finds, imports or issues the certificate, takes the
       ID and trading password, runs the login check and keeps the account reader running
       (`runtime/capital_local.py`; everything runs as the signed-in user — no switching to the Administrator
@@ -650,12 +648,24 @@ TC odd-lot), 0-based:
   (stock `N` rows)
 - 23 date, 24 time (HH:MM:SS), 30 exchange seq (`1010/2110...`=委託, `1020/2120...`=成交),
   32/33 futures: series+month (`FITM`,`202608`), 38 成交編號 (`D` rows only),
-  45 KeyNo, 46 time with milliseconds
+  45 KeyNo, 46 time with milliseconds (as seen on 2.13.58)
+
+**The seq column moves between component versions — match it by value, never by index.** On
+2.13.58 (8/14) the 13-digit seq sat at idx45. On 2.13.59 idx45 is empty on fill rows (the manual
+lists SeqNo at idx47); the 10-30 live fill row had 49 fields with 13-digit values at idx30 and
+idx47. `lib/order_capital` books a `D` row under every 13-digit numeric field it carries, and the
+`order_filled` audit's `seq_idx` says which column held our seq. A report of more lots than were
+sent is never booked as reported: `manager/reconciler` parks the whole send and trips HALT (only
+the lots sent can be claimed later, on an account read that moved by exactly that much), and
+`close_position_partial` returns flatten's close as `sent` with 0 lots. Flatten parks every 群益
+close that did not report its whole fill (that `sent`, a plain `sent`, a short fill) in the
+reconciler's `state/capital_pending_sent.json` as a `reduce` leg, so the reconciler's claim settles
+it on an account read exactly as it does its own sends, and its close gate holds the next close.
 
 **Two consumer-side rules (both live-observed):** ① `SKReplyLib_ConnectByID` **replays every
 report from the whole session day** on each connect — a fresh process re-receives this morning's
 fills; ② stock (`TS`) reports arrived **duplicated** (same row delivered twice back-to-back).
-Any consumer MUST dedupe on (KeyNo idx45, type idx2, exchange seq idx30) before acting.
+Any consumer MUST dedupe on (the row's 13-digit seqs, type idx2, exchange seq idx30) before acting.
 
 ---
 
@@ -763,6 +773,65 @@ silently stale:
 {"capital_worker": {"type": "daemon", "expect_every_minutes": 5,
                     "registered_at": "<UTC now, %Y-%m-%dT%H:%M:%S>"}}
 ```
+
+
+### Quote feed (live 1-minute bars)
+
+The worker's login also feeds the live tick: a second thread in `lib/capital_worker.py` (its own
+COM apartment and message pump; `--once` never starts it) runs `lib/capital_quote.QuoteFeed` on
+`SKQuoteLib` — `EnterMonitorLONGByMarket(1)` (domestic futures only), wait for `OnConnection`
+3003, `RequestStockList(2)`, `RequestTicks(0, "TX00")` — and every 15 s writes
+`state/capital_bars_TXF_1m.json` in the same contract as `state/president_bars_TXF_1m.json`
+(`references/president-broker.md` › Quote feed): `rows` = `[ts, o, h, l, c, v]`, ts = UTC epoch of
+the minute's END, 2-day rolling window, plus `broker`, `source: ticks`, `conn`, `last_event_at`,
+`alias_month`. `lib/data` reads it on a 群益-bound machine's live tick (desktop and cloud; the
+daemon passes `BLAVE_TW_BROKER`), Blave first and the feed only for the minutes Blave lacks. Bars
+are built from trades (`OnNotifyTicksLONG` + the day's replay in `OnNotifyHistoryTicksLONG`,
+de-duplicated by `nDate`/`nPtr`/time), not from `OnNotifyLiveKLineData`: the trades give the
+closing auction the way the Blave cache has it. The quote thread never logs in and never calls
+`LeaveMonitor` (it also drops the order-reply link); a drop it waits 90 s for SKCOM's own
+reconnect, then calls `EnterMonitorLONGByMarket` again (30 s → 5 min backoff) and re-subscribes
+after `CancelRequestTicks`. Every (re)subscription replays the trading day in order before the
+first live trade (40–46 s measured); until that first live trade the snapshot says
+`QUOTE_BACKFILL` (rows kept, not ok), so no half-replayed minute reaches a tick. Silence while a
+trade is due (the sessions minus 13:45–15:00 and 05:00–08:45) for 6 minutes is taken for a dead
+link SKCOM never reported: a plain re-subscribe and a full `EnterMonitorLONGByMarket` take turns,
+spaced 6 / 15 / 30 / 60 min, also when that EnterMonitor gets no 3003 (a 3003 does not reset the
+spacing — a holiday is all silence; a live trade or a reported drop does). After the
+close a quiet feed stays `ok`, so the 13:45 / 05:00 bin is read from 群益; a feed that ended the
+session bad reads `not_ok:<error>`, not `paused`, so the app does not name 群益 as the source.
+On the cloud, `manager/update_workspace.py` restarts the `blave-agent-capital` service when a
+file the worker imports changes (one 群益 login).
+
+**What the broker gives (measured 2026-11-06, win-test-6, live account, day and night session):**
+- `EnterMonitorLONGByMarket(1)` answers 0, 3001 then 3003 within ~3 s; no `LoginSetQuote` needed;
+  `GetQuoteStatus` answers `[0, False, 0]` (not over the limit); account reads on the same login
+  every 60 s kept working while quotes streamed, on the main thread and on a second thread alike;
+- `nDate` is the CALENDAR day for live K and for ticks (23:xx stamped the evening, 00:xx the next
+  day) — not the 交易日期 the manual says for ticks; `nTimehms` is Taipei wall clock;
+- live K (`OnNotifyLiveKLineData`) labels a bar by its END minute (1501 = the night's first bar,
+  0500 its last, 0846 the day's first); nType 1 arrives 0.1–0.6 s after that minute; its `nQty` is
+  the bar's volume (nType 2's grows through the minute); prices are raw integers ÷ 100;
+- `RequestTicks` replays the whole trading day first (from the previous 15:00); trial-match ticks
+  (`nSimulate` 1) come 08:30–08:44:59 and 14:50–14:59:55 and are never counted; the 08:45:00
+  opening auction belongs to the 08:46 bar;
+- trades folded into minutes equal the broker's own live K bar for bar (890 bars, OHLC and volume),
+  and both equal the Blave cache on every label (Close identical 99.3 %, within 6 points 99.8 %,
+  volume ratio 1.000; the same fixed signal on 1m and 5m differed on 0 bars);
+- the history K (`RequestKLineAMByDate(code, 0, 1, 0, from, to, 1)`, new format
+  `2026/11/02 15:01, 45227.00, …, 237`) uses END labels and calendar dates, stops at the previous
+  trading day, and **leaves the 13:45:00 closing auction out of the 13:45 bar, which the Blave cache
+  includes** (11-05: close 41882 / volume 2874 vs 41915 / 2891). The trade path folds the 13:45:00
+  print (13:30:00 on settlement day) into the bar ending then;
+- products (`RequestStockList(2)`): `TX00` = near month (OrderID `TXFK600`), `TX11` / `TX12` the
+  explicit months; 小台 `MTX00`/`MTX11`/…, 微台 `TM0000`/`TM2611`/…; the `…AM` codes are day session only.
+
+**Roll guard:** when `TX00` switches months is not measured yet. From 15:00 the day before a
+settlement day to the end of the settlement day's own night session, and whenever `TX00`'s OrderID does not name the
+series month (`president_contracts.series_contract`), the snapshot says
+`ok: false, error: QUOTE_ROLL_GUARD` and the tick reads the Blave cache; the app shows the source
+and why. Inside that window, and whenever TX00's OrderID is known and is not the series month,
+trades are not folded into bars at all. To be lifted once a settlement day is recorded.
 
 ---
 

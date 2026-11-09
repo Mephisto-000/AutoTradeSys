@@ -50,12 +50,26 @@ const EVENTS = {
   // 引擎安裝(0.1.12;shell/enginesetup.js,主行程送):一輪真的有東西要裝的安裝跑完的結果(first / upd × done / net / other / timeout;
   // 只修 venv 連結的不送),以及選用的那組(美股資料)沒裝好(前綴是組別)。分兩個事件:同一輪會同時有 first_done 與美股失敗。
   // 0.1.39 起 Codex 引擎隨包(shell/codexpkg.js)沒裝好也記在這(codex_ 前綴;我們自己收掉的不送),成功記 feature_used codex_pkg_done
-  engine_setup: { result: ["first_done", "first_net", "first_other", "first_timeout", "upd_done", "upd_net", "upd_other", "upd_timeout"] },
+  // first_abort:api 先上的值,外殼還沒有送出點(只進白名單,跟 api 的序列對齊)
+  engine_setup: { result: ["first_done", "first_net", "first_other", "first_timeout", "upd_done", "upd_net", "upd_other", "upd_timeout", "first_abort"] },
   engine_opt_fail: { result: ["us_net", "us_other", "us_timeout", "codex_net", "codex_disk", "codex_checksum", "codex_other", "codex_http"] },
   // 策略庫轉換(0.1.13;spec-0.1.13-library-conversion §8,renderer 送):本機「用這支」回合跑起來時那支的資料需求(未標 = unknown;雲端不送)、
   // 找點子框送出成功時從哪個入口來。匿名使用不加屬性:看 user_id 有無、同一 install_id 之後有沒有 login_done
   lib_pick: { data: ["none", "required", "unknown"] },
   idea_sent: { from: ["welcome", "lib_head", "lib_empty"] },
+  // 策略庫排序選單(0.1.49;spec library-sort-rows-2026-11-06 §7.2,renderer 送):選了不同的排序才送,by = 選中那項的 key(library.js LIB_SORTS 同一份)。
+  // 不用裸的 feature_used:要知道大家選哪一種,才知道七項哪些該留。網頁 GA4 同名 lib_sort { by }
+  lib_sort: { by: ["reco", "installs", "sample", "sharpe", "mdd", "annual", "newest"] },
+  // 策略庫綁卡即購買(0.1.49;spec library-buy-with-bind §6、§9,renderer 送):start = 開了付款頁、ok = 買到、wallet = 刷了沒買成(錢在錢包)、
+  // failed = 刷卡失敗。名字放不進 prop VARCHAR(16),所以一個事件帶 step;api desktop_telemetry 同一份,網頁 GA4 同名同值
+  lib_bindbuy: { step: ["start", "ok", "wallet", "failed"] },
+  // 策略庫一步開通(0.1.50;spec library-free-data-one-step §8,renderer 送;api desktop_telemetry 同一份,網頁 GA4 同名同值):
+  // lib_bindplan = 沒卡沒試用的付款頁(框 ③;free／paid = 免費或付費策略,part = 方案成、策略沒成,wallet = 方案沒成、錢在錢包);
+  // lib_cardplan = 有卡或錢包夠的框 ② 按 OK 之後的結果;lib_login_go = 訪客鈕登入後實際接到哪一步(cta = 回到主鈕、沒自動做;
+  // pay = 開網站綁卡頁;pay_direct = 訪客 C 不出框直接開藍新付款頁)
+  lib_bindplan: { step: ["start_free", "start_paid", "ok_free", "ok_paid", "part", "wallet", "failed"] },
+  lib_cardplan: { step: ["ok_free", "ok_paid", "part", "failed"] },
+  lib_login_go: { next: ["install", "pay", "pay_direct", "box", "cta"] },
   // 0.1.15 偵測失敗(renderer 送,只在連結畫面偵測完時):本機那個 CLI 為什麼不能用。值由主行程 detectWhy 判,語意見 canon 登記表
   detect_fail: { why: ["claude_none", "claude_timeout", "claude_nonzero", "claude_badjson", "codex_none", "codex_shim", "codex_timeout", "codex_nonzero"] },
   // 本機策略的三步(0.1.18;主行程送,strategySteps):新建、第一次有回測、第一次配了錢(同雲端的 deployed;按下啟動下單另有 trade_started)。
@@ -315,14 +329,17 @@ const EVENTS = {
     "login_lib", "wcard_signin",
     // 0.1.45 側欄「在手機上用」pop 裡的〔登入 Blave〕(renderer/promptslot.js slotPopPaint;spec slot-phone-steps §4)。同 api 順序,api 先上
     "slot_ph_login",
-    // 0.1.45 解除綁定框(renderer/trade.js;spec unbind-positions §6):選了保留部位並解除／平倉並解除／在平倉失敗那一態重新平倉。同 api 順序,api 先上
+    // 0.1.45 解除綁定框(renderer/trade.js;spec unbind-positions §6):選了自己處理並解除／平倉並解除／在平倉失敗那一態重新平倉。同 api 順序,api 先上
     "unbind_keep", "unbind_close", "unbind_retry",
     // 0.1.47 側欄策略改名(renderer/stratrename.js;spec strategy-rename §8):機器說改成了才送,不帶名字。同 api 順序,api 先上
     "strat_rename",
     // 0.1.47 登出確認框按〔登出〕(renderer/app.js acctOutAsk);撤銷成不成功都算。同 api 順序,api 先上
     "acct_out",
     // 0.1.47 送上雲端／拉回改成 app 直接搬(renderer/handoff.js;同 api 順序,api 先上):從側欄策略列選單開框、從對話動作卡開框、展開並排比較
-    "handoff_menu", "handoff_card", "handoff_compare"] },
+    "handoff_menu", "handoff_card", "handoff_compare",
+    // 0.1.50 登入鈕與升級鈕(spec login-upgrade-buttons-0150 §2;同 api 順序,api 先上):資料卡由 runtime 的 card chunk／只靠模型記號觸發、
+    // 資料卡上的〔登入 Blave〕〔重新登入 Blave〕、自動下單頁事件列那顆鈕的四種去處(renderer/app.js dataGateAction)
+    "data_card_rt", "data_card_tag", "login_data", "login_event", "bind_event", "topup_event", "plan_event"] },
 };
 // `claude auth status` 的 authMethod 原值 → cli_auth 的 how(隨包 CLI 2.1.281 的 auth status 只會給這六個)。唯一的一份:
 // 主行程 detectAgents 算好放進 out.claude.how,畫面與主行程都讀那一欄。null／缺 = none,表外 = other
@@ -333,7 +350,7 @@ const ONCE = ["app_first_open", "first_backtest_done", "first_reply_done"];   //
 // 放主行程而不是畫面:被攻破的 renderer 對 track-feature 灌合法名字也只會出門 20 次,搶不到 api 那顆全域熔斷
 const DAILY = ["feature_used", "acct_card_shown", "acct_card_click", "acct_card_back", "turn_failed", "connect_failed",
   "plan_start_res", "update_failed", "lib_blocked", "heartbeat", "engine_setup", "engine_opt_fail", "lib_pick", "idea_sent", "detect_fail",
-  "device_type", "reply_notif", "auth_fail", "cli_auth", "key_verify"];
+  "device_type", "reply_notif", "auth_fail", "cli_auth", "key_verify", "lib_sort", "lib_bindbuy", "lib_bindplan", "lib_cardplan", "lib_login_go"];
 // 每日一則、不分屬性值:心跳一天只要一列(live 記當天第一次送出那一刻的),下單中途開關不多送
 const DAILY_ONE = ["heartbeat"];
 const HEARTBEAT_MS = 10 * 60 * 1000;   // 啟動後 10 分鐘起每 10 分鐘看一次;當天送過就不出門(啟動當天另有 app_open)
@@ -351,7 +368,7 @@ const SID_ON = ["strat_created", "strat_backtested", "strat_deployed"];
 const SID_RE = /^[0-9a-f]{16}$/;
 const SID_KEY_RE = /^[0-9a-f]{64}$/;
 // 畫面(track-event)只准送這幾個;里程碑(app_first_open、login_done…)與主行程自己判的(plan_start_res、update_failed)不收
-const FROM_RENDERER = ["acct_card_shown", "acct_card_click", "acct_card_back", "turn_failed", "connect_failed", "first_reply_done", "lib_blocked", "lib_pick", "idea_sent", "detect_fail", "auth_fail", "cli_auth", "key_verify"];
+const FROM_RENDERER = ["acct_card_shown", "acct_card_click", "acct_card_back", "turn_failed", "connect_failed", "first_reply_done", "lib_blocked", "lib_pick", "idea_sent", "detect_fail", "auth_fail", "cli_auth", "key_verify", "lib_sort", "lib_bindbuy", "lib_bindplan", "lib_cardplan", "lib_login_go"];
 const DAY_RE = /^[0-9]{8}$/;
 const DEFAULT_ON = true;   // Wei 2026-09-21:預設開、照實告知、可關
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

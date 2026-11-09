@@ -150,13 +150,13 @@ try {
     && /sfPop\.querySelector\("\.item\[data-rm\]"\)\.textContent = t\("side\.flagRemove"\);/.test(sfSrc) && /sfPop\.querySelector\("\.item\[data-ctx\]"\)\.textContent = /.test(sfSrc));
   { const strings = read(path.join(R, "strings.js")), sb = {}; vm.runInNewContext(strings + "\nthis.S = STRINGS;", sb);
     const KEYS = ["side.flagSet", "side.flagRemove", "side.flagTitle", "side.flagAria", "side.flagC1", "side.flagC2", "side.flagC3"];
-    ok("④ 字串表:七個 key 兩語都齊、字照 web 現值", KEYS.every((k) => sb.S.zh[k] && sb.S.en[k]) && sb.S.zh["side.flagTitle"] === "{name} — 旗標：{color}" && sb.S.zh["side.flagAria"] === "{name}，旗標：{color}"
+    ok("④ 字串表:七個 key 兩語都齊、字照 web 現值", KEYS.every((k) => sb.S.zh[k] && sb.S.en[k]) && sb.S.zh["side.flagTitle"] === "{name}，旗標：{color}" && sb.S.zh["side.flagAria"] === "{name}，旗標：{color}"
       && sb.S.zh["side.flagC1"] === "赭金" && sb.S.en["side.flagC2"] === "Ice cyan" && sb.S.en["side.flagRemove"] === "Remove flag"); }
   // 稽核該修 ①④⑤:鍵盤排序的可發現性與讀屏回饋、旗標鈕 aria-expanded、選中格改內圈(外環只剩 focus ring)
   ok("④ 旗標鈕 aria-expanded:建時 false、面板開 true、收 false", /fb\.setAttribute\("aria-expanded", "false"\)/.test(cutFn(sfSrc, "sfRowActions"))
     && /anchor\.setAttribute\("aria-expanded", "true"\)/.test(cutFn(sfSrc, "sfPopOpen")) && /if \(ret\) ret\.setAttribute\("aria-expanded", "false"\);/.test(cutFn(sfSrc, "sfPopClose")));
   ok("④ 面板底不再印按鍵提示(Wei 10-12 拿掉;Alt+↑/↓ 仍可用);移動後 srSay「已移到第 N 位」",
-    !/hint\.className = "hint"/.test(sfSrc) && /sfPop\.append\(d1, rn, rm, ho, moves, d2, del\);/.test(sfSrc)   // ho = 送上雲端／拉回(0.1.47),併在第一條線那組
+    !/hint\.className = "hint"/.test(sfSrc) && /sfPop\.append\(d1, rn, rm, ho, moves, d2, del, why\);/.test(sfSrc)   // ho = 送上雲端／拉回(0.1.47),併在第一條線那組;why = 〔改名〕停用原因(sr-only)
     && !/side\.sortHint/.test(sfSrc)
     && /if \(sib\.classList\.contains\("strat-wrap"\)\) \{ if \(up\) sib\.before\(row\); else sib\.after\(row\); \}/.test(sfSrc)
     && /else \{ sfMoved\(sc\); srSay\(t\("side\.moved", \{ n: \[\.\.\.box\.querySelectorAll\(":scope > \.strat-wrap"\)\]\.indexOf\(row\) \+ 1 \}\)\); \}/.test(sfSrc)

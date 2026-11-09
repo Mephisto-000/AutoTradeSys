@@ -113,6 +113,7 @@ def _paths():
         "probe_ps1": os.path.join(WORKSPACE, "lib", "capital_probe.ps1"),
         "setup_ps1": os.path.join(WORKSPACE, "lib", "capital_setup.ps1"),
         "snapshot": os.path.join(WORKSPACE, "state", "capital_account.json"),
+        "bars": os.path.join(WORKSPACE, "state", "capital_bars_TXF_1m.json"),  # = lib/capital_quote.snapshot_path
         "deployments": os.path.join(WORKSPACE, "state", "deployments.json"),
         "worker": os.path.join(WORKSPACE, "lib", "capital_worker.py"),
         # = lib/capital_vault.BLOCK: a login that answered 300/307, keyed on the
@@ -311,12 +312,13 @@ def drop_vault(names):
     """credentials_remove hook: unbinding capital deletes the vault too."""
     if not any(n.casefold() in _ID_KEYS + (_PW_KEY,) for n in names):
         return
-    try:
-        os.remove(_paths()["vault"])
-    except FileNotFoundError:
-        pass
-    except OSError as e:
-        print(f"[capital_connect] vault not removed ({type(e).__name__})", file=sys.stderr)
+    for f in ("vault", "bars"):
+        try:
+            os.remove(_paths()[f])
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            print(f"[capital_connect] {f} not removed ({type(e).__name__})", file=sys.stderr)
     try:
         _update(create=False, vault=None)
     except OSError:
@@ -1012,8 +1014,11 @@ def run_finish(push=None):
         if snap is None:
             _refuse("SNAPSHOT_TIMEOUT", "the worker wrote no snapshot")
         if not snap.get("ok"):
-            m = re.search(r"code=(\d+)", str(snap.get("error") or ""))
-            code = int(m.group(1)) if m else None
+            code = snap.get("code")
+            if not isinstance(code, int) or isinstance(code, bool):
+                # "timeout" is no login code; a worker from before the field only has the text
+                m = re.search(r"code=(\d+)", str(snap.get("error") or ""))
+                code = int(m.group(1)) if m else None
             if CODE_STATES.get(code) in PW_BLOCK_STATES:
                 # an NSSM worker re-logs in on every restart: stop it before a
                 # wrong password becomes a locked account

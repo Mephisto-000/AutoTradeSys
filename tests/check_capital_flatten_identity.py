@@ -59,6 +59,12 @@ sys.path.insert(0, os.path.join(ROOT, "manager"))
 import command_listener as cl  # noqa: E402
 import portfolio_reporter as pr  # noqa: E402
 import flatten  # noqa: E402  (chdir's to ROOT — everything that writes is patched below)
+# the park of an unconfirmed 群益 close (reconciler._capital_park, its own test:
+# check_capital_flatten_park.py) is recorded here, not written: this file tests the press-again hold
+PARKS = []
+flatten._reconciler = lambda: types.SimpleNamespace(
+    _capital_nets=lambda root=None: {"TM2610": 2.0},
+    _capital_park=lambda root, res, requested, base, intent=None: PARKS.append((root, res, requested, base, intent)) or "p")
 
 REAL_FLATTEN_ID = flatten._capital_order_identity_ok
 REAL_REPORTER_ID = pr._capital_order_identity_ok
@@ -82,7 +88,8 @@ POS = {}      # vid -> positions (or an Exception to raise)
 CLOSE = {}    # capital resolved sym -> "raise" | "sent" | "partial"; default = filled
 flatten._record_order_error = (
     lambda sym, vid, err, extra=None: errors.append((sym, vid, err, extra)))
-flatten._append_reconciler_log = lambda row: logged.append(row["symbol"])
+ROWS = []
+flatten._append_reconciler_log = lambda row: logged.append(row["symbol"]) or ROWS.append(row)
 flatten.zero_ledger_symbols = lambda syms, venue=None: zeroed.update(syms)
 flatten.load_portfolio_config = lambda: CFG
 # the book is per venue (lib/portfolio): 群益's keys are its futures, the rest are Binance's
@@ -202,7 +209,11 @@ park(_t0.time() - 60, intent="entry")
 run_flatten(True)
 check(("capital", "TM2610") in closes, "an unreported entry does not hold the close")
 os.remove(flatten.CAPITAL_PENDING_PATH)
+PARKS.clear()
 run_flatten(True, close={"TM2610": "sent"})
+check(len(PARKS) == 1 and PARKS[0][0] == "TMF" and PARKS[0][2] == -2 and PARKS[0][3] == {"TM2610": 2.0}
+      and PARKS[0][4] == "reduce" and PARKS[0][1]["fill_qty"] == 0 and PARKS[0][1]["status"] == "sent",
+      f"a flatten's own 'sent' 群益 close is handed to the reconciler's park: -2 lots, reduce, the pre-send read ({PARKS})")
 hold = (json.load(open(flatten.LAST_PATH)).get("capital_hold_until") or {}).get("TMF")
 check(hold and abs(hold - (_t0.time() + HOLD)) < 30, f"a flatten's own 'sent' 群益 close in session holds 16 min from its send ({hold})")
 rec = json.load(open(flatten.LAST_PATH))
@@ -245,8 +256,37 @@ check([e[:2] for e in errors] == [("TMF", "capital")] and "手動平倉" in erro
       f"wrong identity: one 群益 error, keyed like the positions table (TMF) ({errors})")
 check(res is False, "wrong identity: flatten reports it ran with errors")
 
+ROWS.clear()
 run_flatten(True)
 check(("capital", "TM2610") in closes and not errors, "Administrator password logon: 群益 closes")
+# 11-09 win-test-6: the row read 「41,906 口」 — 群益's book and 交易歷史 count lots, never price × lots
+cap_log = [r for r in ROWS if r.get("exchange") == "capital"]
+leg = cap_log[0]["legs"][0] if len(cap_log) == 1 else {}
+check(len(cap_log) == 1 and cap_log[0]["signed_diff"] == -2.0 and leg.get("signed_diff") == -2.0
+      and leg.get("sent_qty") == 2.0 and leg.get("executed_qty") == 2 and leg.get("signed_qty") == -2.0,
+      f"the 群益 close row is in lots (signed_diff -2, sent_qty 2), not 2 × 22000 ({cap_log})")
+ROWS.clear()
+run_flatten(True, close={"TM2610": "sent"})
+cap_log = [r for r in ROWS if r.get("exchange") == "capital"]
+check(len(cap_log) == 1 and cap_log[0]["signed_diff"] is None and cap_log[0]["legs"][0].get("sent_qty") == 2.0,
+      f"an unreported 群益 close: no booked lots, 交易歷史 shows the 2 sent ({cap_log})")
+# 統一 closes through the same loop (no unit on its rows either): its row is lots as well
+_pa, _po = types.ModuleType("lib.account_president"), types.ModuleType("lib.order_president")
+_pa.get_positions = _get_positions("president")
+_po.format_qty = lambda env, sym, size: str(size)
+_po.close_position_partial = (lambda env, sym, side, size, client_order_id=None: closes.append(("president", sym))
+                              or {"status": "filled", "executed_qty": float(size), "avg_price": 22000.0})
+sys.modules["lib.account_president"], sys.modules["lib.order_president"] = _pa, _po
+POS["president"] = {"TMF": {"side": "short", "size": 1.0}}
+EXTRA_ENV["president_account"] = "x"
+ROWS.clear()
+run_flatten(True)
+pres_log = [r for r in ROWS if r.get("exchange") == "president"]
+check(("president", "TMF") in closes and len(pres_log) == 1 and pres_log[0]["signed_diff"] == 1.0
+      and pres_log[0]["legs"][0].get("sent_qty") == 1.0,
+      f"the 統一 close row is in lots too (signed_diff +1, sent_qty 1) ({pres_log}, {errors})")
+EXTRA_ENV.pop("president_account")
+POS.pop("president")
 
 # several skipped 群益 positions → ONE merged row (order_errors keeps only 5)
 res = run_flatten(False, capital={"TM2610": {"side": "long", "size": 1},

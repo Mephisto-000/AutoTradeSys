@@ -160,7 +160,7 @@ EXEMPT = [
      'inplace', 'state/ui_amounts_event, written in place'),
     ('lib/portfolio.py', 'load_json', 'path',
      'helper', "the retry helper's own open, or the half-updated-workspace fallback"),
-    ('lib/president_quote.py', 'load_json', 'path',
+    ('lib/twf_feed.py', 'load_json', 'path',
      'helper', "the retry helper's own open, or the half-updated-workspace fallback"),
     ('lib/president_vault.py', 'load_json', 'path',
      'helper', "the retry helper's own open, or the half-updated-workspace fallback"),
@@ -263,6 +263,8 @@ EXEMPT = [
     ('manager/sinopac_setup.py', '_read_lines', 'ENV_PATH',
      'agent', 'the user-run SinoPac setup CLI: an error reaches the user, who runs it again (fork 2026-10-25)'),
     ('manager/wait_for_bar.py', '_us_stock_daily', 'f"strategies/{name}/strategy.py"',
+     'code', 'code / doc / VERSION text, not a state file'),
+    ('manager/wait_for_bar.py', '_crypto_only', 'f"strategies/{name}/strategy.py"',
      'code', 'code / doc / VERSION text, not a state file'),
     ('manager/wait_for_bar.py', 'load_json', 'path',
      'helper', "the retry helper's own open, or the half-updated-workspace fallback"),
@@ -400,6 +402,8 @@ EXEMPT = [
      'broken file restarts from {} and drops other sessions\' model choices — low stakes'),
     ('runtime/portfolio_reporter.py', '_capital_admin_password_on_file', 'os.path.join(WORKSPACE, ".env")',
      'vault', 'admin password file / .env for it'),
+    ('runtime/portfolio_reporter.py', 'unbind_clears_book', 'os.path.join(WORKSPACE, "lib", "portfolio.py")',
+     'code', "lib source probed for reset_venue_book; a failed read reports false for one report"),
     ('runtime/portfolio_reporter.py', 'can_close_unbind', 'os.path.join(WORKSPACE, "manager", "flatten.py")',
      'code', 'manager/flatten.py source probe'),
     ('runtime/portfolio_reporter.py', '_ac_interval', 'os.path.join(WORKSPACE, "strategies", name, "strategy.py")',
@@ -559,6 +563,8 @@ EXEMPT = [
      'failclosed', 'inflight markers at the end of 全部平倉: an unreadable one is skipped, the run already warned per key'),
     ('lib/portfolio.py', '_filled_since', '_ORDERS_LOG_PATH',
      'append', 'manager/orders.jsonl: did a 全部平倉 row\'s in-flight order fill (append-only)'),
+    ('manager/reconciler.py', '_capital_release_orphan_rows_once', 'portfolio._ORDERS_LOG_PATH',
+     'append', 'manager/orders.jsonl: which 群益 seqs a late fill booked (append-only; unreadable → old rows left, retried next round)'),
     ('lib/unconfirmed.py', 'load_json', 'path',
      'helper', "the half-updated-workspace fallback (lib/winreplace.py without load_json)"),
 ]
@@ -1122,7 +1128,7 @@ try:
 
     # ── ⑤ half-updated workspace ──
     IMPORTERS = ("lib.execute", "lib.guard", "lib.portfolio", "lib.paper_data", "lib.order_paper",
-                 "lib.order_president", "lib.account_president", "lib.account_capital", "lib.president_quote",
+                 "lib.order_president", "lib.account_president", "lib.account_capital", "lib.president_quote", "lib.twf_feed", "lib.capital_quote",
                  "lib.capital_vault", "lib.order_capital", "lib.strategy", "lib.report",
                  "lib.president_worker", "lib.runner", "lib.validation", "lib.pnl", "lib.venue_wiring",
                  "manager.reconciler", "manager.wait_for_bar", "manager.close_symbol",
@@ -1202,7 +1208,7 @@ try:
         f.write("REPLACE_RETRY_DELAYS = ()\nPLANTED = True\n\n\ndef atomic_replace(s, d):\n    raise SystemExit('planted')\n\n\n"
                 "def load_json(p, **k):\n    raise SystemExit('planted')\n\n\ndef read_retry(r, *a, **k):\n"
                 "    raise SystemExit('planted')\n")
-    MODS = ("capital_vault", "president_quote", "president_worker", "capital_worker", "president_vault",
+    MODS = ("capital_vault", "twf_feed", "president_worker", "capital_worker", "president_vault",
             "account_president", "account_capital")
     probe = (
         "import importlib, sys\n"

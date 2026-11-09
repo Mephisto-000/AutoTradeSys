@@ -41,6 +41,10 @@ const EV_PAIRS = {
   evTargetStaleMin: "target_stale_min",
   evTargetStaleHour: "target_stale_hour",
   evTargetStaleDay: "target_stale_day",
+  evDataGap: "data_gap",
+  evDataGapNote: "data_gap_note",
+  evFeedFallback: "feed_fallback",
+  evFeedFallbackNote: "feed_fallback_note",
   evDeadMembers: "dead_members",
   evDeadMembersNote: "dead_members_note",
   evDeadMore: "dead_more",
@@ -104,6 +108,10 @@ for (const lang of ["zh", "en"]) {
   const dp = poMap(path.join(__dirname, "..", "shell", "i18n", lang + ".po")), wp = poMap(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po"));
   const diff = Object.entries(EV_PAIRS).filter(([d, w]) => !dp["tr.ov." + d] || dp["tr.ov." + d] !== wp["workspace_ov_ev_" + w]).map(([d]) => d);
   ok(`事件文案 ${lang} 兩邊逐字一致(${Object.keys(EV_PAIRS).length} 句)`, diff.length === 0, diff.join(", "));
+  // data_gap_exposed 沒帶 minutes 時的附註,電腦版放在 tm. 底下
+  ok(`資料斷線沒帶分鐘的附註 ${lang} 兩邊逐字一致(tm.evDataGapNote ↔ workspace_ov_ev_data_gap_note_nomin)`,
+    typeof dp["tm.evDataGapNote"] === "string" && dp["tm.evDataGapNote"] === wp.workspace_ov_ev_data_gap_note_nomin,
+    "tm.evDataGapNote「" + dp["tm.evDataGapNote"] + "」 vs workspace_ov_ev_data_gap_note_nomin「" + wp.workspace_ov_ev_data_gap_note_nomin + "」");
 }
 // 全部平倉快照落後(manual_close_required reason snapshot_lag;api 1aed82a8 起群益、統一都走這個型別):整句與券商短名兩邊逐字同。
 // 網頁這幾個 key 還沒上(同步改中):網頁沒有就只記一筆 NOTE,有了就必須逐字一致
@@ -158,6 +166,14 @@ for (const lang of ["zh", "en"]) {
   const bad = Object.entries(START_PAIRS).filter(([d, w]) => typeof dp[d] !== "string" || dp[d] !== wp[w]);
   ok(`啟動下單框 ${lang} 兩邊逐字一致(${Object.keys(START_PAIRS).length} 句)`, bad.length === 0, bad.map(([d, w]) => d + "「" + dp[d] + "」 vs " + w + "「" + wp[w] + "」").join(";"));
 }
+// Blave AI 402 卡(spec login-upgrade-buttons-0150 §1.5、§5 第 13 條):沒卡、有卡兩態的句子與四顆鈕字,zh / en 逐字一致。任一邊沒有這個 key 也算紅
+const CREDIT_FAULT_PAIRS = { "fault.noCredit": "workspace_fault_no_credit", "fault.needCard": "workspace_fault_need_card", "fault.noCreditBtn": "workspace_fault_act_topup",
+  "acct.addCard": "workspace_fault_act_card", "acct.cryptoTopup": "workspace_fault_act_crypto", "fault.resend": "workspace_fault_act_resend" };
+for (const lang of ["zh", "en"]) {
+  const dp = poMap(path.join(__dirname, "..", "shell", "i18n", lang + ".po")), wp = poMap(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po"));
+  const bad = Object.entries(CREDIT_FAULT_PAIRS).filter(([d, w]) => typeof dp[d] !== "string" || dp[d] !== wp[w]);
+  ok(`Blave AI 402 卡 ${lang} 兩邊逐字一致(${Object.keys(CREDIT_FAULT_PAIRS).length} 句)`, bad.length === 0, bad.map(([d, w]) => d + "「" + dp[d] + "」 vs " + w + "「" + wp[w] + "」").join(";"));
+}
 // 模擬帳戶總權益氣泡接的第二句:兩邊逐字同;網頁 en 把接句的空白放在字串開頭(電腦版接的時候才加),所以先 trim。任一邊沒有這個 key 也算紅
 const PAPER_TIP_PAIRS = { "cx.perfNote": "workspace_ov_equity_tip_paper" };
 for (const lang of ["zh", "en"]) {
@@ -181,6 +197,15 @@ for (const lang of ["zh", "en"]) {
   const dp = poMap(path.join(__dirname, "..", "shell", "i18n", lang + ".po")), wp = poMap(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po"));
   const bad = Object.entries(BITGET_PAIRS).filter(([d, w]) => typeof dp[d] !== "string" || typeof wp[w] !== "string" || dp[d] !== wp[w]);
   ok(`Bitget 換帳戶類型的暫停句／清單／事件列 ${lang} 兩邊逐字一致(${Object.keys(BITGET_PAIRS).length} 句)`, bad.length === 0,
+    bad.map(([d, w]) => d + "「" + dp[d] + "」 vs " + w + "「" + wp[w] + "」").join(";"));
+}
+// 已暫停時帳戶對不上(halt.unexplained;designer halt-unexplained-copy-review-2026-11-07 §一):頁首兩句與事件列兩句 zh / en 逐字一致,任一邊沒有就紅
+const UNX_PAIRS = { "tr.haltUnexplained": "workspace_pf_halt_unx", "tr.haltUnexplainedNosym": "workspace_pf_halt_unx_nosym",
+  "tr.haltUnexplainedDo": "workspace_pf_halt_unx_do", "tr.ov.evHaltUnexplained": "workspace_ov_ev_halt_unx", "tr.ov.evHaltUnexplainedNote": "workspace_ov_ev_halt_unx_note" };
+for (const lang of ["zh", "en"]) {
+  const dp = poMap(path.join(__dirname, "..", "shell", "i18n", lang + ".po")), wp = poMap(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po"));
+  const bad = Object.entries(UNX_PAIRS).filter(([d, w]) => typeof dp[d] !== "string" || typeof wp[w] !== "string" || dp[d] !== wp[w]);
+  ok(`帳戶對不上的頁首句與事件列 ${lang} 兩邊逐字一致(${Object.keys(UNX_PAIRS).length} 句)`, bad.length === 0,
     bad.map(([d, w]) => d + "「" + dp[d] + "」 vs " + w + "「" + wp[w] + "」").join(";"));
 }
 // 接回後讀帳是空的而自動暫停、帳戶比帳本少(designer rebind-autohalt-ux-2026-11-05 3.2／3.3):頁首專屬句、「帳戶實際 N」與它的 tooltip 逐字一致;
@@ -248,6 +273,19 @@ for (const lang of ["zh", "en"]) {
   ok("提示格 SLOT_PH 兩邊同一份(30 天、2 次、7 個使用日、下單後 30 分鐘)", !!dS && !!wS && dS[1] === wS[1], (dS && dS[1]) + " vs " + (wS && wS[1])); }
 // 對話分頁(0.1.37;技術方案 §1.4、§4):對著雲端主機、名額滿了的排隊行與〔取消排隊〕,電腦版 chattabs.js tabsQueued 與網頁 csShowQueued 同一句;
 // 歷史清單的狀態字(回覆中／排隊中／做完，還沒看)與分組(今天／昨天／更早)也跟網頁 workspace_cs_* 同一組
+// 聊天結果卡第二行(一句話:分隔字、報告句、卡專用類型與落點字,設計師 0.1.48 標點複查):兩邊逐字一致。en 的分隔字電腦版是「,」、空格由 CSS 間距補,web 寫進字串,所以分隔字只比去掉空白後的字
+{ const RES_PAIRS = { "res.sep": "workspace_res_sep", "res.sepList": "workspace_res_sep_list", "res.report": "workspace_res_report",
+    "res.type.research": "workspace_res_type_research", "res.type.morning": "workspace_res_type_morning", "res.type.performance": "workspace_res_type_performance",
+    "res.pos.peak": "workspace_res_pos_peak", "res.pos.inside": "workspace_res_pos_inside", "res.pos.outside": "workspace_res_pos_outside",
+    "res.pos.outscan": "workspace_res_pos_outscan", "res.pos.atPlateau": "workspace_res_pos_atplateau",
+    "res.kind.new": "workspace_res_kind_new", "res.kind.bt": "workspace_res_kind_bt", "res.kind.btUpd": "workspace_res_kind_bt_upd", "res.kind.scan": "workspace_res_kind_scan",
+    "res.kind.code": "workspace_res_kind_code", "res.noBt": "workspace_res_no_bt", "res.notRerun": "workspace_res_not_rerun", "res.later": "workspace_res_later" };
+  const SEP = new Set(["res.sep", "res.sepList"]);
+  for (const lang of ["zh", "en"]) {
+    const dp = poMap(path.join(__dirname, "..", "shell", "i18n", lang + ".po")), wp = poMap(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po"));
+    const bad = Object.entries(RES_PAIRS).filter(([d, w]) => typeof dp[d] !== "string" || typeof wp[w] !== "string" || (SEP.has(d) ? dp[d].trim() !== wp[w].trim() : dp[d] !== wp[w]));
+    ok(`聊天結果卡第二行的字 ${lang} 兩邊逐字一致(${Object.keys(RES_PAIRS).length} 句)`, bad.length === 0, bad.map(([d, w]) => d + "「" + dp[d] + "」 vs " + w + "「" + wp[w] + "」").join(";"));
+  } }
 const TAB_PAIRS = { "tabs.queue": "workspace_cs_queue_line", "tabs.queueCancel": "workspace_cs_cancel_queued", "tabs.queueCancelTitle": "workspace_cs_cancel_queued_title", "tabs.st.queued": "workspace_cs_queued",
   "tabs.st.unseen": "workspace_cs_unread", "tabs.group.today": "workspace_cs_today", "tabs.group.yesterday": "workspace_cs_yesterday", "tabs.group.earlier": "workspace_cs_earlier",
   "tabs.search": "workspace_cs_search_ph" };
@@ -318,6 +356,9 @@ for (const lang of ["zh", "en"]) {
   const re = (src, kw, name) => { const m = src.match(new RegExp("^\\s*" + kw + " " + name + " = (/.*/[a-z]*);\\s*(?://.*)?$", "m")); return m ? m[1].replace(/(^|[^\\])\(([^()?][^()]*)\)(?![*+?{])/g, "$1$2") : null; };
   const tags = ["CARD_TAG", "SUG_BLOCK", "SUG_OPEN_TAIL", "AWAIT_TAG", "FORM_TAG"], off = tags.filter((n) => !re(appSrc, "const", n) || re(appSrc, "const", n) !== re(rc, "var", n));
   ok("回覆摘錄的五條標記 regex 兩邊同一份(FORM_TAG 是 0.1.41 澄清表單)", off.length === 0, off.map((n) => n + ": " + re(appSrc, "const", n) + " vs " + re(rc, "var", n)).join(";"));
+  // 轉給手機前拿掉記號的那份(shell/relay.js;主行程讀不到 renderer 的常數):跟電腦版 app.js 逐字同(spec login-upgrade-buttons-0150 §1.8)
+  const relaySrc = fs.readFileSync(path.join(__dirname, "..", "shell", "relay.js"), "utf8"), tagOf = (src) => (src.match(/^const CARD_TAG = (\/.*\/[a-z]*);/m) || [])[1];
+  ok("CARD_TAG:shell/relay.js 與 renderer/app.js 逐字同一份", !!tagOf(appSrc) && tagOf(appSrc) === tagOf(relaySrc), tagOf(appSrc) + " vs " + tagOf(relaySrc));
   // 回覆音 04 Rise(canon › Sound):兩音表、主增益、2 秒窗,兩邊逐值一致。網頁 var、電腦版 const,各自 eval 成值再比
   const num = (src, kw, n) => { const m = src.match(new RegExp("^\\s*" + kw + " " + n + " = ([\\s\\S]*?);", "m")); try { return m ? JSON.stringify(new Function("return " + m[1])()) : null; } catch (_) { return null; } };
   const rise = ["RISE", "RISE_GAIN", "SOUND_GAP_MS"].filter((n) => num(appSrc, "const", n) === null || num(appSrc, "const", n) !== num(rc, "var", n));
@@ -440,7 +481,7 @@ for (const lang of ["zh", "en"]) {
     const lib = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "library.js"), "utf8");
     const dfn = (n) => { const a = lib.indexOf("\nfunction " + n + "(") + 1; if (a < 1) return null; let i = lib.indexOf("{", a), d = 0; for (; i < lib.length; i++) { if (lib[i] === "{") d++; else if (lib[i] === "}" && --d === 0) break; } return lib.slice(a, i + 1) + "\n"; };
     const dconst = (n) => { const m = new RegExp("^const " + n + " = [^\\n]*;$", "m").exec(lib); return m ? m[0] + "\n" : null; };
-    const dParts = ["LIB_DAY", "LIB_MARKETS", "LIB_CATEGORY_MARKET"].map(dconst).concat(["libMarket", "libSampleYears", "libCreated", "libIsFree", "libNeeds", "libCompare", "libVisible", "wcReco"].map(dfn));
+    const dParts = ["LIB_DAY", "LIB_MARKETS", "LIB_CATEGORY_MARKET", "LIB_SORTS", "LIB_SINK_SORTS", "LIB_FLOOR_YEARS"].map(dconst).concat(["libMarket", "libSampleYears", "libCreated", "libIsFree", "libNeeds", "libCompare", "libRecoCmp", "libUnderYear", "libSinks", "libNum", "libMddOf", "libSortVal", "libVisible", "wcReco"].map(dfn));
     const wParts = ["libCommunity", "libReco", "wcReco"].map(wfn), rulesPath = path.join(webDir, "app", "static", "js", "library_rules.js");
     const installed = new Set([5]), isInst = (s) => installed.has(s.id);
     let dPick = null, wPick = null, err = "";
@@ -458,6 +499,52 @@ for (const lang of ["zh", "en"]) {
     try { d = dPick && dPick(pool).map((s) => s.id); w = wPick && wPick(pool).map((s) => s.id); } catch (e) { err += " 執行:" + e.message; }
     ok("歡迎頁策略卡挑選兩邊同一批、同一順序(雲端視角,8 支測資挑 3 張)", !dParts.includes(null) && !wParts.includes(null) && !!d && d.length === 3 && JSON.stringify(d) === JSON.stringify(w),
       (dParts.includes(null) || wParts.includes(null) ? "切不出函式;" : "") + "電腦版 " + JSON.stringify(d) + " vs 網頁 " + JSON.stringify(w) + err); } }
+// 策略庫排序(spec library-sort-rows-2026-11-06 §7.3;電腦版與 web 同一批出):key 集合與順序列舉兩邊(電腦版 LIB_SORTS、網頁公開頁 #mp_sort_panel
+// 與工作頁的 data-sort),排序結果拿 11-06 那 17 支各跑一次(公開頁 valueSort、工作頁 listSort),字樣逐字比。任一邊少一項或答案不同一律紅,不留「還沒做」的出口。
+// 推薦順序:Wei 11-07 定三邊同一份「已驗證 → 官方 → 樣本長 → 新」(設計稽核 library-sort-review 第二節第 1 題),電腦版本來就是——公開頁 recoSort 與工作頁都要等於電腦版,不留 NOTE。
+// 沉底組標籤(同稿第 3 題):電腦版 lib.sinkHead 與工作頁 workspace_lib_sink_head 逐字一致
+{ const lib = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "library.js"), "utf8");
+  const dfn = (n) => { const a = lib.indexOf("\nfunction " + n + "(") + 1; if (a < 1) return null; let i = lib.indexOf("{", a), d = 0; for (; i < lib.length; i++) { if (lib[i] === "{") d++; else if (lib[i] === "}" && --d === 0) break; } return lib.slice(a, i + 1) + "\n"; };
+  const dconst = (n) => { const m = new RegExp("^const " + n + " = [^\\n]*;$", "m").exec(lib); return m ? m[0] + "\n" : null; };
+  const parts = ["LIB_DAY", "LIB_MARKETS", "LIB_CATEGORY_MARKET", "LIB_SORTS", "LIB_SINK_SORTS", "LIB_FLOOR_YEARS"].map(dconst)
+    .concat(["libMarket", "libSampleYears", "libCreated", "libCompare", "libRecoCmp", "libUnderYear", "libSinks", "libNum", "libMddOf", "libSortVal", "libVisible"].map(dfn));
+  const D = parts.includes(null) ? null : new Function(parts.join("") + "return { LIB_SORTS, libVisible };")();
+  const mp = fs.readFileSync(path.join(webDir, "app", "main", "templates", "agent", "marketplace.html"), "utf8");
+  const keysIn = (src, a) => { const i = src.indexOf(a); return i < 0 ? null : [...src.slice(i, src.indexOf("</div>", i)).matchAll(/data-sort="(\w+)"/g)].map((m) => m[1]); };
+  const mpKeys = keysIn(mp, 'id="mp_sort_panel"'), wsKeys = web.includes("data-sort=") ? [...web.matchAll(/data-sort="(\w+)"/g)].map((m) => m[1]) : null;
+  const want = D ? JSON.stringify([...D.LIB_SORTS]) : null;
+  ok("排序:電腦版切得出 LIB_SORTS 與 libVisible 那一串", !!D);
+  ok("排序 key 與順序:網頁公開頁 #mp_sort_panel = 電腦版 LIB_SORTS", !!mpKeys && JSON.stringify(mpKeys) === want, JSON.stringify(mpKeys) + " vs " + want);
+  ok("排序 key 與順序:網頁工作頁的 data-sort = 電腦版 LIB_SORTS", !!wsKeys && JSON.stringify(wsKeys) === want, JSON.stringify(wsKeys) + " vs " + want);
+  const fx = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "library_sort_2026-11-06.json"), "utf8")).strategies;
+  let BL = null; try { globalThis.window = globalThis; const rp = path.join(webDir, "app", "static", "js", "library_rules.js"); delete require.cache[require.resolve(rp)]; require(rp); BL = globalThis.BlaveLibrary; } catch (_) { BL = null; }
+  ok("排序:網頁 library_rules.js 載得起來", !!BL && typeof BL.valueSort === "function" && typeof BL.recoSort === "function");
+  if (D && BL) {
+    const ids = (l) => l.map((s) => s.id).join();
+    // 工作頁的推薦:清單走 library_rules(listSort 還在就用它,web 併進 recoCompare 後刪掉 listSort 就退回 recoSort)。字面只確認工作頁真的呼叫 library_rules 排清單(否則下面比的結果跟工作頁無關),順序本身比跑出來的結果
+    const wsSort = typeof BL.listSort === "function" ? BL.listSort : (l, by) => (by === "reco" ? BL.recoSort(l) : BL.valueSort(l, by));
+    const wsReco = /LIB\.(listSort|recoSort|valueSort)\(base\b/.test(web);
+    // 17 支分不出「官方」那個主鍵(#86 官方未驗證本來就排在 #117 社群未驗證前面):補兩支,官方未驗證樣本短、社群未驗證樣本長
+    const pair = [{ id: 901, is_official: false, verified: false, created_at: "2026-01-01 00:00:00", report: { equity_from: "2015-01-01", equity_to: "2026-01-01" } },
+      { id: 902, is_official: true, verified: false, created_at: "2026-01-01 00:00:00", report: { equity_from: "2025-01-01", equity_to: "2026-01-01" } }];
+    const dOrder = ids(D.libVisible(fx, "all")) + "|" + ids(D.libVisible(pair, "all"));
+    const wsOrder = wsReco ? ids(wsSort(fx, "reco")) + "|" + ids(wsSort(pair, "reco")) : null, mpOrder = ids(BL.recoSort(fx)) + "|" + ids(BL.recoSort(pair));
+    ok("推薦順序:電腦版 = 網頁工作頁(已驗證 → 官方 → 樣本長;17 支加官方主鍵那兩支)", wsReco && dOrder === wsOrder, dOrder + " vs " + wsOrder + (wsReco ? "" : "(工作頁沒有用 library_rules 排清單)"));
+    ok("推薦順序:電腦版 = 網頁公開頁 recoSort(同上兩組;公開頁、合集、首頁畫廊與 valueSort 決勝共用它)", dOrder === mpOrder, dOrder + " vs " + mpOrder);
+    for (const by of D.LIB_SORTS.filter((k) => k !== "reco")) {
+      const d = ids(D.libVisible(fx, "all", by)), w = ids(BL.valueSort(fx, by)), l = ids(wsSort(fx, by));
+      ok("排序 " + by + ":電腦版 libVisible = 網頁公開頁 valueSort = 工作頁 listSort(17 支)", w === d && l === d, d + " vs valueSort " + w + " / listSort " + l);
+    }
+  }
+  // 選單字樣逐字同公開頁(§6):Sharpe 在網頁是寫死字面;任一邊缺 key 就紅
+  const SORT_PAIRS = { "lib.sort.aria": "bc_mp_sort_label", "lib.sort.reco": "bc_mp_sort_reco", "lib.sort.sample": "bc_mp_sort_sample", "lib.sort.mdd": "bc_mp_sort_mdd", "lib.sort.annual": "bc_mp_report_annual", "lib.sort.newest": "bc_mp_sort_newest", "lib.sort.installs": "bc_mp_sort_installs" };
+  for (const lang of ["zh", "en"]) {
+    const dp = poMap(path.join(__dirname, "..", "shell", "i18n", lang + ".po")), wp = poMap(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po"));
+    const bad = Object.entries(SORT_PAIRS).filter(([d, w]) => typeof dp[d] !== "string" || typeof wp[w] !== "string" || dp[d] !== wp[w]);
+    ok(`排序選單字樣 ${lang} 兩邊逐字一致(${Object.keys(SORT_PAIRS).length} 句;Sharpe 兩邊都是字面)`, bad.length === 0 && dp["lib.sort.sharpe"] === "Sharpe" && /data-sort="sharpe">Sharpe</.test(mp),
+      bad.map(([d, w]) => d + "「" + dp[d] + "」 vs " + w + "「" + wp[w] + "」").join(";"));
+    ok(`沉底組標籤 ${lang}:電腦版 lib.sinkHead = 網頁 workspace_lib_sink_head`, typeof dp["lib.sinkHead"] === "string" && dp["lib.sinkHead"] === wp["workspace_lib_sink_head"], "電腦版「" + dp["lib.sinkHead"] + "」 vs 網頁「" + wp["workspace_lib_sink_head"] + "」");
+  } }
 // 策略庫詳情跟基準比(spec library-benchmark-2026-10-27 B;電腦版 library.js libBench* + main.js libBenchSanitize、網頁 workspace.html libBench / libCmpTable):
 // 圖例「權益」、as_of 那句、表頭的「回測」「{n} 年」、總報酬／年化報酬／最大回撤逐字比(歡迎卡同 key)(tip_adj / tip_raw 已在上面 BH_KEYS);欄名「策略」是這次新增——網頁還沒有那個 msgid = web 那顆還沒上線,SKIP 講原因,有了就逐字比。
 // 判斷:同一組 /report 形狀(api _benchmark_payload 會給的),兩邊要嘛都畫基準、要嘛都不畫,畫的話代號同一個(BTCUSDT 寫 BTC)
@@ -637,7 +724,7 @@ for (const lang of ["zh", "en"]) {
     const wid = {}; for (const m of web.matchAll(/^\s+(\w+): (?:\{\{ _\('([^']+)'\) \| tojson \}\}|"\{\{ _\('([^']+)'\) \}\}"),?$/gm)) wid[m[1]] = m[2] || m[3];
     const dT = (k) => dzh[k], wT = (n) => wzh[wid[n]];
     // 只有一邊有的態(附原因);其餘的態兩邊要一一對上
-    const ONLY_DESK = { setupWait: "豁免 3:開通中,網頁的群益與統一都給〔繼續〕(網頁的開通清單兩家都在框裡);電腦版群益本機入口 CAPL_LOCAL_ON 關著、沒有那份清單,只留狀態詞" };
+    const ONLY_DESK = { setupWait: "豁免 3:開通中,網頁的群益與統一都給〔繼續〕(網頁的開通清單兩家都在框裡);電腦版策略頁頭只在這台電腦視角給〔繼續〕(統一、群益本機),雲端視角的群益開通中在頁頭只留狀態詞,〔繼續〕在自動下單頁那一列" };
     const ONLY_WEB = {};
     // 態一樣但有一格刻意不同(附原因)
     const CELL_EXEMPT = { "fail.note": "fail 的原因句兩邊各用自己自動下單頁那一句、出口不同:電腦版「串接失敗，下單程式沒在跑。到「設定」處理。」(帳戶與金鑰在自動下單 › 設定分頁),網頁「串接失敗，到策略組合處理」(網頁的帳戶在策略組合頁);開頭的「串接失敗」另外逐字比" };
@@ -753,14 +840,15 @@ for (const lang of ["zh", "en"]) {
 // 埋點(product-telemetry):三個事件名兩邊都要有送出點
 { const UNBIND_PAIRS = { "tr.ub.x0Cloud": "x0", "tr.ub.x0Pres": "x0_pres", "tr.unbindWarnPaper": "-workspace_pf_unbind_warn_paper",
     "tr.ub.askTitle": "ask_title", "tr.ub.askTitle1": "ask_title_1", "tr.ub.askTitleN": "ask_title_n", "tr.ub.unreadN": "unread_n",
-    "tr.ub.closeSelf": "close_self", "tr.ub.closeAll": "close_all", "tr.ub.keep": "keep", "tr.ub.keepOld": "keep_old", "tr.ub.keepGo": "keep_go", "tr.ub.closeGo": "close_go",
+    "tr.ub.closeSelf": "close_self", "tr.ub.closeAll": "close_all", "tr.ub.keep": "keep", "tr.ub.keepOld": "keep_old", "tr.ub.keepRejoin": "keep_rejoin", "tr.ub.keepAskOld": "keep_ask_old", "tr.ub.keepGo": "keep_go", "tr.ub.closeGo": "close_go",
     "tr.ub.closedTitle": "closed_title", "tr.ub.closedTitle1": "closed_title_1", "tr.ub.closedTitleN": "closed_title_n",
     "tr.ub.closedWhen": "closed_when", "tr.ub.closedWhenN": "closed_when_n", "tr.ub.closedLater": "closed_later", "tr.ub.cantClose": "cant_close",
     "tr.ub.runTitle": "run_title", "tr.ub.runLine": "run_line", "tr.ub.running": "running", "tr.ub.runningBtn": "running_btn",
     "tr.ub.failTitle": "fail_title", "tr.ub.failTitle1": "fail_title_1", "tr.ub.failTitleN": "fail_title_n", "tr.ub.failReply": "fail_reply",
     "tr.ub.failState": "fail_state", "tr.ub.unconfirmed": "unconfirmed", "tr.ub.retryGo": "retry_go",
     "tr.ub.stDone": "st_done", "tr.ub.stNoFill": "st_nofill", "tr.ub.stUnconf": "st_unconf", "tr.ub.stManual": "st_manual", "tr.ub.busy": "busy",
-    "tr.ub.close": "-workspace_ns_close", "tr.ub.appPres": "-workspace_ov_broker_president", "tr.ub.appCap": "-workspace_ov_broker_capital" };
+    "tr.ub.close": "-workspace_ns_close", "tr.ub.appPres": "-workspace_ov_broker_president", "tr.ub.appCap": "-workspace_ov_broker_capital",
+    "cx.cancelSetup": "-workspace_cx_cancel_setup" };
   const wk = (w) => w.charAt(0) === "-" ? w.slice(1) : "workspace_pf_ub_" + w;
   for (const lang of ["zh", "en"]) {
     const dp = poMap(path.join(__dirname, "..", "shell", "i18n", lang + ".po")), wp = poMap(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po"));
@@ -816,6 +904,41 @@ for (const lang of ["zh", "en"]) {
       ["strat.nameDup", "workspace_strat_name_dup"], ["strat.renameGone", "workspace_strat_rename_gone"], ["strat.renameNoLiteral", "workspace_strat_rename_no_literal"],
       ["strat.renameFail", "workspace_strat_rename_fail"], ["strat.renameJob", "workspace_strat_rename_job"]])
       ok(`策略改名 ${lang} 兩邊逐字一致(${d} ↔ ${w})`, typeof dp[d] === "string" && dp[d] === wp[w], d + "「" + dp[d] + "」 vs " + w + "「" + wp[w] + "」");
+  }
+}
+// 策略庫綁卡即購買(spec library-buy-with-bind-2026-11-06;設計複審 ⑧、程式稽核 B2):lib.bb.* 與網頁 bc_bindbuy_* 逐字同(zh／en)。
+// 網頁 {p} 後面自帶「 TWD」,電腦版 {p} 已含 TWD,比之前把網頁的「{p} TWD」收成「{p}」。列舉:兩邊任一個新鍵沒進配對表或豁免表就紅。
+// 「上一筆付款頁還開著」網頁有自己的 bc_bindbuy_open 就比它,還沒有就比共用的 bc_bind_plan_pending(兩條流程講同一個事實)
+{ const BB_PAIRS = { ok: "ok", planBtn: "plan_btn", today: "today", trialRow: "trial", after: "after", trialNote: "trial_note", plain: "plain",
+    needPlan: "need_plan", due: "due", renew: "renew", gone: "gone", owned: "owned", wallet: "wallet", walletNoAmt: "wallet_noamt", trialOn: "trial_on", failed: "failed", open: "open", rate: "rate", topup: "-bc_risk_note",   // topup:網頁重用一般綁卡頁那句(bc_risk_note)
+    // 0.1.50 一步開通(spec library-free-data-one-step;設計稽核 review-web-one-step-0150):框 ③-D 的列與末句、結果句、名下有主機;訪客鈕;恢復方案;方案扣款還在確認
+    planToday: "plan_today", planRenew: "plan_renew", planTail: "plan_tail", planOk: "plan_ok", planPart: "plan_part", planPartNoAmt: "plan_part_noamt", planFail: "plan_fail",
+    planFailNoAmt: "plan_fail_noamt", planActive: "plan_active", hasServer: "has_server", loginBuy: "-bc_mp_login_buy", loginUse: "-bc_mp_login_use",
+    // 直接開付款頁的鈕下一行(mockup-23-like-others,Wei 11-09):續扣、試用後續扣
+    renewNote: "renew_short", trialRenewNote: "trial_short" };
+  // 刻意不配對(設計稽核 review-desktop-one-step-0150):〔恢復方案〕電腦版用設定頁的 plan.resumeWeb〔到網站恢復方案〕(離開 app 要講「到網站」),不設 lib.bb.resume
+  // 刻意不同(設計複審 ⑧):電腦版付款頁還開著才有的三句與逾時句;網頁回程才有的「確認扣款中…」。
+  // 0.1.50 只有電腦版的情境(spec §7 表面表:web 沒有擋免費要資料策略的牆、沒有框 ②):B 型開通鈕、框 ② 的列、來源句與付款中、訪客安裝鈕與試用句、partial 沒扣那句、
+  // 錢包變了那句;扣款還在確認(unsettled:電腦版沒有「重新整理這頁」,寫「稍後再回來看」)。web 第二批補框 ②-D 時,planD、pay、paying、src*、partNoCharge、srcChanged 從這裡移回配對表
+  const BB_DESK_ONLY = ["waiting", "waitNote", "reopen", "expired", "planB", "planD", "planTitle", "todayCard", "todayPay", "pay", "paying", "srcCard", "srcCardAny", "srcWallet",
+    "srcMixWc", "srcMixWcAny", "srcMixCw", "srcMixCwAny", "partNoCharge", "srcChanged", "loginInstall", "loginUseNote", "unsettled",
+    // B 型直接開付款頁的鈕下「可隨時取消。」:web 沒有 B 型開通(同 planB)
+    "cancelNote"], BB_WEB_ONLY = ["confirming", "desktop_title", "desktop_lede",   // desktop_*:電腦版的單回到網頁時那一頁(稽核 W3),電腦版沒有這一頁
+    // 網頁 0.1.51 直接付的鈕與付完結果句:plan_buy 跟電腦版 planD 同義,但鈕字格式各照自己表面(電腦版 en「Start Plan & Buy · {p}」帶中點,網頁不帶),不逐字比;
+    // paid(「已付款，這支策略已加到你的帳號。」)電腦版付完直接自動安裝,主鈕換成安裝中,沒有這句
+    "plan_buy", "paid"];
+  for (const lang of ["zh", "en"]) {
+    const dp = poMap(path.join(__dirname, "..", "shell", "i18n", lang + ".po")), wp = poMap(path.join(webDir, "app", "translations", lang, "LC_MESSAGES", "messages.po"));
+    const wkey = (w) => (w.charAt(0) === "-" ? w.slice(1) : w === "open" && !("bc_bindbuy_open" in wp) ? "bc_bind_plan_pending" : "bc_bindbuy_" + w);
+    const norm = (x) => String(x).replace(/\{p\}(?: | )TWD/g, "{p}");
+    const bad = Object.entries(BB_PAIRS).filter(([d, w]) => typeof dp["lib.bb." + d] !== "string" || typeof wp[wkey(w)] !== "string" || dp["lib.bb." + d] !== norm(wp[wkey(w)]));
+    // 購買確認框只講錢(canon copy #4 例外):導語兩邊同一句
+    ok(`購買確認框導語 ${lang} 兩邊逐字一致(lib.buy.lead ↔ workspace_lib_buy_lead)`, typeof dp["lib.buy.lead"] === "string" && dp["lib.buy.lead"] === wp["workspace_lib_buy_lead"], dp["lib.buy.lead"] + " vs " + wp["workspace_lib_buy_lead"]);
+    ok(`綁卡即購買 ${lang} 兩邊逐字一致(${Object.keys(BB_PAIRS).length} 句,含「免費」)`, bad.length === 0 && dp["lib.free"] === wp["bc_mp_free"],
+      bad.map(([d, w]) => "lib.bb." + d + "「" + dp["lib.bb." + d] + "」 vs " + wkey(w) + "「" + wp[wkey(w)] + "」").join(";"));
+    const dStray = Object.keys(dp).filter((k) => k.startsWith("lib.bb.")).map((k) => k.slice(7)).filter((k) => !(k in BB_PAIRS) && !BB_DESK_ONLY.includes(k));
+    const wVals = Object.values(BB_PAIRS), wStray = Object.keys(wp).filter((k) => k.startsWith("bc_bindbuy_")).map((k) => k.slice(11)).filter((k) => !wVals.includes(k) && !BB_WEB_ONLY.includes(k));
+    ok(`綁卡即購買 ${lang} 列舉:兩邊每個鍵都在配對表或豁免表`, !dStray.length && !wStray.length, "電腦版多 " + dStray.join(",") + " / 網頁多 " + wStray.join(","));
   }
 }
 console.log(red ? `\n${red} 紅` : "\nALL PASS"); process.exit(red ? 1 : 0);

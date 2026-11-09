@@ -187,6 +187,10 @@ contextBridge.exposeInMainWorld("blave", {
   libraryList: (lang, force) => ipcRenderer.invoke("library-list", lang, force),
   libraryReport: (id, lang) => ipcRenderer.invoke("library-report", id, lang),
   libraryPurchase: (id, confirmTopup) => ipcRenderer.invoke("library-purchase", id, confirmTopup),
+  libraryBindBuy: (id, opts) => ipcRenderer.invoke("library-bind-buy", id, opts),
+  libraryBindResult: () => ipcRenderer.invoke("library-bind-result"),
+  libraryCheckoutQuote: (id) => ipcRenderer.invoke("library-checkout-quote", id),
+  libraryCardCheckout: (id, o) => ipcRenderer.invoke("library-card-checkout", id, o),
   libraryInstalled: (patch) => ipcRenderer.invoke("library-installed", patch),
   libraryDownload: (id) => ipcRenderer.invoke("library-download", id),
   // 本機報告(renderer/reports.js):信封清單 / 一份本體 + sidecar 圖(data URI);renderer 不碰 fs

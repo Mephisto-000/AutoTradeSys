@@ -99,8 +99,19 @@ function hoCell(k, v) {
    kind "local" = 這台電腦讀檔就擋下(代碼在 error、檔名在 detail);"rejected" = 機器的 ack "<例外類別>: <CODE>: <detail>"
    (runtime _run_deferred／local_daemon 都是 f"{type(e).__name__}: {e}",搬家的拒絕類別是 strategy_transfer.Refused);
    "unknown" = 送出了沒收到回條;"undelivered" = 沒送出去,畫面走 trSendError(key "$send")。detail 只會是檔名或模組名 */
-const HO_REFUSE = { NOT_PORTABLE: "ho.err.portable", NAME_MISMATCH: "ho.err.name", NO_STRATEGY_NAME: "ho.err.name", TOO_LARGE: "ho.err.files",
+const HO_REFUSE = { NOT_PORTABLE: "ho.err.portable", NAME_MISMATCH: "ho.err.name", NO_STRATEGY_NAME: "ho.err.nameOnce", TOO_LARGE: "ho.err.files",
   BAD_FILES: "ho.err.files", NOT_UTF8: "ho.err.files", NO_SOURCE: "ho.err.noSource" };
+/* NO_STRATEGY_NAME 的 detail = "<why>: <檔名, 檔名>"(runtime strategy_transfer.check_name):依原因各一句,{x} 只放檔名。
+   1.1.159 以前的雲端 runtime 送英文句子:照它的字樣歸到同三類、檔名從括號或句尾取 */
+const HO_NAME_WHY = { helpers: "ho.err.nameOnce", wildcard: "ho.err.nameStar", literal: "ho.err.nameLiteral" };
+function hoNameWhy(detail) {
+  const m = /^(helpers|wildcard|literal):\s*([\s\S]*)$/.exec(detail);
+  if (m) return { key: HO_NAME_WHY[m[1]], x: m[2] };
+  const old = /also (?:found|set) in (.+)$/.exec(detail), star = /^`import \*`[^(]*\(([^)]*)\)/.exec(detail);
+  if (old) return { key: "ho.err.nameOnce", x: old[1] };
+  if (star) return { key: "ho.err.nameStar", x: star[1] };
+  return { key: "ho.err.nameLiteral", x: "strategy.py" };
+}
 function hoErr(r) {
   if (!r || typeof r !== "object") return { key: "ho.err.retry" };
   const e = String(r.error || "");
@@ -108,6 +119,7 @@ function hoErr(r) {
   if (e === "UNKNOWN_COMMAND" || e === "BAD_COMMAND" || /unknown command/i.test(e)) return { key: "ho.err.old" };
   const m = /^(?:[A-Za-z]\w*:\s*)?([A-Z_]{3,24}):\s*([\s\S]*)$/.exec(e);
   const code = r.kind === "local" ? e : m ? m[1] : null, detail = r.kind === "local" ? String(r.detail || "") : m ? m[2] : "";
+  if (code === "NO_STRATEGY_NAME") { const w = hoNameWhy(detail.replace(/[\r\n]+/g, " ")); return { key: w.key, vars: { x: w.x.slice(0, 80) } }; }
   if (code && HO_REFUSE[code]) return { key: HO_REFUSE[code], vars: { x: detail.replace(/[\r\n]+/g, " ").slice(0, 80) } };
   if (r.kind === "undelivered") return { key: "$send" };
   return { key: "ho.err.retry" };
@@ -168,7 +180,7 @@ function hoPaint() {
     if (!keep.ho) b.addEventListener("click", () => { if (b.dataset.dir === "up") trackFeature("sp_cloud_icon"); hoAsk(b.dataset.dir, b.dataset.id, b); });
     if (cloud) {
       b.className = "btn-out has-ic"; const l = document.createElement("span"); l.textContent = t("ho.down.btn"); b.append(hoIcon(dir), l);
-      const full = t("ho.down.aria") + (LANG === "zh" ? "：" : ": ") + B.name; b.title = full; b.setAttribute("aria-label", full); b.removeAttribute("aria-describedby");
+      const full = t("ho.down.aria") + (LANG === "zh" ? "：" : ": ") + hoLabel(B.name, envCloudList(TR_BAGS.cloud.st)); b.title = full; b.setAttribute("aria-label", full); b.removeAttribute("aria-describedby");
       act.appendChild(b);
     } else {
       b.className = "rp-ic"; b.title = ""; b.setAttribute("aria-label", t("ho.up.btn")); b.setAttribute("aria-describedby", "rp-ho-tip"); b.appendChild(hoIcon(dir));
@@ -278,7 +290,8 @@ function hoAsk(dir, id, opener) {
   // 講清楚按下去之後會發生什麼:搬過去、在那邊重跑一次回測、兩邊數字並排;Type B 沒有回測,講確認它跑得起來
   const B0 = dir === "up" ? RP : RPC, tb = hoKind(B0.name === id ? B0.data : null);
   extra.appendChild(mk("p", "cf-note", t(HO_NOTE[tb][dir === "up" ? 0 : 1])));
-  const title = dir === "up" ? t("ho.up.title", { id }) : t("ho.down.title", { id });
+  const name = hoLabel(id, dir === "up" ? RP.list : envCloudList(srcSt));
+  const title = dir === "up" ? t("ho.up.title", { id: name }) : t("ho.down.title", { id: name });
   confirmBox({
     title, lines: [], extra, ok: dir === "up" ? t("ho.ok.up") : t("ho.ok.down"), opener,
     onOk: () => {
@@ -440,6 +453,15 @@ async function hoGoDest(j) {
   else { if (ENV.cur !== "local" && !envSwitchGuarded("local")) return; await stratSelect(j.dest); }
   const h = $("rp-name"); if (h && h.offsetParent) h.focus();
 }
+/* 講「哪一支要搬」的地方(確認框標題、準備好卡、對話動作卡)寫策略名稱:規則照 canon notifications §3.1(trade.js trStratLabel),
+   過不了規則或清單裡沒有才寫代號;同一份清單裡別支也叫這個名字時補「（代號）」。
+   講「存成哪個資料夾」的句子({to}/{dest})照舊寫代號:撞名改存的新資料夾跟來源同名,只有代號分得出來 */
+function hoLabel(id, list) {
+  const L = Array.isArray(list) ? list : [], lab = (x) => (x && typeof trStratLabel === "function" ? trStratLabel(x.displayName, x.name) : null);
+  const name = lab(L.find((x) => x && x.name === id));
+  if (!name) return id;
+  return L.some((x) => x && x.name !== id && lab(x) === name) ? name + "（" + id + "）" : name;   // 包法同 api strategy_names.labeler,兩語一樣
+}
 /* 側欄列選單(stratflags.js sfPopOpen 問):這一列給哪個方向,不給回 null。本機清單 = 送上雲端、雲端清單 = 拉回(雲端要看得到現況)。
    畫不出頁首鈕的情況同樣不給:功能關、名字過不了閘門、時光機或重跑中(只對正在看的那一支判得出來) */
 function hoMenuDir(cloudList, name) {
@@ -474,8 +496,7 @@ function hoCardTurnEnd(ok) {
   if (!ok || !p || !HO.on) return;
   const host = turnAiBubbles.filter((b) => b.parentNode).pop(); if (!host) return;
   const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  const shown = (p.dir === "up" ? RP.list : envCloudList(TR_BAGS.cloud.st)).find((x) => x.name === p.name);
-  const label = shown && shown.displayName ? shown.displayName : p.name;
+  const label = hoLabel(p.name, p.dir === "up" ? RP.list : envCloudList(TR_BAGS.cloud.st));
   const card = mk("div", "ho-card"), ic = hoIcon(p.dir), txt = mk("span", "ho-card-t", label); txt.title = label;
   const b = mk("button", "btn-out", t(p.dir === "up" ? "ho.card.upBtn" : "ho.card.downBtn")); b.type = "button";
   b.setAttribute("aria-label", t(p.dir === "up" ? "ho.card.up" : "ho.card.down", { name: label }));   // 卡上只放名字,鈕的可及名稱講全句

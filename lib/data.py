@@ -129,7 +129,7 @@ def _note_clock(r, t0, t1):
     tw_clock.note_reply(r, t0, t1)
 
 
-def _retry_get(url, max_retries=6, **kwargs):
+def _retry_get(url, max_retries=6, _method='get', _body_on_5xx=False, **kwargs):
     """GET with exponential backoff on transient failures: 2, 4, 8, 16, 32 s between the
     six tries (~1 min of waiting); after the last try it raises at once.
 
@@ -143,6 +143,10 @@ def _retry_get(url, max_retries=6, **kwargs):
 
     A non-retried 4xx raises requests.HTTPError with the response body appended
     (truncated to 200 chars) — the 4xx bodies carry the only explanation there is.
+
+    _method='post' is for read-only Blave endpoints (the screener), where a retried body is harmless.
+    _body_on_5xx: the last 429/5xx also carries the body (the screener and sector endpoints put
+    the reason there, e.g. themes_unavailable).
     """
     blave = url.startswith(BASE)   # BingX klines share this helper and stay public
     if blave:
@@ -150,7 +154,7 @@ def _retry_get(url, max_retries=6, **kwargs):
     for attempt in range(max_retries):
         try:
             t0 = time.time()
-            r = requests.get(url, **kwargs)
+            r = getattr(requests, _method)(url, **kwargs)
             if blave:
                 _note_clock(r, t0, time.time())
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
@@ -178,6 +182,11 @@ def _retry_get(url, max_retries=6, **kwargs):
         wait = 2 ** (attempt + 1)
         print(f"  {r.status_code} transient — retrying in {wait}s ({url.split('/')[-2]}/{url.split('/')[-1]})")
         time.sleep(wait)
+    if _body_on_5xx:
+        try:
+            r.raise_for_status()
+        except requests.HTTPError as exc:
+            raise requests.HTTPError(f'{exc} — {r.text[:200]}', response=r) from exc
     r.raise_for_status()
     return r
 
@@ -731,8 +740,9 @@ def _save_monthly(prefix, params, df, requested=None):
 # `twstock_price_<id>` / `twstock_price2_<id>` files are left unread.
 _SINGLE_FILE_PREFIXES = frozenset({
     'twstock_price3', 'twstock_price_nonadj', 'twstock_inst', 'twstock_margin',
-    'twstock_shareholding', 'twstock_per', 'twstock_foreign_sh',
+    'twstock_shareholding', 'twstock_per', 'twstock_foreign_sh', 'twstock_mv',
     'twmarket_index', 'twmarket_turnover', 'twmarket_institutional', 'twmarket_margin',
+    'twmarket_margin_maint',
     'twfutures_institutional',
 })
 _META_TS_FMT = '%Y-%m-%dT%H:%M:%S'
@@ -4481,6 +4491,369 @@ def fetch_twstock_market_value_all(headers, top=None):
     return out
 
 
+def _empty_dated(columns=()):
+    return pd.DataFrame(columns=list(columns), index=pd.DatetimeIndex([], name='date'))
+
+
+# The api's column sets (its *_client.py _COLUMNS), so an empty answer keeps the schema.
+_TW_LENDING_COLUMNS = ['stock_id', 'transaction_type', 'volume', 'fee_rate', 'close',
+                       'original_return_date', 'original_lending_period']
+_TW_GOV_BANK_COLUMNS = ['stock_id', 'bank_name', 'buy', 'buy_amount', 'sell', 'sell_amount']
+_TW_NEWS_COLUMNS = ['stock_id', 'title', 'source', 'link']
+_TWFUT_DAILY_COLUMNS = ['futures_id', 'contract_date', 'open', 'max', 'min', 'close', 'spread',
+                        'spread_per', 'volume', 'settlement_price', 'open_interest',
+                        'trading_session']
+_TWFUT_DAILY_AGG_COLUMNS = ['contract_date', 'open', 'high', 'low', 'close', 'settlement_price',
+                            'volume', 'open_interest', 'is_settlement_day']
+_TW_LARGE_TRADER_COLUMNS = ['name', 'contract_type'] + [
+    f'{side}_{top}_{kind}_open_interest{per}' for top in ('top5', 'top10') for side in ('buy', 'sell')
+    for kind in ('trader', 'specific') for per in ('', '_per')] + ['market_open_interest']
+_TWOPT_INST_COLUMNS = ['option_id', 'call_put', 'institutional_investors'] + [
+    f'{side}_{what}' for side in ('long', 'short')
+    for what in ('deal_volume', 'deal_amount', 'open_interest_balance_volume',
+                 'open_interest_balance_amount')]
+
+
+def _tw_dated_rows(path, headers, params=None, columns=()):
+    """GET a Blave TW endpoint answering {'data': [rows with 'date']} → DataFrame indexed by
+    the naive `date` (several rows per date allowed, the api's row order kept). No local
+    cache: these are long-format tables the api already caches, and the month cache keeps
+    one row per date."""
+    r = _retry_get(f'{BASE}/{path}', headers=headers, params=params or {}, timeout=60)
+    df = pd.DataFrame(r.json().get('data', []))
+    if df.empty:
+        return _empty_dated(columns)
+    df['date'] = pd.to_datetime(df['date'])
+    return df.set_index('date')
+
+
+_TW_CAPPED_MAX_SPAN_DAYS = 366
+
+
+def _tw_dated_rows_capped(path, start, end, headers, max_days, columns=()):
+    """_tw_dated_rows for an endpoint that refuses a span over `max_days` (end − start): a
+    longer [start, end] goes in consecutive windows. start None = the 7 days up to `end`
+    (the api's own default when end is None too). The whole span is capped at a year: each
+    window costs the api one upstream read per day from a quota every user shares."""
+    if start is None and end is None:
+        return _tw_dated_rows(path, headers, columns=columns)
+    hi = _date.fromisoformat(end) if end else datetime.now(_TPE).date()
+    lo = _date.fromisoformat(start) if start else hi - timedelta(days=6)
+    if lo > hi:
+        raise ValueError(f'start {lo} is after end {hi}')
+    if (hi - lo).days >= _TW_CAPPED_MAX_SPAN_DAYS:
+        raise ValueError(f'{path.split("/")[-2]}: {lo}..{hi} is over a year — every day costs '
+                         f'the api an upstream read from a shared quota; ask for at most '
+                         f'{_TW_CAPPED_MAX_SPAN_DAYS} days per call')
+    frames = []
+    while lo <= hi:
+        top = min(hi, lo + timedelta(days=max_days))
+        frames.append(_tw_dated_rows(path, headers, {'start': lo.isoformat(), 'end': top.isoformat()},
+                                     columns))
+        lo = top + timedelta(days=1)
+    frames = [f for f in frames if not f.empty]
+    return pd.concat(frames) if frames else _empty_dated(columns)
+
+
+def _fetch_twstock_market_value_raw(stock_id, start, end, headers):
+    end_str = end or datetime.utcnow().strftime('%Y-%m-%d')
+    df = _tw_dated_rows(f'studio/market/twstock/market_value/{stock_id}', headers,
+                        {'start': start, 'end': end_str})
+    if df.empty:
+        return pd.DataFrame(columns=['market_value'])
+    return df.sort_index()[['market_value']].astype(float)
+
+
+def fetch_twstock_market_value(stock_id, start, end, headers):
+    """One stock's daily market cap (市值) history. → DataFrame indexed by naive date, one
+    column `market_value` (NTD 元, float). History from 2004-01-01 (start None = from
+    then). Cached one file per stock like fetch_twstock_per. For a market-cap ranking or a
+    top-N pool use fetch_twstock_market_value_all (one call for the whole market) —
+    never this one per stock across the market."""
+    return _extend_cache_monthly(
+        'twstock_mv', {'id': stock_id},
+        lambda s, e: _fetch_twstock_market_value_raw(stock_id, s, e, headers),
+        start or '2004-01-01', end,
+    )
+
+
+def fetch_twstock_lending(stock_id, start, end, headers):
+    """借券成交明細 (securities-lending trades) of one stock. → DataFrame indexed by naive
+    date, several rows per day: stock_id, transaction_type ('競價' / '議借'), volume (張),
+    fee_rate (%), close, original_return_date, original_lending_period (days). History
+    from 2001-05; start / end None = the whole history / up to today. One request for any
+    span, no local cache (several rows per date). Published after the close: in a strategy use a day's rows from the next trading day on (no FEED_TIMING, align_feed does not take it)."""
+    params = {k: v for k, v in (('start', start), ('end', end)) if v}
+    return _tw_dated_rows(f'studio/market/twstock/lending/{stock_id}', headers, params,
+                          _TW_LENDING_COLUMNS)
+
+
+def fetch_twstock_gov_bank(stock_id, start, end, headers):
+    """八大行庫 (the eight government-owned banks) buying / selling one stock. → DataFrame
+    indexed by naive date, one row per bank per day: stock_id, bank_name, buy / sell (shares
+    股 — divide by 1,000 for 張), buy_amount / sell_amount (NTD 元). Sum the bank rows for the
+    day's total — there is no total row. start None = the 7 days up to end. The api caps a
+    request at 31 days; a longer span goes in 31-day windows here, at most a year per call
+    (each window walks every weekday server-side). No local cache.
+    Published after the close: in a strategy use a day's rows from the next trading day on (no FEED_TIMING, align_feed does not take it)."""
+    return _tw_dated_rows_capped(f'studio/market/twstock/gov_bank/{stock_id}', start, end,
+                                 headers, 31, _TW_GOV_BANK_COLUMNS)
+
+
+def fetch_twstock_news(stock_id, start, end, headers):
+    """Taiwan news headlines tagged to one stock. → DataFrame indexed by the publication
+    time (naive, Taipei), columns stock_id, title, source, link. start None = the 7 days up
+    to end; the api caps a request at 31 days, a longer span goes in 31-day windows, at most a
+    year per call. No local cache.
+
+    Not fetch_news: that one is the licensed market headline feed (all markets, no link,
+    filter with `q`); this one is per stock, links to the outlet's article, and its outlets
+    vary. One story can still appear twice when two outlets ran it."""
+    return _tw_dated_rows_capped(f'studio/market/twstock/news/{stock_id}', start, end,
+                                 headers, 31, _TW_NEWS_COLUMNS)
+
+
+_TW_SECTOR_WINDOWS = (10, 20, 60)
+
+
+def fetch_twstock_sector_overview(headers, window=20):
+    """Sector rotation (板塊輪動) across the ~32 TWSE sector indices (類股指數), latest
+    close. → DataFrame indexed by sector `slug`, one row per sector:
+      name, group ('elec' 電子 / 'fin' 金融 / 'trad' 傳產), weight (% of mapped market cap)
+      returns.d1 / .d5 / .d10 / .d20 / .d60 / .ytd   index return, percent
+      rs, momentum         relative strength vs TAIEX over `window` days (100 = in line) and its
+                           5-day change recentred on 100 — both clamped for the chart (clamped
+                           True when they were); quadrant 'leading' / 'weakening' /
+                           'improving' / 'lagging' is computed from the unclamped values;
+                           migration_days = days in that quadrant; tail = the 4 previous
+                           [rs, momentum] points
+      foreign / trust / dealer   the sector's institutional net buy that day (億元, estimated)
+      foreign_win / trust_win / dealer_win / foreign_win_prev   the same summed over `window`
+                           days (億元), and the previous window's foreign sum
+      stats.*              streaks and one-year percentiles the web page shows
+    attrs: date (as of), summary (dict: up / down sector counts, migrations_today,
+    whole-market foreign_total / trust_total in 億元 with their streaks, margin_change 億元,
+    margin_pctl), concentration (dict: top3_buy_share = the top 3 sectors' share (0–1, not percent) of
+    foreign net buying), flow_caps. window: 10 / 20 / 60. Blave data, any machine; no local
+    cache (the api caches until the next close). Sector `slug`s are the keys
+    fetch_twstock_sector_constituents takes."""
+    if window not in _TW_SECTOR_WINDOWS:
+        raise ValueError(f'window must be one of {_TW_SECTOR_WINDOWS}, got {window!r}')
+    r = _retry_get(f'{BASE}/studio/market/twstock/sector/overview', headers=headers,
+                   params={'window': window}, timeout=60, _body_on_5xx=True)
+    body = r.json()
+    df = pd.json_normalize(body.get('sectors') or [])
+    df = df.set_index('slug') if 'slug' in df.columns else df
+    df.attrs.update({k: body.get(k) for k in ('date', 'summary', 'concentration', 'flow_caps')})
+    return df
+
+
+def fetch_twstock_sector_up_share(headers, days=365):
+    """Daily share of the ~32 TWSE sector indices that closed up — a sector-level breadth
+    line. → Series `pct_up` (percent, 0–100) indexed by naive date over the last `days`
+    calendar days (the api serves at most 730). The denominator is the sector indices that had
+    a change figure that day, so it can vary from day to day. Blave data, any machine, no local
+    cache.
+
+    Not fetch_tw_sector_breadth: that one is the desktop-only count of up / down STOCKS per
+    industry for the latest session, from TWSE open data. This one is a history of how many
+    sector INDICES rose — use it on a cloud machine, or for a breadth time series."""
+    if isinstance(days, bool) or not isinstance(days, numbers.Integral) or days < 1:
+        raise ValueError(f'days must be a positive int, got {days!r}')
+    r = _retry_get(f'{BASE}/studio/market/twstock/sector/breadth', headers=headers,
+                   params={'days': int(days)}, timeout=60, _body_on_5xx=True)
+    body = r.json()
+    return pd.Series(body.get('pct_up') or [], index=pd.to_datetime(body.get('dates') or []),
+                     name='pct_up', dtype=float).rename_axis('date')
+
+
+def fetch_twstock_sector_constituents(slug, headers):
+    """The five largest stocks by market cap in one sector (slug from
+    fetch_twstock_sector_overview, e.g. 'semiconductor'), latest session. → DataFrame
+    columns stock_id, name, chg (that day's change, percent), foreign (外資 net buy, 億元,
+    estimated from net shares × close), themes (list of {'slug', 'name': {'zh', 'en', 'cn'}}
+    for the concept themes in effect, [] when none or the theme store is down); attrs date (as
+    of) and total (how many stocks the sector has). Only the top five come back — the full
+    member list is not on this endpoint. An unknown slug is a 404. No local cache."""
+    r = _retry_get(f'{BASE}/studio/market/twstock/sector/constituents/{slug}',
+                   headers=headers, timeout=60, _body_on_5xx=True)
+    body = r.json()
+    df = pd.DataFrame(body.get('stocks') or [],
+                      columns=['stock_id', 'name', 'chg', 'foreign', 'themes'])
+    df.attrs.update({'date': body.get('date'), 'total': body.get('total')})
+    return df
+
+
+def fetch_twstock_screener(headers, filters=None, include_types=None, sort=None, limit=300):
+    """Taiwan stock screener over Blave's nightly whole-market snapshot (POST
+    /studio/market/twstock/screener/run) — one request, no local cache. → DataFrame of the
+    matching stocks, best first by `sort`, at most `limit` (1–300) rows: stock_id, name,
+    market ('twse' / 'tpex'), sec_type, industry (產業別 code), fin_quarter / rev_month (the
+    filing each fundamental comes from), adj, themes, disposal / notice (None when the alert
+    list was unavailable) and every numeric indicator. attrs: as_of, dates, total (matches
+    before `limit`), columns, sort.
+
+    filters: list of conditions, all must hold —
+      {'indicator': <numeric key>, 'operator_id': 1 '>' | 2 '<' | 3 '>=' | 4 '<=', 'value': n}
+      {'indicator': 'market' | 'industry' | 'theme', 'op': 'in' | 'not_in', 'values': [...]}
+      {'indicator': 'exclude', 'values': ['disposal', 'notice']}   drop 處置股 / 注意股
+    Numeric keys: per, pbr (倍), dividend_yield, roe_ttm, gross_margin_q, operating_margin_q,
+    rev_yoy, ret_{5,20,60}d (percent), eps_ttm, close (元), market_cap, turnover_20d,
+    foreign_{5,20,60}d, trust_{5,20,60}d (億元 — `market_cap >= 300` is 300 億). A null value
+    never matches. industry values are the 產業別 codes ('24' 半導體, see TWSE_INDUSTRY_NAMES).
+    include_types: add any of 'etf', 'etn', 'reit', 'preferred', 'dr' (default: common stock
+    only). sort: {'indicator': <numeric key>, 'dir': 'asc' | 'desc'} (default market cap,
+    descending). An unknown key or value is a 400 whose message names it — fix the
+    condition, never drop it."""
+    body = {'filters': filters or [], 'include_types': include_types or [], 'limit': limit}
+    if sort:
+        body['sort'] = sort
+    r = _retry_get(f'{BASE}/studio/market/twstock/screener/run', _method='post', json=body,
+                   headers=headers, timeout=60, _body_on_5xx=True)
+    out = r.json()
+    df = pd.DataFrame(out.get('rows') or [])
+    df.attrs.update({k: out.get(k) for k in ('as_of', 'dates', 'total', 'columns', 'sort')})
+    return df
+
+_TW_THEME_WINDOWS = (10, 20, 60)
+_TW_THEME_RANGES = ('3m', '1y', '3y')
+_TW_CHIP_SCOPES = ('theme', 'sector')
+
+
+def _tw_groups_frame(rows, index='slug'):
+    """Group rows → DataFrame on `index`: nested dicts flattened to dotted columns
+    ('returns.d5', 'foreign.ratio') except `name`, which stays as the api sends it (a
+    {'zh', 'en', 'cn'} dict for a theme, a plain string for a TWSE sector)."""
+    rows = [dict(r) for r in rows or []]
+    names = [r.pop('name', None) for r in rows]
+    df = pd.json_normalize(rows)
+    if rows:
+        df.insert(0, 'name', names)
+    return df.set_index(index) if index in df.columns else df
+
+
+def _tw_snapshot(path, headers, params=None):
+    r = _retry_get(f'{BASE}/{path}', headers=headers, params=params or {}, timeout=60,
+                   _body_on_5xx=True)
+    return r.json()
+
+
+def fetch_twstock_theme_overview(headers, window=20):
+    """Concept themes (題材族群: Blave's curated stock lists such as 'ai', 'memory'), latest
+    close. → DataFrame indexed by theme `slug`, one row per active theme:
+      name                 {'zh', 'en', 'cn'} — pick the user's language, e.g. name['zh']
+      count                members still listed; snapshot_ym = the monthly list in use
+      returns.d1 … .d60 / .ytd   the theme index's return, percent (equal-weight, total return);
+                           returns_backfill.* True = that return reaches back before the list
+                           first took effect (computed with today's members — say so)
+      foreign / trust / dealer   that day's net buy over the members, 億元 (estimated, net shares
+                           × close); *_win = summed over `window` days; foreign_win_prev = the
+                           window before; foreign_win_ex_top = foreign_win without the largest
+                           member; foreign_buy_members = members the foreign investors net-bought
+      top.stock_id / top.name / top.mv_share   the largest member and its % of the theme's
+                           market cap; top5 = the five largest [{'stock_id', 'name'}]. top,
+                           top5 and mv_share use market caps as of the list's effective date
+      stats.*              streaks and one-year percentiles; indexable (a page flag)
+    attrs: date (as of), summary (up / down theme counts on the day, top / bottom by 20-day return,
+    foreign_top), list_ym, first_ym, list_age_days, stale_months, pctl_includes_backfill,
+    flow_caps. window: 10 / 20 / 60. No local cache. Members of one theme:
+    fetch_twstock_theme_constituents; its index history: fetch_twstock_theme_index."""
+    if window not in _TW_THEME_WINDOWS:
+        raise ValueError(f'window must be one of {_TW_THEME_WINDOWS}, got {window!r}')
+    body = _tw_snapshot('studio/market/twstock/theme/overview', headers, {'window': window})
+    df = _tw_groups_frame(body.get('themes'))
+    df.attrs.update({k: v for k, v in body.items() if k != 'themes'})
+    return df
+
+
+def fetch_twstock_theme_constituents(slug, headers):
+    """One concept theme's member list. → DataFrame, one row per member (delisted ones last):
+    stock_id, name, market ('twse' / 'tpex'), sector_slug, chg (that day's change, percent),
+    foreign (that day's 外資 net buy, 億元, estimated), ret20 (20-day return, percent), rev_yoy
+    (percent), roe (percent), foreign_share_chg_20d (change in foreign holding share, percentage
+    points), disposal, delisted, last_trade_date, also (the other theme slugs holding it),
+    reason ({'zh', 'en', 'cn'}: why it is in the list), sources (list of {'date', 'kind',
+    'label': {'zh', 'en', 'cn'}, 'url'}). attrs: name and intro ({'zh', 'en', 'cn'}), date,
+    count, snapshot_ym, effective_date, published_at, first_ym, status, changes ({'added',
+    'removed', 'prev_ym'} vs last month's list), related, list_age_days, stale_months. The
+    list is Blave's own curation, revised monthly. Unknown slug → 404, retired → 410. No
+    local cache."""
+    body = _tw_snapshot(f'studio/market/twstock/theme/constituents/{slug}', headers)
+    df = pd.DataFrame(body.get('stocks') or [])
+    df.attrs.update({k: v for k, v in body.items() if k != 'stocks'})
+    return df
+
+
+def fetch_twstock_theme_index(slug, headers, range='3m'):
+    """One concept theme's index history. → DataFrame indexed by naive date: value (the theme
+    index — equal weight, total return, 100 on attrs['base_date']), taiex / tpex (the TWSE /
+    TPEx total-return indices scaled to 100 on the same day), n (members counted that day),
+    snapshot_ym (the list used), is_backfill. range: '3m' / '1y' / '3y'. History from 2023.
+
+    is_backfill True = before the theme's first list took effect: those days use that first
+    list, chosen with hindsight — a backtest over them has look-ahead (survivorship) bias. Do
+    not backtest on them; say so when a chart or a return includes them. A day's value is
+    published after the close: use it from the next trading day on. No local cache."""
+    if range not in _TW_THEME_RANGES:
+        raise ValueError(f'range must be one of {_TW_THEME_RANGES}, got {range!r}')
+    body = _tw_snapshot(f'studio/market/twstock/theme/{slug}/index', headers, {'range': range})
+    df = pd.DataFrame(body.get('points') or [])
+    if not df.empty:
+        df['date'] = pd.to_datetime(df['date'])
+        df = df.set_index('date')
+    df.attrs.update({k: v for k, v in body.items() if k != 'points'})
+    return df
+
+
+def fetch_twstock_chip_breadth(scope, headers, window=20, inst='foreign'):
+    """法人買超族群: per group, the share of its companies an institution net-bought over the
+    last `window` trading days, against the same share for the whole market. → DataFrame
+    indexed by group `slug`, ranked best first by `inst`:
+      name                 a theme's {'zh', 'en', 'cn'} dict, or a sector's string
+      total                companies counted (common stock with a known window sum)
+      foreign.buy / .ratio / .gap / .rank   how many were net-bought, that share (percent), the
+                           share minus the market's (percentage points), the rank by share
+      trust.*              the same for investment trusts
+    attrs: as_of (the flows date), baseline ({'foreign': {'buy', 'ratio', 'total'}, 'trust': …,
+    'universe': 'twse' or 'twse+tpex'}), excluded (groups under min_group companies, not
+    ranked), min_group, scope, window, inst, sources (attribution, {'zh', 'en', 'cn'}).
+    scope: 'theme' (concept themes, 上市 + 上櫃) or 'sector' (TWSE sectors, 上市 only, compared
+    with 上市 only). window 10 / 20 / 60; inst 'foreign' / 'trust'. A count of buyers, not
+    money — a group can be mostly bought while its net flow is negative. Built nightly after
+    the close: use from the next trading day on. No local cache."""
+    if scope not in _TW_CHIP_SCOPES:
+        raise ValueError(f'scope must be one of {_TW_CHIP_SCOPES}, got {scope!r}')
+    if window not in _TW_THEME_WINDOWS:
+        raise ValueError(f'window must be one of {_TW_THEME_WINDOWS}, got {window!r}')
+    if inst not in ('foreign', 'trust'):
+        raise ValueError(f"inst must be 'foreign' or 'trust', got {inst!r}")
+    body = _tw_snapshot(f'studio/market/twstock/chip_breadth/{scope}', headers,
+                        {'window': window, 'inst': inst})
+    df = _tw_groups_frame(body.get('groups'))
+    df.attrs.update({k: v for k, v in body.items() if k != 'groups'})
+    return df
+
+
+def fetch_twstock_chip_breadth_constituents(scope, slug, headers, window=20):
+    """The counted companies of one fetch_twstock_chip_breadth group, market cap first. →
+    DataFrame: stock_id, name, market, foreign / trust ('buy' / 'sell' / 'flat' over the
+    window), market_cap (億元), ret_<window>d (percent), foreign_<window>d (外資 net buy over
+    the window, 億元, estimated), themes ([{'slug', 'name': {'zh', 'en', 'cn'}}], the other
+    themes), disposal / notice (None when attrs['alerts_available'] is False). attrs: group
+    (this group's row, as in fetch_twstock_chip_breadth), ranked (False = under min_group),
+    baseline, as_of, price_as_of, excluded_count, alerts_available, min_group, scope, window,
+    slug, sources. No local cache."""
+    if scope not in _TW_CHIP_SCOPES:
+        raise ValueError(f'scope must be one of {_TW_CHIP_SCOPES}, got {scope!r}')
+    if window not in _TW_THEME_WINDOWS:
+        raise ValueError(f'window must be one of {_TW_THEME_WINDOWS}, got {window!r}')
+    body = _tw_snapshot(f'studio/market/twstock/chip_breadth/{scope}/{slug}', headers,
+                        {'window': window})
+    df = pd.DataFrame(body.get('stocks') or [])
+    df.attrs.update({k: v for k, v in body.items() if k != 'stocks'})
+    return df
+
+
 # Retry passes for ids the server could not fetch: smaller chunks, longer waits. The first
 # pass keeps up to _FUNDAMENTAL_BATCH_WORKERS requests in flight: these datasets are read from the
 # api's own whole-market store (no FinMind quota behind them), and a whole-market run is
@@ -5260,6 +5633,19 @@ def fetch_twmarket_margin(start, end, headers):
     )
 
 
+def fetch_twmarket_margin_maintenance(start, end, headers):
+    """大盤融資維持率 (whole-market margin maintenance ratio). → DataFrame indexed by naive date,
+    one column `maintenance_ratio` in percent (151.93 = 151.93 %). 上市 (TWSE) only — there is no
+    上櫃 series. History from 2002-11-26 (start None = from then). Cached one file like
+    fetch_twmarket_margin. Published after the close: in a strategy use a day's value from the
+    next trading day on (no FEED_TIMING entry, align_feed does not take it)."""
+    return _extend_cache_monthly(
+        'twmarket_margin_maint', {'id': 'TWSE'},
+        lambda s, e: _fetch_twmarket_raw('margin_maintenance', ['maintenance_ratio'], s, e, headers),
+        start or '2002-11-26', end,
+    )
+
+
 def fetch_twmarket_dividend_points(start, end, headers):
     """加權指數每日除息點數 (TAIEX daily index dividend points) — the correction
     term for 正逆價差 fair-basis math. DatetimeIndex, columns: points (index
@@ -5540,14 +5926,15 @@ def _fetch_twfutures_raw_smart(symbol, schema, start, end, headers):
     return _fetch_twfutures_raw(symbol, schema, start, end, headers)
 
 
-# ── 統一期貨 live quote feed (desktop, 統一-bound) ────────────────────────────
-# lib/president_quote (the worker's quote thread) writes state/president_bars_TXF_1m.json
-# in the cache's own convention (END labels, naive UTC epoch, closing-match bars dropped);
-# a live tick extends the Blave series past its last bar from it. Blave stays first:
-# the delta fetch runs as always, the broker only adds the minutes Blave does not have
-# yet (an overlap is Blave's; a snapshot that starts after Blave's last bar cannot be
-# joined → the tick is Blave alone). The broker's bars never enter the parquet cache,
-# so a backtest reads the same series as a cloud machine.
+# ── TW broker live quote feed (統一 / 群益-bound) ───────────────────────────────
+# The bound broker's worker writes state/<broker>_bars_TXF_1m.json (lib/president_quote,
+# lib/capital_quote) in the cache's own convention (END labels, naive UTC epoch,
+# closing-match bars dropped); a live tick extends the Blave series past its last bar from
+# it. Blave stays first: the delta fetch runs as always, the broker only adds the minutes
+# Blave does not have yet (an overlap is Blave's; a snapshot that starts after Blave's last
+# bar cannot be joined → the tick is Blave alone). The broker's bars never enter the parquet
+# cache, so a backtest reads the same series as any other machine. Only the bound broker's
+# file is read: another broker's leftover snapshot never is.
 _STATE_DIR = Path(__file__).parent.parent / 'state'
 _PRESIDENT_BARS_MAX_AGE_S = 90
 # a paused snapshot whose rows end within this is the session that just closed: its closing
@@ -5555,25 +5942,38 @@ _PRESIDENT_BARS_MAX_AGE_S = 90
 # due — up to an hour after the last label (the 60m 05:00 bin is due at 06:00)
 _PRESIDENT_CLOSE_TAIL_S = 65 * 60
 _PRESIDENT_NOT_ENABLED = 'QUOTE_NOT_ENABLED'
+_TW_FEED_SCALE_TOL = 0.05
 
 
-def _president_feed_live():
-    """A live tick (BLAVE_MODE=live, not a scheduled report) on the desktop
-    (BLAVE_AGENT_LOCAL=1) of a machine whose TW broker is 統一 — the daemon passes the
-    bound broker as BLAVE_TW_BROKER (runtime/command_listener._tw_broker_flag); this
-    module never asks lib/venue_wiring itself (it would drag every strategy's data
-    import into the money-module closure the scheduled-run guard blocks)."""
-    if os.environ.get('BLAVE_MODE') != 'live' or os.environ.get('BLAVE_AGENT_LOCAL') != '1' \
-            or os.environ.get('BLAVE_SCHEDULED_RUN') == '1':
-        return False
+def _tw_feed_file(broker, root):
     from lib import venue_traits
-    return os.environ.get('BLAVE_TW_BROKER') == venue_traits.PRESIDENT
+    return {venue_traits.PRESIDENT: f'president_bars_{root}_1m.json',
+            venue_traits.CAPITAL: f'capital_bars_{root}_1m.json'}.get(broker)
 
 
-def _read_president_bars(root, now):
+def _tw_feed_broker():
+    """The bound TW broker whose quote feed this tick may read, or None: a live tick
+    (BLAVE_MODE=live, not a scheduled report) of a machine bound to 統一 / 群益 — the
+    daemon passes the bound broker as BLAVE_TW_BROKER (runtime/command_listener.
+    _tw_broker_flag); this module never asks lib/venue_wiring itself (it would drag every
+    strategy's data import into the money-module closure the scheduled-run guard blocks).
+    On the desktop (BLAVE_AGENT_LOCAL=1) either broker; a cloud machine 群益 only — the cloud
+    統一 tick stays Blave-only until that is decided on its own."""
+    from lib import venue_traits
+    if os.environ.get('BLAVE_MODE') != 'live' or os.environ.get('BLAVE_SCHEDULED_RUN') == '1':
+        return None
+    broker = os.environ.get('BLAVE_TW_BROKER') or None
+    if broker is None or _tw_feed_file(broker, 'TXF') is None:
+        return None
+    if os.environ.get('BLAVE_AGENT_LOCAL') != '1' and broker != venue_traits.CAPITAL:
+        return None
+    return broker
+
+
+def _read_broker_bars(broker, root, now):
     """(1m DataFrame in the cache convention, None, written_at) or (None, reason, written_at)."""
     try:
-        snap = json.loads(_read_text(_STATE_DIR / f'president_bars_{root}_1m.json', encoding='utf-8'))
+        snap = json.loads(_read_text(_STATE_DIR / _tw_feed_file(broker, root), encoding='utf-8'))
     except (OSError, ValueError):
         return None, 'no_file', None
     if not isinstance(snap, dict):
@@ -5585,10 +5985,16 @@ def _read_president_bars(root, now):
         # close, when the worker is still re-stamping `paused` (fresh written_at), its last poll
         # was good and the rows end minutes ago: the market cannot add to that session, so the
         # rows are read as live and the pause stamp is the clock that closes the final bin
-        # (_resample_president). Maintenance windows never fall inside a session.
+        # (_resample_broker). Maintenance windows never fall inside a session.
         if not (snap.get('ok') and rows and now - written_at <= _PRESIDENT_BARS_MAX_AGE_S
                 and now - float(rows[-1][0]) <= _PRESIDENT_CLOSE_TAIL_S):
-            return None, 'paused', written_at
+            from lib import venue_traits
+            if snap.get('ok') or broker != venue_traits.CAPITAL:
+                return None, 'paused', written_at
+            # 群益 closed with a feed that was not good when the session ended: the app must not
+            # say 群益's quotes are in use (`paused` reads as the normal line there). 統一's pause
+            # also covers its maintenance windows and keeps its shipped wording.
+            return None, f"not_ok:{snap.get('error') or ''}"[:120], written_at
     if not snap.get('ok'):
         err = str(snap.get('error') or '')
         return None, 'not_enabled' if err == _PRESIDENT_NOT_ENABLED else f'not_ok:{err}'[:120], written_at
@@ -5605,7 +6011,7 @@ def _read_president_bars(root, now):
 _TW_SESSION_FIRST_LABELS = ((0, 46), (7, 1))   # UTC: the 08:46 / 15:01 Taipei END labels that open a session
 
 
-def _resample_president(df, rule, clock):
+def _resample_broker(df, rule, clock):
     """The broker's 1m rows → the server's intraday schema (same resample as
     _fetch_twfutures_via_export), whole bins only: a bin is whole once its last
     minute's END label is in the rows, or that minute had passed when the
@@ -5626,28 +6032,41 @@ def _resample_president(df, rule, clock):
     return out[whole]
 
 
-def _with_president_tail(hist, traded, schema):
+def _scale_mismatch(hist, bars_1m):
+    """True when the broker's price level is off Blave's over the stretch both cover by more
+    than _TW_FEED_SCALE_TOL (median close to median close: a divisor error, not noise; works
+    whatever bar size `hist` is)."""
+    seg = hist.loc[bars_1m.index[0]:, 'Close']
+    if seg.empty:
+        return False
+    return bool(abs(bars_1m['Close'].median() / seg.median() - 1) > _TW_FEED_SCALE_TOL)
+
+
+def _with_broker_tail(hist, traded, schema, broker):
     from lib import venue_traits
     now = time.time()
     source, reason, added, out = 'blave', None, 0, hist
     try:
-        broker, reason, written_at = _read_president_bars('TXF', now)
-        if broker is not None:
-            if hist.empty or broker.index[0] > hist.index[-1]:
+        bars, reason, written_at = _read_broker_bars(broker, 'TXF', now)
+        if bars is not None:
+            if hist.empty or bars.index[0] > hist.index[-1]:
                 reason = 'no_overlap'
+            # 群益's push prices are raw integers divided locally (lib/capital_quote.PRICE_DIV)
+            elif broker == venue_traits.CAPITAL and _scale_mismatch(hist, bars):
+                reason = 'price_mismatch'
             else:
                 rule = _TW_FUTURES_RESAMPLE_RULES.get(schema)
                 if rule:
-                    broker = _resample_president(broker, rule, written_at)
-                new = broker[~broker.index.isin(hist.index) & (broker.index > hist.index[0])]
+                    bars = _resample_broker(bars, rule, written_at)
+                new = bars[~bars.index.isin(hist.index) & (bars.index > hist.index[0])]
                 if not new.empty:
                     out = pd.concat([hist, new[hist.columns.intersection(new.columns)]]).sort_index()
                     added = len(new)
-                source, reason = venue_traits.PRESIDENT, None
+                source, reason = broker, None
     except Exception as e:  # noqa: BLE001 — an optional source never fails the tick
         source, reason, added, out = 'blave', f'error:{type(e).__name__}', 0, hist
     status = {'source': source, 'reason': reason, 'at': int(now), 'root': 'TXF', 'traded': traded,
-              'schema': schema, 'added': added,
+              'schema': schema, 'added': added, 'broker': broker,
               'last_bar': out.index[-1].strftime('%Y-%m-%dT%H:%M:%SZ') if not out.empty else None}
     try:
         path = _STATE_DIR / 'twfutures_live_source.json'
@@ -5658,8 +6077,66 @@ def _with_president_tail(hist, traded, schema):
     except OSError:
         pass
     if source == 'blave' and reason != 'paused':
-        logging.warning(f'[twfutures] live bars from the Blave cache, not 統一 ({reason})')
+        logging.warning(f'[twfutures] live bars from the Blave cache, not {broker} ({reason})')
+    _tw_feed_episode(broker, source, reason, now)
     return out
+
+
+# One tw_feed_fallback (P2) per outage of a broker's own quote feed. Not counted: `paused` (no
+# session), `no_file` / `not_enabled` (never logged in / quote right not opened — setup, shown on
+# the 自動下單 line and by the login notices). A session's first minute or two is routinely
+# `no_overlap` (Blave has not got the opening bar yet), hence the dwell: the notice goes once the
+# fallback has lasted _TW_FEED_NOTICE_AFTER_S across ticks — a 60m strategy's second tick. The
+# outage ends on the first tick that reads the broker again; a pause before the notice went
+# forgets the start, so last night's two stale minutes do not page at this morning's open.
+_TW_FEED_NOTICE_AFTER_S = 300
+_TW_FEED_UNCOUNTED = ('paused', 'no_file', 'not_enabled')
+
+
+def _tw_feed_episode(broker, source, reason, now):
+    try:
+        path, marker = _STATE_DIR / 'tw_feed_down.json', _STATE_DIR / f'tw_feed_notified_{broker}'
+        try:
+            book = json.loads(_read_text(path, encoding='utf-8'))
+            book = book if isinstance(book, dict) else {}
+        except (OSError, ValueError):
+            book = {}
+        since = book.get(broker)
+
+        def save():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = _tmp_path(path)
+            tmp.write_text(json.dumps(book))
+            _winreplace.atomic_replace(tmp, path)
+
+        if source == broker or reason is None or (reason == 'paused' and not marker.exists()):
+            if since is not None:
+                book.pop(broker, None)
+                save()
+            if source == broker:
+                marker.unlink(missing_ok=True)
+            return
+        if reason in _TW_FEED_UNCOUNTED:
+            return
+        if not isinstance(since, (int, float)) or isinstance(since, bool):
+            book[broker] = now
+            save()
+            return
+        if now - since < _TW_FEED_NOTICE_AFTER_S:
+            return
+        try:   # several strategies tick in the same minute: the one that creates the marker sends
+            os.close(os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        except FileExistsError:
+            return
+        from lib.events import emit
+        if emit("tw_feed_fallback", venue=broker, reason=str(reason)[:32]):
+            return
+        from lib import venue_traits
+        from lib.notify import send_text
+        name = venue_traits.get(broker, 'label') or '券商'
+        send_text(f'⚠️ {name}的台指期即時行情斷了，訊號改用 Blave 的資料，會慢 1–2 分鐘。行情回來會自動切回。')
+    except Exception as e:  # noqa: BLE001 — a notice never fails the tick
+        logging.warning(f'[twfutures] feed-outage notice skipped ({e})')
 
 
 def fetch_twfutures_ohlcv(symbol, schema, start, end, headers):
@@ -5689,9 +6166,9 @@ def fetch_twfutures_ohlcv(symbol, schema, start, end, headers):
     (2011-01-03) gets the TAIFEX bars in front of it (attrs['source'] = 'TAIFEX/Blave'). A
     cloud machine, and every intraday schema, is the Blave series alone as before.
 
-    Intraday on a live tick of a 統一-bound desktop: the Blave series (cache + delta, as
+    Intraday on a live tick of a 統一 / 群益-bound machine: the Blave series (cache + delta, as
     always) is extended past its last bar from the broker's own 1m feed
-    (state/president_bars_TXF_1m.json, lib/president_quote) — see _with_president_tail;
+    (state/<broker>_bars_TXF_1m.json, lib/president_quote / capital_quote) — see _with_broker_tail;
     the outcome goes to state/twfutures_live_source.json. Backtests never read it.
     """
     symbol = symbol.upper()
@@ -5715,8 +6192,9 @@ def fetch_twfutures_ohlcv(symbol, schema, start, end, headers):
         blave_start, end,
         empty_marker_ttl_hours=24,   # history is backfilled progressively server-side
     )
-    if symbol == 'TXF' and schema != '1d' and _president_feed_live():
-        df = _with_president_tail(df, traded, schema)
+    feed = _tw_feed_broker() if symbol == 'TXF' and schema != '1d' else None
+    if feed:
+        df = _with_broker_tail(df, traded, schema, feed)
     df = _sanity_check_ohlc(df, f'{symbol} {schema} twfutures')
     if schema == '1d' and not df.empty:
         # Cache stores naive UTC (midnight TWN = prev-day 16:00 UTC). Convert to Asia/Taipei
@@ -5920,6 +6398,148 @@ def fetch_twfutures_carrying_cost(identity, start, end, headers, scope='all'):
         print(f"  ⚠️  twfutures_carrying_cost: the server's copy is behind TAIFEX's last "
               f"published day — the newest row may be missing")
     return df
+
+
+def fetch_twfutures_daily(futures_id, start, end, headers, aggregate=False):
+    """期貨日行情 per contract month (GET /studio/market/twfutures/daily/<futures_id>). →
+    DataFrame indexed by naive trading date.
+
+    aggregate=False (default): every row as the exchange publishes it — several per day, one
+    per contract month × trading_session ('position' = regular session, 'after_market' =
+    the evening session dated to the business day it settles into) plus calendar-spread
+    rows (contract_date with '/', e.g. '202505/202506'). Columns futures_id, contract_date,
+    open, max, min, close, spread, spread_per, volume, settlement_price, open_interest,
+    trading_session.
+    aggregate=True: one row per date — the nearest monthly contract still trading that day
+    (the one expiring that day is skipped) for contract_date / open / high / low / close /
+    settlement_price, volume and open_interest summed over all months (regular session,
+    spreads out), is_settlement_day. A 0 price (no trade that day) comes back as NaN.
+
+    futures_id: 'TX' 台指期, 'MTX' 小台, 'TMF' 微台, 'TE' / 'TF', or a stock-futures id
+    ('CDF'); 'TXF' → 'TX' and 'MXF' → 'MTX' map automatically. start / end None = the whole
+    history (TX from 1998) / up to today — pass a start: the raw full history is a large
+    answer. One request, no local cache. For bars to trade or backtest use
+    fetch_twfutures_ohlcv (the continuous near-month series with the roll rule); this one is
+    for open interest, settlement prices and per-month detail. Published after the close: in a strategy use a day's rows from the next trading day on (no FEED_TIMING, align_feed does not take it)."""
+    futures_id = _TWFUT_INST_ALIASES.get(futures_id.upper(), futures_id.upper())
+    params = {k: v for k, v in (('start', start), ('end', end)) if v}
+    if aggregate:
+        params['aggregate'] = '1'
+    return _tw_dated_rows(f'studio/market/twfutures/daily/{futures_id}', headers, params,
+                          _TWFUT_DAILY_AGG_COLUMNS if aggregate else _TWFUT_DAILY_COLUMNS)
+
+
+def fetch_twfutures_large_traders(futures_id, start, end, headers):
+    """期貨大額交易人未沖銷部位 (large-trader open interest). → DataFrame indexed by naive
+    trading date, three rows per day by contract_type: 'week' (the weekly contract), the
+    near month ('202505'-style) and 'all'. Columns futures_id, name, contract_type,
+    {buy|sell}_{top5|top10}_trader_open_interest(_per) (contracts / percent of market OI),
+    the same for _specific_ (特定法人), market_open_interest. futures_id 'TX' / 'MTX' ('TXF' /
+    'MXF' map); stock futures have no large-trader data (404). start / end None = the whole
+    history / up to today. One request, no local cache. Published after the close: in a strategy use a day's rows from the next trading day on (no FEED_TIMING, align_feed does not take it)."""
+    futures_id = _TWFUT_INST_ALIASES.get(futures_id.upper(), futures_id.upper())
+    params = {k: v for k, v in (('start', start), ('end', end)) if v}
+    return _tw_dated_rows(f'studio/market/twfutures/large_traders/{futures_id}', headers, params,
+                          ['futures_id'] + _TW_LARGE_TRADER_COLUMNS)
+
+
+def fetch_twoption_large_traders(option_id, start, end, headers):
+    """選擇權大額交易人未沖銷部位. → DataFrame indexed by naive trading date, six rows per day:
+    put_call ('call' / 'put') × contract_type ('week' / near month / 'all'). Columns
+    option_id, name, put_call, contract_type, {buy|sell}_{top5|top10}_trader_open_interest
+    (_per), the same for _specific_, market_open_interest. option_id 'TXO' (台指選擇權).
+    start / end None = the whole history / up to today. One request, no local cache.
+    The official put/call ratio is fetch_twfutures_pcr — do not rebuild it from this.
+    Published after the close: in a strategy use a day's rows from the next trading day on (no FEED_TIMING, align_feed does not take it)."""
+    params = {k: v for k, v in (('start', start), ('end', end)) if v}
+    return _tw_dated_rows(f'studio/market/twfutures/option/large_traders/{option_id.upper()}',
+                          headers, params, ['option_id', 'put_call'] + _TW_LARGE_TRADER_COLUMNS)
+
+
+def fetch_twoption_institutional(option_id, start, end, headers):
+    """選擇權三大法人 (option positions of the three institutional investor groups). →
+    DataFrame indexed by naive trading date, six rows per day: call_put ('買權' / '賣權') ×
+    institutional_investors ('外資' / '投信' / '自營商'). Columns option_id, call_put,
+    institutional_investors, long_ / short_deal_volume / _amount (that day's trades),
+    long_ / short_open_interest_balance_volume / _amount (open interest).
+    option_id 'TXO'. start / end None = from 2018-06 / up to today. One request, no local
+    cache. Published after the close: in a strategy use a day's rows from the next trading day on (no FEED_TIMING, align_feed does not take it)."""
+    params = {k: v for k, v in (('start', start), ('end', end)) if v}
+    return _tw_dated_rows(f'studio/market/twfutures/option/institutional/{option_id.upper()}',
+                          headers, params, _TWOPT_INST_COLUMNS)
+
+
+def fetch_twfutures_retail_long_short_ratio(futures_id, headers, date=None):
+    """散戶多空比 (retail long/short open-interest ratio) of one index future for ONE trading
+    day. → dict: date, futures_id, market_open_interest, institutional_long_open_interest,
+    institutional_short_open_interest, retail_long_open_interest, retail_short_open_interest,
+    retail_long_short_ratio (percent). retail long = market OI − the three institutions'
+    long OI, retail short likewise; ratio = (retail long − retail short) / market OI × 100,
+    positive = retail net long. date 'YYYY-MM-DD' or None = the latest settled day; a date
+    with no data is a 404. futures_id 'TX' 大台 / 'MTX' 小台 / 'TMF' 微台 ('TXF' / 'MXF' map);
+    TMF has data from 2024-07-29 (its listing day). The three are different contracts with different
+    retail shares (2026-11-06: TMF +47.14 %, MTX +17.37 %, TX +5.92 %) — never compare one
+    with another or pick one silently. When the user says 散戶多空比 without a contract, the
+    one Blave Studio's page shows is TMF; name the contract with the number. For a series
+    use fetch_twfutures_retail_long_short_ratio_history (one call), never one call per day."""
+    futures_id = _TWFUT_INST_ALIASES.get(futures_id.upper(), futures_id.upper())
+    r = _retry_get(f'{BASE}/studio/market/twfutures/retail_long_short_ratio/{futures_id}',
+                   headers=headers, params={'date': date} if date else {}, timeout=60)
+    return r.json()
+
+
+_TWFUT_RETAIL_LSR_COLUMNS = ['futures_id', 'market_open_interest',
+                             'institutional_long_open_interest', 'institutional_short_open_interest',
+                             'retail_long_open_interest', 'retail_short_open_interest',
+                             'retail_long_short_ratio']
+
+
+def fetch_twfutures_retail_long_short_ratio_history(futures_id, start, end, headers):
+    """散戶多空比 series of one index future. → DataFrame indexed by naive trading date, oldest
+    first, one row per day: futures_id, market_open_interest, institutional_long_open_interest,
+    institutional_short_open_interest, retail_long_open_interest, retail_short_open_interest
+    (contracts), retail_long_short_ratio (percent, unrounded; > 0 = retail net long). Same
+    formula as fetch_twfutures_retail_long_short_ratio. futures_id 'TX' / 'MTX' / 'TMF' ('TXF' /
+    'MXF' map). start / end 'YYYY-MM-DD'; start None = the whole history (TX / MTX from
+    2018-06-05, TMF from 2024-07-29, its listing day), end None = up to today. A range with no
+    settled day is an empty frame, not an error; an id with no data at all is a 404. TX, MTX
+    and TMF are different contracts with different retail shares (2026-11-06: TMF +47.14 %,
+    MTX +17.37 %, TX +5.92 %) — never compare one with another; name the contract with the
+    number. One request, no local cache. Published after the close: in a strategy use a day's
+    value from the next trading day on (no FEED_TIMING, align_feed does not take it)."""
+    futures_id = _TWFUT_INST_ALIASES.get(futures_id.upper(), futures_id.upper())
+    params = {k: v for k, v in (('start', start), ('end', end)) if v}
+    return _tw_dated_rows(f'studio/market/twfutures/retail_long_short_ratio/{futures_id}/history',
+                          headers, params, _TWFUT_RETAIL_LSR_COLUMNS)
+
+
+def fetch_stock_futures_list(headers):
+    """Every listed stock future (股票期貨) on TAIFEX now. → DataFrame indexed by futures_id
+    ('CDF'): code, stock_id (the underlying), stock_name, stock_full_name, unit (shares per
+    contract: 2,000 standard, 100 mini — one stock can have both, e.g. 2330 has CDF and QFF,
+    and their contract counts are not comparable), minute_line_enabled (True = intraday bars
+    exist, the same set as fetch_stock_futures_ohlcv_symbols). The count changes as TAIFEX
+    lists and delists — never hard-code it. No local cache."""
+    r = _retry_get(f'{BASE}/studio/market/twfutures/stock_futures/list', headers=headers,
+                   timeout=60)
+    df = pd.DataFrame(r.json().get('data') or [])
+    return df.set_index('futures_id') if 'futures_id' in df.columns else df
+
+
+def fetch_stock_futures_liquidity_ranking(headers):
+    """Stock futures ranked by liquidity. → DataFrame indexed by futures_id, best first: rank,
+    avg_volume and avg_open_interest (contracts, mean of the last 20 trading days; regular
+    session only — evening session and calendar spreads out, weekly contracts in), the
+    fetch_stock_futures_list columns (unit, stock_id, …) and minute_line_enabled. Compare
+    volumes only within one `unit` — a mini contract is 1/20 of a standard one. A contract
+    with no daily data is absent. The api rebuilds the ranking after the close and caches it
+    an hour; no local cache."""
+    r = _retry_get(f'{BASE}/studio/market/twfutures/stock_futures/liquidity_ranking',
+                   headers=headers, timeout=120)
+    df = pd.DataFrame(r.json().get('data') or [])
+    if 'rank' in df.columns:
+        df = df.sort_values('rank')
+    return df.set_index('futures_id') if 'futures_id' in df.columns else df
 
 
 # ── Market-wide series straight from TWSE / TAIFEX (free, no key) ────────────
@@ -6496,7 +7116,7 @@ def fetch_stock_futures_batch_daily(futures_ids, start, end, headers):
     moves daily, so the first run each day re-fetches the full range; later runs the
     same day hit the cache.
 
-    Same fields as fetch_twfutures_daily: date, futures_id, contract_date,
+    The raw fetch_twfutures_daily columns, `date` a column here: date, futures_id, contract_date,
     open, max, min, close, spread, spread_per, volume, settlement_price,
     open_interest, trading_session. futures_ids must be valid stock futures
     ids (股票期貨, e.g. 'CDF') — arbitrary ids are rejected (400).
@@ -8197,6 +8817,17 @@ _NON_PRICE_FETCHERS = frozenset({
     'fetch_twstock_per_batch', 'fetch_twstock_ratios', 'fetch_twstock_ratios_batch',
     'fetch_twstock_shareholding', 'fetch_twstock_shareholding_batch',
     'fetch_twstock_trader_flows',
+    # fetch_twfutures_daily is per contract month with no roll: not a series to trade on
+    'fetch_stock_futures_liquidity_ranking', 'fetch_stock_futures_list', 'fetch_twfutures_daily',
+    'fetch_twfutures_large_traders', 'fetch_twfutures_retail_long_short_ratio',
+    'fetch_twfutures_retail_long_short_ratio_history',
+    'fetch_twoption_institutional', 'fetch_twoption_large_traders', 'fetch_twstock_gov_bank',
+    'fetch_twstock_lending', 'fetch_twstock_market_value', 'fetch_twstock_news',
+    'fetch_twstock_screener', 'fetch_twstock_sector_constituents', 'fetch_twstock_sector_overview',
+    'fetch_twstock_sector_up_share',
+    'fetch_twmarket_margin_maintenance', 'fetch_twstock_chip_breadth',
+    'fetch_twstock_chip_breadth_constituents', 'fetch_twstock_theme_constituents',
+    'fetch_twstock_theme_index', 'fetch_twstock_theme_overview',
 })
 
 

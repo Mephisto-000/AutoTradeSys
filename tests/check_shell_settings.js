@@ -108,7 +108,7 @@ ok("① 兩個版號各自包在 .mono 裡(各在自己那一行)", mono($("set-
 p = paint(fresh, cloud());
 ok("② 還沒查完(啟動 30 秒內):第一行只寫版本、不寫狀態字、不寫「檢查中」;連結照舊;第二行不受影響", p.line === 'up.row.app{"av":"0.0.7"}' && p.link === "up.check" && !/checking/.test(p.line) && p.cline === 'up.row.cloud{"cv":"2026-09-24-b"} · up.row.latest');
 { const upd = fs.readFileSync(path.join(R, "..", "updater.js"), "utf8");
-  ok("② 那 30 秒來自 updater.js 的 FIRST_CHECK_MS;「已是最新版」只認 checkedAt,而 checkedAt 只有 update-not-available 會寫", /const FIRST_CHECK_MS = 30 \* 1000;/.test(upd) && (upd.match(/checkedAt/g) || []).length === 1 && /update-not-available", \(\) => set\(\{ phase: "idle", version: null, checkedAt: Date\.now\(\) \}\)/.test(upd)
+  ok("② 那 30 秒來自 updater.js 的 FIRST_CHECK_MS;「已是最新版」只認 checkedAt,而 checkedAt 只有 update-not-available 會寫", /const FIRST_CHECK_MS = 30 \* 1000;/.test(upd) && (upd.match(/checkedAt/g) || []).length === 1 && /update-not-available", \(\) => \{ if \(!refreshing\) set\(\{ phase: "idle", version: null, checkedAt: Date\.now\(\) \}\)/.test(upd)
     && /st\.checkedAt > 0\) status = \["up\.row\.latest"\]/.test(fnSrc("upPlan"))); }
 UP_CHECKING = true; p = paint(idle, cloud()); UP_CHECKING = false;
 ok("③ 按下檢查更新的那幾秒:連結本身變成 16/2 圓環(停用、aria-label 留著檢查更新),狀態字沿用上一次的「已是最新版」,沒有「檢查中」", p.spin && p.dis && p.link === "" && $("set-up-btn").attrs["aria-label"] === "up.check" && /up\.row\.latest$/.test(p.line));
@@ -354,7 +354,7 @@ ok("報告的 workspace_update 是不可信輸入:state 不認得 / 不是物件
       && has(enS, "up.row.cloud", "Cloud machine {cv}") && has(enS, "up.row.cloudOff", "Cloud machine (stopped)") && has(enS, "up.row.latest", "Up to date") && has(enS, "up.restart", "Restart to finish updating") && has(enS, "tm.updateReady", "Restart to finish updating"));
     ok("字(§3):事後那一行 zh / en", has(zhS, "up.done.cloud", "雲端主機已更新到 {cv}。") && has(zhS, "up.done.cloudRestarted", "雲端主機已更新到 {cv}，自動下單已用新版重新啟動。") && has(zhS, "up.done.replaced", "你改過的 {n} 個官方檔換成了官方版，舊的在 {dir}（{view}）。")
       && has(zhS, "up.done.view", "查看") && has(zhS, "up.backup", "Blave 已更新到 {av}。你改過的 {n} 個官方檔換成了官方版，舊的在 {dir}（{view}）。") && has(zhS, "up.backup.open", "開啟資料夾")
-      && has(zhS, "up.done.restartDeferred", "雲端主機的新檔已就位，但自動下單仍在跑舊版；等這筆單完成後再說一次「更新」就會重啟。") && has(enS, "up.done.restartDeferred", "The cloud machine has the new files, but auto-trading is still on the old code; once this order finishes, say 更新 again and it will restart.") && has(zhS, "up.done.restartFailed", "雲端主機的新檔已就位，但自動下單重新啟動失敗，仍在跑舊版；再說一次「更新」就會再試。") && has(zhS, "up.done.paused", "雲端主機已更新到 {cv}。自動下單仍暫停，按「啟動下單」才會繼續。")
+      && has(zhS, "up.done.restartDeferred", "雲端主機的新檔已就位，但自動下單仍在跑舊版；等這筆單完成後再說一次「更新」就會重啟。") && has(enS, "up.done.restartDeferred", "The cloud machine has the new files, but auto-trading is still on the old code; once this order finishes, say 更新 again and it will restart.") && has(zhS, "up.done.restartFailed", "雲端主機的新檔已就位，但自動下單重新啟動失敗，仍在跑舊版。再說一次「更新」就會再試。") && has(zhS, "up.done.paused", "雲端主機已更新到 {cv}。自動下單仍暫停，按「啟動下單」才會繼續。")
       && has(enS, "up.done.cloud", "Cloud machine updated to {cv}.") && has(enS, "up.done.replaced", "{n} official files you had changed were replaced; the old copies are in {dir} ({view}).") && has(enS, "up.done.view", "view") && has(enS, "up.backup.open", "Open folder"));
     { // 0.1.11 設計稽核 S1:三句事後那一行講「自動下單」(跟 agent 的回覆句同一組字);restartDeferred 跟兩份 reference 的 restart_deferred 句逐字相同
       const V = require("vm").runInNewContext(S2.replace(/^const STRINGS/m, "var STRINGS") + "\nSTRINGS"), ref = ["updating.md", "cloud-handoff.md"].map((f) => fs.readFileSync(path.join(R, "..", "..", "references", f), "utf8"));
@@ -630,7 +630,7 @@ ok("隱私:分類排最後、開關是 role=switch + aria-checked、即時生效
 // 會收的組(0.1.39):PRIV_COLLECT 從原文 eval 出來,組 id、句數、順序逐一對;舊的 priv.collect.<n> 一條都不能留
 const PRIV_COLLECT_V = eval(src.match(/const PRIV_COLLECT = [^\n]*;/)[0].replace(/^const PRIV_COLLECT = /, "(").replace(/;$/, ")"));
 const POS = (L, k) => { const m = PO[L].match(new RegExp('msgid "' + k.replace(/\./g, "\\.") + '"\nmsgstr "([^"]*)"')); return m ? m[1] : null; };
-const PRIV_SHAPE = [["step", 4], ["strat", 5], ["feat", 6], ["stuck", 7], ["auth", 5], ["meta", 5], ["acct", 2]];
+const PRIV_SHAPE = [["step", 4], ["strat", 5], ["feat", 7], ["stuck", 7], ["auth", 5], ["meta", 5], ["acct", 2]];
 const PRIV_GROUPS_OK = JSON.stringify(PRIV_COLLECT_V) === JSON.stringify(PRIV_SHAPE.map(([g, n]) => ["priv.c." + g + ".h", Array.from({ length: n }, (_, i) => "priv.c." + g + "." + (i + 1))]))
   && PRIV_COLLECT_V.every(([h, ks]) => [h, ...ks].every((k) => POS(0, k) && POS(1, k)))
   && PO.every((x) => !/msgid "priv\.collect\.\d+"/.test(x)) && !/priv\.collect\.\d/.test(src)
@@ -702,7 +702,7 @@ ok("隱私:會收分 7 組(0.1.39 設計稽核 §C,Wei 核准;0.1.45 拿掉策�
 const PRIV_ZH = {
   step: ["做到哪一步", "首次開啟、每日開啟、登入", "app 開著的每一天，含本機自動下單有沒有在跑", "完成連結，記哪一種 AI", "第一次回測、啟動下單（模擬或真錢）、上雲端運行"],
   strat: ["每支策略", "新建、第一次回測、第一次配了金額時各記一次", "只記型別（A／B／C）與市場類別，例如加密貨幣、台指期", "不記策略名稱或標的", "三步記同一組代碼，代碼只有這台電腦算得出", "Blave 推不回策略名稱"],
-  feat: ["用了哪些功能", "分頁與按鈕的名稱，每天每項記一次", "不含分頁與按鈕裡的內容", "從策略庫用一支策略時，記它要不要 Blave 資料", "送出找點子時，記從哪個入口送出", "回覆好了的系統通知：有沒有跳出、有沒有被點開", "不含對話標題與內容"],
+  feat: ["用了哪些功能", "分頁與按鈕的名稱，每天每項記一次", "不含分頁與按鈕裡的內容", "從策略庫用一支策略時，記它要不要 Blave 資料", "送出找點子時，記從哪個入口送出", "換策略庫排序時，記選了哪一種", "回覆好了的系統通知：有沒有跳出、有沒有被點開", "不含對話標題與內容"],
   stuck: ["卡在哪一步", "回合失敗、連不上 AI、策略庫用不了的原因類別", "綁卡／儲值提示有沒有出現與按下、回來後能不能用", "啟動雲端方案的結果、更新卡在哪一步", "第一次收到 AI 回覆", "第一次安裝或更新後補裝引擎與策略套件，有沒有裝好", "沒裝好是哪一類原因", "只記類別，不含內容"],
   auth: ["登入與金鑰", "本機 AI 的登入方式，例如訂閱或 API 金鑰", "不含帳號與金鑰", "登入失敗的類別，以及當下是否判定為已登入", "改金鑰時驗證碼框的出現、通過與鎖住", "不含驗證碼"],
   meta: ["每筆紀錄都帶", "發生的時間", "app 版本、作業系統與版本、系統語言", "電腦類型：筆電或桌機", "安裝識別碼：這份安裝隨機產生的編號", "登入後，安裝識別碼會跟你的帳號對上"],
@@ -712,12 +712,12 @@ const privKeys = (g) => ["priv.c." + g + ".h", ...PRIV_ZH[g].slice(1).map((_, i)
 const zhCount = (x) => { const CJK = /[\p{Script=Han}]/gu; return (x.match(CJK) || []).length + (x.replace(CJK, " ").match(/[\p{L}\p{N}_]+(?:[.,]\p{N}+)*/gu) || []).length; };
 ok("隱私 0.1.39:會收七組的 zh 逐字、每句 ≤25 字(canon 算法);組標題與句子 en 都有", Object.keys(PRIV_ZH).every((g) => privKeys(g).every((k, i) => POS(0, k) === PRIV_ZH[g][i] && zhCount(PRIV_ZH[g][i]) <= 25 && !!POS(1, k))));
 // 事件數跟告知綁在一起:加事件而沒補「會收」那幾組,這裡就紅(canon product-telemetry 出貨清單第 5 條)
-ok("隱私:三十一個事件逐項對得上契約的白名單(heartbeat=做到哪一步「app 開著的每一天」;strat_* 三個=每支策略,只記型別與市場類別;feature_used=用了哪些功能,名稱、每日一次、不含內容;lib_pick / idea_sent=用了哪些功能的策略庫與找點子;reply_notif=系統通知;0.1.9 九個、0.1.12 引擎安裝兩個、0.1.15 detect_fail=卡在哪一步,只記類別;cli_auth / auth_fail / key_verify=登入與金鑰;device_type=每筆紀錄都帶的電腦類型,spec-0.1.13 #12:寫作業系統與版本,不寫 macOS)",
-  Object.keys(require("../shell/telemetry.js").EVENTS).length === 31
-  && (() => { const ev = require("../shell/telemetry.js").EVENTS; return ["heartbeat", "strat_created", "strat_backtested", "strat_deployed", "feature_used", "lib_pick", "idea_sent", "reply_notif", "detect_fail", "engine_setup", "engine_opt_fail", "cli_auth", "auth_fail", "key_verify", "device_type"].every((e) => !!ev[e]); })()
+ok("隱私:三十六個事件逐項對得上契約的白名單(lib_sort=用了哪些功能的策略庫排序;lib_bindbuy=用了哪些功能的策略庫綁卡即購買走到哪一步,不帶金額;0.1.50 lib_bindplan / lib_cardplan / lib_login_go 同組:策略庫一步開通與登入後接到哪一步,不帶金額;heartbeat=做到哪一步「app 開著的每一天」;strat_* 三個=每支策略,只記型別與市場類別;feature_used=用了哪些功能,名稱、每日一次、不含內容;lib_pick / idea_sent=用了哪些功能的策略庫與找點子;reply_notif=系統通知;0.1.9 九個、0.1.12 引擎安裝兩個、0.1.15 detect_fail=卡在哪一步,只記類別;cli_auth / auth_fail / key_verify=登入與金鑰;device_type=每筆紀錄都帶的電腦類型,spec-0.1.13 #12:寫作業系統與版本,不寫 macOS)",
+  Object.keys(require("../shell/telemetry.js").EVENTS).length === 36
+  && (() => { const ev = require("../shell/telemetry.js").EVENTS; return ["heartbeat", "strat_created", "strat_backtested", "strat_deployed", "feature_used", "lib_pick", "idea_sent", "lib_sort", "lib_bindbuy", "lib_bindplan", "lib_cardplan", "lib_login_go", "reply_notif", "detect_fail", "engine_setup", "engine_opt_fail", "cli_auth", "auth_fail", "key_verify", "device_type"].every((e) => !!ev[e]); })()
   && /^App version, operating system and version, system language$/.test(POS(1, "priv.c.meta.2")) && /^Computer type: laptop or desktop$/.test(POS(1, "priv.c.meta.3"))
   && /whether local auto-trading runs/.test(POS(1, "priv.c.step.2")) && /type \(A\/B\/C\) and market category/.test(POS(1, "priv.c.strat.2")) && /^Never its name or symbol$/.test(POS(1, "priv.c.strat.3"))
-  && /whether it needs Blave data/.test(POS(1, "priv.c.feat.3")) && /which entry point/.test(POS(1, "priv.c.feat.4")) && /^Never the chat title or text$/.test(POS(1, "priv.c.feat.6"))
+  && /whether it needs Blave data/.test(POS(1, "priv.c.feat.3")) && /which entry point/.test(POS(1, "priv.c.feat.4")) && /which sort you picked/.test(POS(1, "priv.c.feat.5")) && /^Never the chat title or text$/.test(POS(1, "priv.c.feat.7"))
   && /^Categories only, never the content$/.test(POS(1, "priv.c.stuck.7")) && /^Never the code$/.test(POS(1, "priv.c.auth.5")) && /kept 90 days/.test(POS(1, "priv.c.acct.2")));
 ok("acct.sub 開通試用那句兼講期限(Wei 核准 0.1.10):zh / en 逐字", /msgid "acct\.sub"\nmsgstr "首次綁卡，\{t\} 天內有 \{q\} TWD 的 AI 額度，電腦版也拿得到 Blave 的資料。"/.test(PO[0])
   && /msgid "acct\.sub"\nmsgstr "A first-time card gets \{q\} TWD of AI credit and Blave data in the desktop app, both for \{t\} days\."/.test(PO[1]));
@@ -1127,7 +1127,8 @@ ok("全 app 的字串不出現「匿名 / anonymous」(報告分享的掛名選�
 // 從 none 回來時,按小時付的那條要講「會收錢」,免費那條照舊「可以用了」。真的跑 dataCardState / acctPaint / maybeDataCard
 { const mkCard = () => { const c = { states: [] }; c.set = (x) => { c.states.push(x); c.last = x; }; return c; };
   let acct = null, hasToken = true, cur = "claude", dataCard = null, acctCard = null, sessionId = "s1", turnFaulted = false, running = false, lastUserText = "q", lastUserAttachments = [], acctGone = null;   // acctGone:acctPaint 補記 acct_card_back 用的,這裡沒按過卡上的鈕
-  const creditCards = [], dataCardSessions = new Set(); let turnCards = [];
+  const creditCards = [], dataCardSessions = new Set(); let turnCards = [], turnDataCode = null, planLoginBusy = false, REVOKED = false;
+  const authRevoked = () => REVOKED, planSignIn = async () => ({ ok: true });
   let V = { t: 14, p: "1,440", r: "2" };
   const planVars = () => V, planOpen = () => {}, planState = () => (acct && acct.plan && acct.plan.state) || "none", planWatch = () => {};
   const acctUrl = () => "topup", faultCard = () => mkCard(), submitMessage = async () => true, $ = () => ({ focus() {} });
@@ -1135,7 +1136,7 @@ ok("全 app 的字串不出現「匿名 / anonymous」(報告分享的掛名選�
   const went = [], trackFeature = (n) => went.push("track:" + n), bindGo = (n) => went.push("bind:" + n);
   let pub = null; eval(fnSrc("planMo"));
   eval(fnSrc("dataAccessOf")); for (const n of ["acctNoCard", "acctOffer"]) { const m = src.match(new RegExp("^const " + n + " = [^\\n]*$", "m")); if (m) eval(m[0].replace(/^const /, "var ")); } eval(src.match(/^const hasData = [^\n]*$/m)[0].replace(/^const /, "var ")); eval(src.match(/^const pvK = [^\n]*$/m)[0].replace(/^const /, "var "));
-  eval(fnSrc("dataReadyText")); eval(src.match(/^const resendable = [^\n]*$/m)[0].replace(/^const /, "var ")); eval(src.match(/^function canResend\(\)[^\n]*$/m)[0]); eval(src.match(/^function resendLast\(\)[^\n]*$/m)[0]); eval(src.match(/^function sysLz\(fn\)[^\n]*$/m)[0]); eval(fnSrc("resendState")); eval(fnSrc("dataCardState")); eval(fnSrc("dataCardSync")); eval(fnSrc("maybeDataCard")); eval(fnSrc("acctPaint"));
+  eval(fnSrc("dataReadyText")); eval(src.match(/^const resendable = [^\n]*$/m)[0].replace(/^const /, "var ")); eval(src.match(/^function canResend\(\)[^\n]*$/m)[0]); eval(src.match(/^function resendLast\(\)[^\n]*$/m)[0]); eval(src.match(/^function sysLz\(fn\)[^\n]*$/m)[0]); eval(fnSrc("resendState")); eval(fnSrc("dataGateAction")); eval(src.match(/^const gateBtn = [^\n]*$/m)[0].replace(/^const /, "var ")); eval(fnSrc("dataCardState")); eval(fnSrc("dataCardSync")); eval(fnSrc("maybeDataCard")); eval(fnSrc("acctPaint"));
   const A = (o) => ({ can_run: true, plan: { state: "none" }, ...o });
   acct = A({ data_access: "none", reason: "NO_CREDIT", data_hourly: 2 });
   let c = dataCardState();
@@ -1151,8 +1152,10 @@ ok("全 app 的字串不出現「匿名 / anonymous」(報告分享的掛名選�
   V = { t: 14, p: "1,440", r: "2" };
   acct = A({ data_access: "plan_required", data_paths: { api_plan: true } });
   c = dataCardState();
-  ok("方案制沒有方案:講清楚「開雲端方案或 API 方案」;主鈕〔看方案〕開設定 › 帳號與方案、第二顆〔API 方案〕",
-    c.text === "data.noPlan" && c.label === "data.seePlan" && !c.out && c.second && c.second.label === "pv.apiPlan" && !/noCreditBtn|addCard/.test(JSON.stringify(c)));
+  // spec login-upgrade-buttons-0150 §1.4:〔API 方案〕拿掉,只給 Blave Agent 方案的出口
+  went.length = 0; c.on();
+  ok("方案制沒有方案:主鈕〔看方案〕開設定 › 帳號與方案(記 plan_data)、沒有第二顆〔API 方案〕",
+    c.text === "data.noPlan" && c.label === "data.seePlan" && !c.out && !c.second && went.join() === "track:plan_data" && !/noCreditBtn|addCard|apiPlan/.test(JSON.stringify(c)));
   /* paywall-redesign-2026-10-21 §2.2 A 版:方案制、有試用資格又沒卡 → 只放動作:灰記號、填色〔綁卡免費試用 {t} 天〕直開綁卡頁(bind_data)、
      文字鈕〔看方案〕(plan_data);沒有句子、沒有收費小字、沒有〔API 方案〕。沒卡看 has_card(跟 can_run 脫鉤),舊 api 退回 reason */
   { const trialCard = (a) => { acct = A(a); const c = dataCardState(); went.length = 0; if (c.on) c.on(); const main = went.join(); went.length = 0; if (c.second) c.second.on(); return { c, main, side: went.join() }; };
@@ -1168,7 +1171,7 @@ ok("全 app 的字串不出現「匿名 / anonymous」(報告分享的掛名選�
     ok("§5.1 試用天數拿不到:主鈕退回不帶數字的「前往綁卡」(不寫死 14),一樣直開綁卡頁", r.c.label === "plan.addCard" && r.main === "bind:bind_data", JSON.stringify(r));
     for (const [why, a] of [["有卡", { has_card: true, trial_eligible: true }], ["has_card:true 但 reason 還是 NO_CARD", { has_card: true, reason: "NO_CARD", trial_eligible: true }], ["沒卡但試用資格用掉", { has_card: false, trial_eligible: false }], ["舊 api、reason 空", { reason: null, trial_eligible: true }]]) {
       const c = (acct = A({ data_access: "plan_required", ...a }), dataCardState());
-      ok("§5.1 方案制、" + why + " → 照現況「開通方案」那張(〔看方案〕〔API 方案〕)", c.text === "data.noPlan" && c.label === "data.seePlan" && c.second && c.second.label === "pv.apiPlan", JSON.stringify(c)); } }
+      ok("§5.1 方案制、" + why + " → 照現況「開通方案」那張(只有〔看方案〕)", c.text === "data.noPlan" && c.label === "data.seePlan" && !c.second, JSON.stringify(c)); } }
   acct = A({ data_access: "payment_failed" });
   ok("方案扣款失敗:〔重新付款〕,不出儲值", dataCardState().text === "data.payFail" && dataCardState().label === "plan.repay");
   acct = A({ data_included: false });
@@ -1193,7 +1196,35 @@ ok("全 app 的字串不出現「匿名 / anonymous」(報告分享的掛名選�
     ok("還是 none:卡留著、跟著換成儲值那一句,不給〔再送一次〕", dataCard === card && card.last.label === "fault.noCreditBtn"); }
   // 卡出來的那一刻帳號已經付得起(狀態比 agent 那一輪新):直接給〔再送一次〕
   dataCard = null; turnCards = ["data-access"]; sessionId = "s2"; acct = A({ data_access: "billed", data_hourly: 2 }); maybeDataCard();
-  ok("卡出來時已經 billed:直接是「餘額夠了…會收」+〔再送一次〕", dataCard && /^data\.readyBilled/.test(dataCard.last.text) && dataCardSessions.has("s2")); }
+  ok("卡出來時已經 billed:直接是「餘額夠了…會收」+〔再送一次〕", dataCard && /^data\.readyBilled/.test(dataCard.last.text) && dataCardSessions.has("s2:plan"));
+  /* spec login-upgrade-buttons-0150 §1.1／§5 第 6 條:runtime 的 card chunk(turnDataCode)與模型記號、err005／err007、一段對話每類一次 */
+  const fresh = (sid) => { dataCard = null; turnCards = []; turnDataCode = null; sessionId = sid; went.length = 0; REVOKED = false; hasToken = true; };
+  fresh("c1"); turnDataCode = "denied"; turnCards = ["data-access"]; acct = A({ data_access: "plan_required" }); maybeDataCard(); const first = dataCard; maybeDataCard();
+  ok("同一輪 chunk 加記號 → 一張卡,記 data_card_rt(不是 data_card_tag)", first && dataCard === first && went.filter((x) => /data_card/.test(x)).join() === "track:data_card_rt", went.join());
+  fresh("c2"); turnCards = ["data-access"]; acct = A({ data_access: "plan_required" }); maybeDataCard();
+  ok("只有模型記號 → 記 data_card_tag", dataCard && went.join() === "track:data_card_tag", went.join());
+  fresh("c3"); turnDataCode = "err005"; acct = A({ data_access: "included", data_included: true }); maybeDataCard();
+  ok("err005 而 account_status 回 200 有資料 → 照樣出登入失效那態,不是〔再送一次〕", dataCard && dataCard.last.text === "pv.e.relogin" && dataCard.last.label === "fault.authBtn" && dataCardSessions.has("c3:login"), JSON.stringify(dataCard && dataCard.last));
+  { const card = dataCard; acctPaint();
+    ok("err005 那張:回前景重查還是有資料 → 停在重新登入,不換成〔再送一次〕", card.last.text === "pv.e.relogin");
+    card._relogin = false; card._key = null; dataCardSync(acct);
+    ok("重新登入成功(_relogin 清掉)之後:有資料就換〔再送一次〕", card.last.label === "fault.resend" && card.last.text === "data.ready"); }
+  fresh("c4"); turnDataCode = "err007"; acct = A({ data_access: "included", data_included: true }); maybeDataCard();
+  ok("err007 重讀有資料 → 不出(也不佔掉這段對話的名額)", dataCard === null && !dataCardSessions.has("c4:plan") && !went.length);
+  acct = A({ data_access: "plan_required" }); maybeDataCard();
+  ok("err007 重讀沒方案 → 照 dataCardState 出方案那張", dataCard && dataCard.last.text === "data.noPlan" && dataCardSessions.has("c4:plan"));
+  fresh("c5"); hasToken = false; acct = null; turnDataCode = "denied"; maybeDataCard(); const loginCard = dataCard;
+  ok("沒登入 → 登入類那張", loginCard && dataCardSessions.has("c5:login") && loginCard.last.label === "pv.signin");
+  hasToken = true; acct = A({ data_access: "plan_required" }); dataCard = null; turnDataCode = "denied"; went.length = 0; maybeDataCard();
+  ok("先出過登入類、登入後又撞到沒方案 → 第二張(方案類)照出", dataCard && dataCard !== loginCard && dataCardSessions.has("c5:plan") && dataCard.last.text === "data.noPlan");
+  const second = dataCard; dataCard = null; maybeDataCard();
+  ok("同一類第二次 → 不出", dataCard === null && second);
+  fresh("c6"); REVOKED = true; acct = null; turnDataCode = "denied"; maybeDataCard();
+  ok("token 被撤(authRevoked)→ 登入類、重新登入那態", dataCard && dataCardSessions.has("c6:login") && dataCard.last.text === "pv.e.relogin");
+  fresh("c7"); turnDataCode = "denied"; acct = A({ data_access: "plan_required" }); turnFaulted = true; maybeDataCard(); turnFaulted = false;
+  ok("讓位規則不變:這一輪有失敗卡 → 不出、不佔名額", dataCard === null && !dataCardSessions.has("c7:plan"));
+  fresh("c8"); maybeDataCard();
+  ok("沒有 chunk 也沒有記號 → 不出", dataCard === null && !went.length); }
 // 主機與資料費的時價只從 account_status 的 data_hourly 來,外殼一個數字都不寫死(提案 §3 C3;切換前那段照舊)
 // 方案的月價 / 年價 / 年繳付幾個月 / 寬限天數也都從 api 來(account_status 的 plan、data_paths,公開價目的 plan)
 { let acct = null, pub = null; const cur = "claude", planDate = (iso) => "D:" + iso;
@@ -1216,8 +1247,8 @@ ok("全 app 的字串不出現「匿名 / anonymous」(報告分享的掛名選�
 // 聊天裡「這小時用到了 Blave 的資料,主機與資料費 N TWD」那一則已拿掉(Wei 2026-09-24:惱人;計費不變,只是不在對話裡講)
 ok("回合結束不再出費用那一則:dataFeeNote / dataFeeShow / data.fee 字串都不在外殼裡", !/dataFeeNote|dataFeeShow|DATA_RULE_KEY|DATA_NOTE_HOUR_KEY|"data\.fee(First)?"/.test(src));
 { /* 回合結束(dataTurnEnd)真的跑:有登入就重讀一次(稽核 Delta 3 #1:試用剛到期、餘額剛用完只有這裡看得到);卡用這一份 */
-  let acct = null, hasToken = true, fetched = 0, notes = [], NEXT = null, painted = 0, cardCalls = 0;
-  const window = { blave: { accountStatus: async () => { fetched++; return NEXT; }, openExternal: () => {} } };
+  let acct = null, hasToken = true, fetched = 0, notes = [], NEXT = null, painted = 0, cardCalls = 0, turnDataCode = null, turnCards = [], synced = 0;
+  const window = { blave: { accountStatus: async () => { fetched++; return NEXT; }, openExternal: () => {} } }, authSync = async () => { synced++; };
   const acctPaint = () => { painted++; }, faultCard = () => ({ set: (x) => notes.push(x) }), maybeDataCard = () => { cardCalls++; };
   const acctSet = (s) => { acct = s; };   // 模型選單那半(mpFreeSync)在 check_shell_free_lock 測
   eval(fnSrc("dataAccessOf"));
@@ -1230,7 +1261,10 @@ ok("回合結束不再出費用那一則:dataFeeNote / dataFeeShow / data.fee �
   ok("再一輪:照讀(卡要新的),還是不出", fetched === 2 && notes.length === 0);
   NEXT = null; const before = acct;
   await dataTurnEnd();
-  ok("讀不到:acct 留著,卡照舊檢查", acct === before && painted === 2 && cardCalls === 3);
+  ok("讀不到:acct 留著,卡照舊檢查;這一輪沒有要出卡就不多問登入狀態", acct === before && painted === 2 && cardCalls === 3 && synced === 0);
+  turnDataCode = "denied"; await dataTurnEnd(); turnDataCode = null;
+  ok("讀不到、這一輪要出資料卡:問一次登入狀態(401 那種要畫登入失效,不是「查不到」)", synced === 1 && cardCalls === 4);
+  cardCalls = 3;
   hasToken = false; fetched = 0; await dataTurnEnd();
   ok("沒登入:不讀、卡照舊檢查", fetched === 0 && cardCalls === 4);
   ok("接線:回合正常結束走 dataTurnEnd(卡在裡面)", /if \(!loggedOut && r\.code === 0\) dataTurnEnd\(\);/.test(src)); }

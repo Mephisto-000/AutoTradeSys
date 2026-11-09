@@ -50,6 +50,18 @@ ok("其他型別不受影響(機器事件照舊)", J0(trEventText("exchange_reco
   ok("halt 級別:自動(reconciler/portfolio)P1,其他 P3", J([trEvLevel("halt", { source: "reconciler" }), trEvLevel("halt", { source: "portfolio" }), trEvLevel("halt", { source: "web" }), trEvLevel("halt", {})]) === J([1, 1, 3, 3]));
   ok("級別 → class:1 err、2 hl、3 空", trEvClass(1) === "err" && trEvClass(2) === "hl" && trEvClass(3) === "");
   ok("exchange_unreachable:說明縮短、後半句進 tooltip", J(E("exchange_unreachable", { venue: "okx", minutes: 30 })) === J([["tr.ov.evExUnreach", { venue: "okx", minutes: 30 }], "tr.ov.evExUnreachNote", 2, "tr.ov.evExUnreachTip", null, null, null]));
+  ok("群益讀不到 ≥150 分(第二則起)是 P1、換群益那句、小時取整;30 分那則與加密交易所照舊 P2",
+    J(E("exchange_unreachable", { venue: "capital", minutes: 270 })) === J([["tr.ov.evExUnreachCap", { hours: 4 }], "tr.ov.evExUnreachCapNote", 1, null, null, null, null])
+    && E("exchange_unreachable", { venue: "capital", minutes: 150 })[2] === 1 && E("exchange_unreachable", { venue: "capital", minutes: 30 })[2] === 2
+    && E("exchange_unreachable", { venue: "capital", minutes: 149 })[2] === 2 && E("exchange_unreachable", { venue: "okx", minutes: 600 })[2] === 2
+    && trEvLevel("exchange_unreachable", { venue: "capital", minutes: 150 }) === 1);
+  { globalThis.TR = { env: "local" };   // 本機視角:說明換成帶「或重開 Blave」的那句
+    const k = E("exchange_unreachable", { venue: "capital", minutes: 270 })[1];
+    delete globalThis.TR;
+    const S = new Function(fs.readFileSync(path.join(R, "strings.js"), "utf8").replace(/^const STRINGS =/m, "return"))();
+    ok("本機視角(TR.env=local)拿到 Local 版:zh 含「或重開 Blave」、en 含「or restart Blave」",
+      k === "tr.ov.evExUnreachCapNoteLocal" && /或重開 Blave/.test(S.zh[k] || "") && /or restart Blave/.test(S.en[k] || "")
+      && E("exchange_unreachable", { venue: "capital", minutes: 270 })[1] === "tr.ov.evExUnreachCapNote"); }
   ok("execution_stuck 分 overdue／abandoned／其他", J(["overdue", "abandoned", "x"].map((k) => E("execution_stuck", { kind: k }).slice(0, 2))) === J([["tr.ov.evExecOverdue", "tr.ov.evExecStuckNote"], ["tr.ov.evExecAbandoned", "tr.ov.evExecAbandonedNote"], ["tr.ov.evExecStuck", "tr.ov.evExecStuckNote"]]));
   ok("market_hold 策略在策略段、不拼進標題", E("market_hold", { strategy: "s4", venue: "okx" })[0] === "tr.ov.evMarketHold" && J(E("market_hold", { strategy: "s4" })[6]) === J({ text: "s4", code: true }) && E("market_hold", { strategy: "s4" })[1] === "tr.ov.evMarketHoldNote");
   ok("settings_unsafe / rollback_failed / market_check_off 各自一句", J([E("settings_unsafe", {}), E("settings_rollback_failed", {}), E("market_check_off", { kind: "table" })].map((x) => x.slice(0, 2)))
@@ -63,6 +75,19 @@ ok("其他型別不受影響(機器事件照舊)", J0(trEventText("exchange_reco
     && E("report_rejected", { title: "長".repeat(40) })[0] === 'tr.ov.evReportRejected|{"title":"' + "長".repeat(40) + '"}');
   ok("report_degraded:count ≥1 帶次數、缺/0 用不帶次數那句", E("report_degraded", { title: "晨報", count: 3 })[1] === 'tr.ov.evReportDegradedNote|{"count":3}'
     && E("report_degraded", { title: "晨報" })[1] === "tr.ov.evReportDegradedNoteNoCount" && E("report_degraded", { title: "晨報", count: 0 })[1] === "tr.ov.evReportDegradedNoteNoCount"); }
+
+// 群益讀不到 ≥150 分的說明:雲端視角不叫人「重開 Blave」(雲端主機沒有 app,同 api notify 那句),本機視角與本機系統通知才加
+{ const STR = new Function(fs.readFileSync(path.join(R, "strings.js"), "utf8").replace(/^const STRINGS =/m, "return"))();
+  const body = cut("const TR_EV_P1 = [", "\nfunction trEvBody(").replace(/^const /gm, "var ");
+  const note = (lang, env) => new Function("t", "trVenueLabel", "TR", body + "\nreturn trEventText;")(
+    (k, v) => { let s = STR[lang][k] || k; for (const x in v || {}) s = s.split("{" + x + "}").join(v[x]); return s; }, (x) => x, { env })(
+    "exchange_unreachable", { venue: "capital", minutes: 300 })[1];
+  ok("雲端視角那則不含「重開 Blave」、跟 api 句子一致;本機視角帶「或重開 Blave」",
+    !/重開 Blave/.test(note("zh", "cloud")) && !/restart Blave/.test(note("en", "cloud"))
+    && note("zh", "cloud") === "這段時間群益策略不會下單，也不會平倉。請檢查群益連線。"
+    && note("en", "cloud") === "Capital strategies place no orders and no closes meanwhile. Check the Capital connection."
+    && /或重開 Blave。$/.test(note("zh", "local")) && /or restart Blave\.$/.test(note("en", "local")));
+  ok("本機系統通知的字用本機版", /ev_exchange_unreachable_capital_n: t\("tr\.ov\.evExUnreachCapNoteLocal"\)/.test(src)); }
 
 // 值缺整句不出:用一份帶佔位的 t(上面的假 t 沒有 {x} 佔位)
 { const real = { "tr.ov.evMachineSilentNote": "{minutes} m", "tr.ov.evDiskFullNote": "{disk_pct} d", "tr.ov.evMemLowNote": "{mem_avail}/{mem_total}", "tr.ov.evReportRejectedNote": "at {field}", k: "a {x} b {y}" };
@@ -87,7 +112,7 @@ ok("其他型別不受影響(機器事件照舊)", J0(trEventText("exchange_reco
   const valsOf = (b) => Object.fromEntries([...b.matchAll(/^\s*("(?:[^"\\]|\\.)*"): ("(?:[^"\\]|\\.)*"),?$/gm)].map((m) => [JSON.parse(m[1]), JSON.parse(m[2])]));
   const enV = valsOf(block("en")), zhV = valsOf(block("zh"));
   ok("「對帳器」對外字串全拿掉(改「下單程式」)", ![...Object.values(zhV), ...Object.values(enV)].some((x) => /對帳器|reconciler/i.test(x)));
-  ok("停機凍結那句縮短:連平倉也不做、按啟動下單恢復", zhV["tr.ov.evDowntimeNote"] === "全部凍結，連平倉也不做；按「啟動下單」恢復");
+  ok("停機凍結那句縮短:連平倉也不做、按啟動下單恢復", zhV["tr.ov.evDowntimeNote"] === "全部凍結，連平倉也不做，按「啟動下單」恢復");
   ok("renderer 不出現中文字面(放的是 key,不是句子)", !/[一-鿿]/.test(cut("const TR_EV_P1 = [", "\nfunction trOvEvents(").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, ""))); }
 
 // ui 那一段(會碰 DOM,只驗寫法)
@@ -131,7 +156,7 @@ ok("其他型別不受影響(機器事件照舊)", J0(trEventText("exchange_reco
   ok("ui:時間仍然是秒(平台與這台電腦同一個單位)", /uiHalts\.push\(ev\.ts \* 1000\)/.test(loop) && /push\(ev\.ts \* 1000,/.test(loop));
   ok("ui:雲端記的 venue_disconnected P2、這台電腦自己按的一般字", /lv = d !== ev \? 2 : 3;/.test(loop));
   ok("現在的 HALT 那列顏色照級別(execute/settings 暫停不再紅,P1 由對應事件那列承擔)", /trEl\("span", trEvClass\(trEvLevel\("halt", halt\)\),/.test(cut("// 目前的 HALT", "trUnconfirmedRows(r.order_errors)")));
-  ok("ui 與機器事件兩段都走 trEvBody(帶 ev.count)", (src.match(/trEvBody\(body, .*?, ev\.count, .*?\)\);/g) || []).length === 2);
+  ok("ui 與機器事件兩段都走 trEvBody(帶 ev.count)", (src.match(/trEvBody\(body, .*?, ev\.count, .*?\)\)?;/g) || []).length === 2);   // 機器事件那段 0.1.50 起是區塊(後面接事件列的出口鈕)
   ok("兩段的顏色都先讀 api 的 level、缺才用自己算的", /trEvBody\(body, head, note, trEvApiLevel\(ev\) \|\| lv, tip, ev\.count, code, tail, strat\)/.test(src)
     && /trEvBody\(body, txt\[0\], txt\[1\], trEvApiLevel\(ev\) \|\| txt\[2\], txt\[3\], ev\.count, txt\[4\], txt\[5\], txt\[6\]\)/.test(src));
   ok("機器事件那段的策略段同 ui 那段(雲端讀 strategy_label、這台電腦查清單)", /const txt = trEventText\(ev\.type, evd, trEvStrat\(evd\.strategy, ev\.strategy_label\)\);/.test(src));
@@ -214,4 +239,20 @@ ok("trEvApiLevel:P1/P2/P3 → 1/2/3;缺、小寫、P4、數字、非物件 → n
     /讀不到/.test(zhV["tr.ov.evUnreach"] || "") && !/沒有事件/.test(zhV["tr.ov.evUnreach"] || "")
     && /read/i.test(enV["tr.ov.evUnreach"] || "") && !/no events/i.test(enV["tr.ov.evUnreach"] || "")); }
 
+// 已暫停時帳戶對不上(雲端 halt 事件 data.unexplained、本機 HALT 檔 halt.unexplained;designer halt-unexplained-copy-review §一):
+// 事件列「部位對不上」＋標的(mono,雲端從 park_id 拆)＋「— 先到{venue}核對」,tooltip 是機器原因句;雲端畫過的 park_id 狀態檔那份不再畫
+{ const loop = cut("const ui = (Array.isArray(TR.ov.ui)", "// 目前的 HALT"), local = cut("// 標題「部位對不上」", "trUnconfirmedRows(r.order_errors).forEach");
+  ok("事件列:雲端 halt 帶 unexplained → 部位對不上、P1、代號是 park_id 拆出的標的、說明帶券商、tooltip 是原因句;排在一般 halt 分支之前",
+    /if \(ev\.type === "halt" && d\.unexplained === true\) \{ head = t\("tr\.ov\.evHaltUnexplained"\); lv = 1; code = trUnxSym\(d\) \|\| null; note = t\("tr\.ov\.evHaltUnexplainedNote", \{ venue: trUnxVenue\(d\) \}\); tip = typeof d\.reason === "string"/.test(loop)
+    && /unxSeen\.add/.test(loop) && loop.indexOf("d.unexplained === true") < loop.indexOf('else if (ev.type === "halt" || ev.type === "halt_close")'));
+  ok("事件列:本機從 halt.unexplained 畫(trEvBody 同一套:P1、標的、說明、tooltip),跳過雲端已畫的 park_id",
+    /trHaltUnexplained\(halt\)\.filter\(\(u\) => !unxSeen\.has\(u\.park_id\)\)/.test(local) && /push\(trMs\(u\.at\), \(body\) => trEvBody\(body, t\("tr\.ov\.evHaltUnexplained"\)/.test(local)
+    && /t\("tr\.ov\.evHaltUnexplainedNote", \{ venue: trUnxVenue\(u\) \}\), 1, typeof u\.reason === "string"/.test(local) && /trUnxSym\(u\) \|\| null/.test(local));
+  const S = fs.readFileSync(path.join(R, "strings.js"), "utf8");
+  const keys = { "tr.haltUnexplained": ["{venue}", "{symbols}"], "tr.haltUnexplainedNosym": ["{venue}"], "tr.haltUnexplainedDo": ["{btn}"],
+    "tr.ov.evHaltUnexplained": [], "tr.ov.evHaltUnexplainedNote": ["{venue}"] };
+  ok("帳戶對不上的五個 key 兩語都在、佔位符齊;zh 事件說明不帶句號、不叫人按鈕", Object.entries(keys).every(([k, ph]) => {
+    const vals = [...S.matchAll(new RegExp('"' + k.replace(/\./g, "\\.") + '": "((?:[^"\\\\]|\\\\.)*)"', "g"))].map((m) => m[1]);
+    return vals.length === 2 && vals.every((v) => ph.every((p) => v.includes(p)));
+  }) && /"tr\.ov\.evHaltUnexplainedNote": "先到\{venue\}核對"/.test(S)); }
 console.log(red ? red + " 紅" : "ALL PASS"); process.exit(red ? 1 : 0);

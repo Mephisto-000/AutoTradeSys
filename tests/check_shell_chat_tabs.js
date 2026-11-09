@@ -54,7 +54,8 @@ const MOD_GLOBAL = {
   "versions.js": { vcSeq: "版本頁", vcSide: "同上" }, "promptslot.js": { SLOT_ST: "側欄提示格(全 app 一格)", SLOT_SHOW_DAY: "同上", SLOT_POP_KEY: "同上(pop 內容照登入狀態與語言建)", SLOT_WHO_HOST: "同上(已登入那步的字,email 晚到原地補)", SLOT_WHO: "同上" },
 };
 const FIELDS = {
-  LIB: { pending: "SID", seq: "GLOBAL 清單請求流水號(丟掉晚到的舊回應)", noNew: "GLOBAL 灰字掛在那一支卡上", cloudWait: "GLOBAL 一次只等一支(換一支就放掉)" },
+  LIB: { pending: "SID", seq: "GLOBAL 清單請求流水號(丟掉晚到的舊回應)", noNew: "GLOBAL 灰字掛在那一支卡上", cloudWait: "GLOBAL 一次只等一支(換一支就放掉)",
+    bbWait: "GLOBAL 綁卡即購買的付款頁(api 每帳號一次一張),跟對話分頁無關" },
   RPT: { pending: "SID", seq: "GLOBAL 清單請求流水號", readSeq: "GLOBAL 閱讀頁請求流水號", turnAt: "TAB", cloudTurn: "TAB", cloudRes: "GLOBAL 每筆帶 rt(那一輪)", noNew: "GLOBAL 灰字掛在框上", poll: "GLOBAL 一次一個輪詢" },
   XP: { pending: "TAB" }, RES: { turn: "TAB", cw: "GLOBAL 一次等一輪,帶 rt" }, BR: { blocks: "TAB", cur: "TAB" },
   UPD: { cloudSid: "SID", turnCloud: "TAB", session: "GLOBAL 更新期間,只由 cloudSid 那一條的結束收", lagCv: "GLOBAL", done: "GLOBAL" },
@@ -136,7 +137,7 @@ const ANY = [   // 任何回合(機器層級的鎖;busyOn() = csAnyTurn())
   ["promptslot.js", /return \{ turn: csAnyTurn\(\), awaiting: csAnyAwait\(\),/, "側欄提示格:任何對話在回覆就不畫手機"],
   ["intro.js", /running: \(typeof csAnyTurn === "function" \? csAnyTurn\(\) : typeof running !== "undefined" && running === true\)/, "第一次對話 modal 不在任何回合中彈"],
   ["reports.js", /if \(!csAnyTurn\(\)\) RPT\.busyTold = false;/, "原因句"], ["trade.js", /busyLock\(d, busyOn\(\)\); d\.onBusy = \(\) => busyHit\("del"\);/, "雲端刪策略"],
-  ["stratrename.js", /if \(typeof busyOn === "function" && busyOn\(\)\) return true;/, "〔改名〕停用:同刪策略,任何回合"],
+  ["stratrename.js", /if \(typeof busyOn === "function" && busyOn\(\)\) return "strat\.renameLockTurn";/, "〔改名〕停用:同刪策略,任何回合(機器 rename_strategy 也是任何回合都拒);停用時講原因"],
 ];
 const LOCAL = [   // 同名但不是回合狀態
   ["app.js", /function phasesPaint\(ol, rows, now, running\)|\[running, rows\.map|tm && running && r\.start|running && i === rows\.length - 1/, "phasesPaint 的參數"],
