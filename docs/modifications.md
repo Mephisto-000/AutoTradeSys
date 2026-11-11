@@ -82,5 +82,9 @@
   - 上游新增「解除綁定就清這一家的帳本」：永豐一樣適用（只清 Blave 的帳本，不賣股票，留在帳戶裡的算用戶自己的），程式不改
   - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 VERSION `2026-11-09-c`，
     再執行 `tools/sinopac_deploy.py --apply`
+- 2026-11-12：同步上游 `main` 至 `10841b61`（電腦版 0.1.52），沒有文字衝突
+  - 上游只改了策略庫的一鍵購買框（用 Blave 帳號付款，不碰交易所金鑰），永豐的功能不受影響，程式不改
+  - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 0.1.52（VERSION `2026-11-09-c`），
+    再執行 `tools/sinopac_deploy.py --apply`
 
 詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
