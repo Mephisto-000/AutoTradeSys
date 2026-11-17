@@ -2,6 +2,7 @@
 #   (new trait tw_stock_spot); runtime/venue_traits.py carries the same bytes.
 #   (2026-11-18) upstream c1db277b turned this row into its gated-off 永豐 futures row
 #   (verified_modes (), bound_marker, cred_env); the fork keeps its TW-stock row instead.
+#   The row declares upstream's crypto gate cells as not compared (instrument_class None).
 # Original work: Copyright 2025-2026 WuChi Technology Company Limited
 # Licensed under the Apache License, Version 2.0
 """Which venues break the crypto auto-wire contract, and how.
@@ -98,6 +99,10 @@ TRAITS = {
         "tw_stock_spot": True,
         "reference": "references/sinopac-broker.md",
         "label": "永豐金",
+        # auto-wired, so tests/check_crypto_venue_traits.py asks for the two gate cells: TW stocks are
+        # spot keys on TW stock bars, never compared with Binance (the gate skips spot anyway)
+        "instrument_class": None,
+        "binance_name_gate": False,
     },
     # real-account runs passed on a classic account (2026-10-22, both position modes) and a UTA
     # (T1–T12; T11c's stop-loss re-run 2026-10-26)
