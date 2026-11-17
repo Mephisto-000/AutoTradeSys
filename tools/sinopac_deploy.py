@@ -33,6 +33,8 @@ FILES = [
     # official files this fork changes (replaced again by every app update)
     "lib/order_sinopac.py", "lib/venue_traits.py", "lib/portfolio.py", "lib/execute.py",
     "references/sinopac-broker.md", "references/lib.md", "examples/README.md",
+    # (2026-11-18) the Type B rule keeps SinoPac stocks → lib/order_sinopac.py (upstream: no TW stock orders)
+    "AGENTS.md",
 ]
 
 
