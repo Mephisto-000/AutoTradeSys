@@ -1,4 +1,6 @@
 # Modified by Mephisto-000 on 2026-10-25: SinoPac's chokepoint is _send_order.
+#   (2026-11-18) lib/order_sinopac is the fork's stock lib, not upstream's futures producer: the futures
+#   request-file gate and the relayed close-all flags are checked only when that producer is there.
 """After a machine restart NO order leaves this machine through lib/order_* —
 entries and closes alike, from any caller (reconciler, TWAP/chase, Type B
 strategies calling the lib directly, ad-hoc scripts) — until 啟動下單 removes
@@ -240,6 +242,17 @@ for v in libs:
     check(public and not unreached, f"{v}: every public place_/open_/close_ function reaches "
                                     f"{choke.name}() {unreached or ''}")
 
+# the sinopac worker is where futures orders reach the broker: same rule as the lib
+_wt = _tree(os.path.join(ROOT, "lib", "sinopac_worker.py"))
+_wstray = []
+for n in ast.walk(_wt):
+    if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "place_order":
+        fn = _func_of(n)
+        gates = [c for c in ast.walk(fn) if _is_guard_call(c, "check_restart_stop")]
+        if not gates or min(c.lineno for c in gates) > n.lineno:
+            _wstray.append(f"place_order in {fn.name} without a prior check")
+check(not _wstray, f"sinopac_worker: api.place_order only after guard.check_restart_stop {_wstray or ''}")
+
 for path in sorted(glob.glob(os.path.join(ROOT, "lib", "account_*.py"))):
     name = os.path.basename(path)[:-3]
     if name == "account_TEMPLATE":
@@ -407,25 +420,30 @@ finally:
     president._session, president._checked_close = real_session, real_held
     record(False)
 
-# Sinopac (shioaji faked: only the module import needs it)
-sys.modules.setdefault("shioaji", types.ModuleType("shioaji"))
+# Sinopac futures (the lib never loads shioaji): past the not-yet-verified refusal, the restart gate stops them before any request file
 import lib.order_sinopac as sinopac  # noqa: E402
 
-opened = []
-real_api = sinopac._get_api
-sinopac._get_api = lambda env: opened.append(1) or (None, None)
-record(True)
-try:
-    for action in ("buy", "sell"):
-        try:
-            sinopac.place_odd_lot_order({}, "2330", action, 1)
-            ok = False
-        except guard.Halted:
-            ok = not opened
-        check(ok, f"sinopac: record present → {action} refused before the broker session opens")
-finally:
-    sinopac._get_api = real_api
-    record(False)
+# AutoTradeSys fork: lib/order_sinopac is the TW-stock lib (its _send_order gate is pinned above);
+# upstream's futures producer is not in it, so this part runs only where that producer ships
+_SJ_FUTURES = hasattr(sinopac, "place_futures_market_order")
+if not _SJ_FUTURES:
+    print("ok   sinopac futures request-file gate: not in this fork (lib/order_sinopac is the stock lib)")
+else:
+    real_verified, real_dir = sinopac.FUTURES_VERIFIED, sinopac.ORDERS_DIR
+    sinopac.FUTURES_VERIFIED = True
+    sinopac.ORDERS_DIR = os.path.join(TMP, "state", "sinopac_orders")
+    record(True)
+    try:
+        for action, intent in (("buy", "entry"), ("sell", "reduce")):
+            try:
+                sinopac.place_futures_market_order({}, "TXF", action, 1, intent)
+                ok = False
+            except guard.Halted:
+                ok = not os.path.isdir(sinopac.ORDERS_DIR) or not os.listdir(sinopac.ORDERS_DIR)
+            check(ok, f"sinopac futures: record present → {intent} refused before any request file")
+    finally:
+        sinopac.FUTURES_VERIFIED, sinopac.ORDERS_DIR = real_verified, real_dir
+        record(False)
 
 # Type B style: a strategy calling the lib directly (paper)
 import lib.order_paper as paper  # noqa: E402
@@ -450,8 +468,8 @@ check(any(a["event"] == "order_denied_restart" for a in audit_lines),
 import subprocess  # noqa: E402
 import time  # noqa: E402
 
-callers, writers = [], []
-for sub in ("lib", "manager", "runtime", "examples", "allocators"):
+callers, writers, relays, relay_flags = [], [], [], []
+for sub in ("lib", "manager", "runtime", "examples", "allocators", "strategies"):
     for fp in glob.glob(os.path.join(ROOT, sub, "**", "*.py"), recursive=True):
         src = open(fp, encoding="utf-8").read()
         rel = os.path.relpath(fp, ROOT)
@@ -459,10 +477,21 @@ for sub in ("lib", "manager", "runtime", "examples", "allocators"):
             callers.append(rel)
         if "close_all_pass.json" in src and rel != "lib/guard.py":
             writers.append(rel)
+        if "close_all_relay(" in src and rel != "lib/guard.py":
+            relays.append(rel)
+        if "close_all_granted(" in src and rel != "lib/guard.py":
+            relay_flags.append(rel)
 check(callers == ["manager/flatten.py"],
       f"the close-all pass is claimed by manager/flatten.py and nothing else ({callers})")
 check(writers == ["runtime/command_listener.py"],
       f"…and written by the command listener's close_all and nothing else ({writers})")
+# 永豐 futures: flatten's close goes out of lib/sinopac_worker.py, another process. The request says
+# whether its sender held the pass (lib/order_sinopac); the worker honours it for that one reduce
+# (tests/check_halt_freeze.py P4 pins the shape, tests/check_sinopac_futures.py the behaviour)
+# (AutoTradeSys fork: the stock lib relays nothing, so no lib reads the pass for a relay)
+check(relays == ["lib/sinopac_worker.py"] and relay_flags == (["lib/order_sinopac.py"] if _SJ_FUTURES else []),
+      f"the relayed close-all pass: read by lib/order_sinopac.py, honoured by lib/sinopac_worker.py, "
+      f"nothing else ({relays}, {relay_flags})")
 
 PASS_FILE = os.path.join(TMP, guard.CLOSE_ALL_PASS_PATH)
 reduce_req = CASES["binance"][1]["reduce"]
@@ -505,6 +534,13 @@ try:
     check(attempt(reduce_req) == "sent", "…this process's closes go through")
     check(attempt(entry_req) == "refused" and attempt(prot_req) == "refused",
           "…entries and SL/TP stay refused even with the pass")
+    guard._close_all_granted = False
+    with guard.close_all_relay("X", "test"):
+        relayed = (attempt(reduce_req), attempt(entry_req), attempt(prot_req))
+    check(relayed == ("sent", "refused", "refused") and attempt(reduce_req) == "refused",
+          "the relayed pass (the 永豐 worker, for one request): a reduce inside the block goes, entries "
+          f"and SL/TP do not, and nothing after it {relayed}")
+    guard._close_all_granted = True
     check(guard.claim_close_all_pass() is False, "a pass is one-time: a second claim fails")
     check(os.path.exists(RECORD), "the record stays — the machine is still stopped after the close-all")
 finally:

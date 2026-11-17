@@ -148,7 +148,7 @@ def _retry_get(url, max_retries=6, _method='get', _body_on_5xx=False, **kwargs):
     _body_on_5xx: the last 429/5xx also carries the body (the screener and sector endpoints put
     the reason there, e.g. themes_unavailable).
     """
-    blave = url.startswith(BASE)   # BingX klines share this helper and stay public
+    blave = url.startswith(BASE)   # BingX / OKX klines share this helper and stay public
     if blave:
         _check_data_access(kwargs.get('headers') or {})
     for attempt in range(max_retries):
@@ -274,7 +274,8 @@ _OPEN_META = {b'blave_month_open': b'1'}
 # month's closing bar as soon as it exists. db_* (CME via its own vendor) has not been looked at.
 _CRYPTO_GRACE = timedelta(minutes=30)
 _CRYPTO_SETTLE_PREFIXES = (
-    'kline3', 'bingx_kline', 'oi_history', 'holder_concentration', 'funding_rate', 'taker_intensity',
+    'kline3', 'bingx_kline', 'okx_kline', 'oi_history', 'holder_concentration', 'funding_rate',
+    'taker_intensity',
     'whale_hunter', 'unusual_movement', 'squeeze_momentum', 'liquidation', 'market_direction',
     'capital_shortage', 'market_sentiment', 'blave_top_trader')
 _EMPTY_READ_RETRY = timedelta(days=1)   # an answer that does not reach the month's end is doubted this long
@@ -1175,7 +1176,7 @@ class closed_bars_only:
     The runner and wait_for_bar wrap a strategy's fetch_data in it: every 24/7 crypto
     source hands the forming bar back — Blave /kline resamples closed 1m/5m base bars into
     the requested period without dropping the partial last bucket (at 10:32 the "10:00 1h
-    bar" holds 32 minutes), Binance / BingX klines always include the open candle — and the
+    bar" holds 32 minutes), Binance / BingX / OKX klines always include the open candle — and the
     live tick reads iloc[-1], so the signal would come from a half bar the backtest never
     sees. Outside the scope nothing changes: paper fills, reports and the drift-band sigma
     read the current price / trim the forming bar themselves.
@@ -1493,6 +1494,96 @@ def fetch_bingx_kline(symbol, interval, start, end):
         start, end,
     )
     return _drop_forming_bar(_sanity_check_ohlc(df, f'{symbol} {interval} bingx_kline'), interval)
+
+
+_OKX_CANDLES = 'https://www.okx.com/api/v5/market/history-candles'
+
+# OKX's plain 6H/12H/1D/1W bars open at UTC+8; the `utc` spellings open at UTC like every
+# other crypto fetcher here. OKX has no 8-hour bar, and its 3Dutc bars start on different days
+# than Binance's 3d (measured 2026-11-14), so 3d is left out rather than silently differ.
+_OKX_INTERVALS = {
+    '1min': '1m', '3min': '3m', '5min': '5m', '15min': '15m', '30min': '30m',
+    '1h': '1H', '2h': '2H', '4h': '4H', '6h': '6Hutc', '12h': '12Hutc',
+    '1d': '1Dutc', '1w': '1Wutc',
+}
+
+# Docs: limit max 300, newest first, `after` = strictly older than that ts, no start parameter;
+# 20 requests / 2 s per IP. Half that per process, leaving room for other processes on the IP.
+_OKX_PAGE = 300
+_OKX_LIMITER = _RateLimiter(10, 2)
+
+
+def _okx_inst(symbol, market='swap'):
+    """The instId lib/order_okx orders `symbol` under (lib/okx_inst — one mapping for both)."""
+    from lib import okx_inst
+    if market not in ('swap', 'spot'):
+        raise ValueError(f"fetch_okx_kline: market must be 'swap' or 'spot', not {market!r}")
+    try:
+        return (okx_inst.spot_inst if market == 'spot' else okx_inst.swap_inst)(symbol)
+    except ValueError:
+        raise ValueError(f"fetch_okx_kline: pass the strategy's dashless SYMBOL ('XAUUSDT', "
+                         f"'BTCUSDT'), not {symbol!r}") from None
+
+
+def _fetch_okx_kline_raw(inst, interval, start, end, spot=False):
+    bar = _OKX_INTERVALS.get(interval)
+    if bar is None:
+        raise ValueError(f"fetch_okx_kline: unsupported interval {interval!r} "
+                         f"(supported: {', '.join(_OKX_INTERVALS)})")
+
+    to_ms = lambda s: int((datetime.strptime(s, '%Y-%m-%d') - _EPOCH).total_seconds() * 1000)
+    start_ms = to_ms(start)
+    end_ms   = to_ms(end) if end else int(
+        (datetime.now(timezone.utc).replace(tzinfo=None) - _EPOCH).total_seconds() * 1000)
+
+    rows, cursor_ms = [], end_ms
+    while cursor_ms > start_ms:
+        _OKX_LIMITER.acquire()
+        body = _retry_get(_OKX_CANDLES, params={
+            'instId': inst, 'bar': bar, 'after': cursor_ms, 'limit': _OKX_PAGE,
+        }, timeout=30).json()
+        # Errors come back as HTTP 200 with a non-"0" string code (51001 = no such instId).
+        if body.get('code') != '0':
+            raise RuntimeError(f"OKX kline {inst} {bar}: code={body.get('code')} {body.get('msg')}")
+        page = body.get('data') or []
+        if not page:
+            break
+        rows.extend(page)
+        oldest = min(int(r[0]) for r in page)
+        if oldest >= cursor_ms:
+            break            # no progress — stop instead of spinning forever
+        cursor_ms = oldest
+
+    cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+    # confirm "0" is the forming bar: dropped here too, not only by _drop_forming_bar's clock
+    rows = [r for r in rows if int(r[0]) >= start_ms and not (len(r) > 8 and r[8] == '0')]
+    if not rows:
+        return pd.DataFrame(columns=cols)
+    # Base-asset volume, as Binance's: on a swap `vol` counts contracts and `volCcy` coins;
+    # on spot `vol` is already the coin and `volCcy` the quote.
+    vol_at = 5 if spot else 6
+    df = pd.DataFrame([[r[0], r[1], r[2], r[3], r[4], r[vol_at]] for r in rows], columns=['time'] + cols)
+    df['time'] = pd.to_datetime(df['time'].astype('int64'), unit='ms', utc=True)
+    df = df.set_index('time').sort_index()
+    df = df[~df.index.duplicated(keep='first')]
+    return df[cols].astype(float)
+
+
+def fetch_okx_kline(symbol, interval, start, end, market='swap'):
+    """OHLCV for an OKX contract, straight from OKX's public API — no key needed.
+
+    `symbol` is the strategy's dashless SYMBOL ('XAUUSDT'); it resolves to the instId the
+    orders go to ('XAU-USDT-SWAP') through the mapping lib/order_okx uses. market='spot'
+    reads the spot pair instead (a MARKET = 'spot' strategy). An instId typed by hand
+    ('XAU-USDT-SWAP') raises. Volume is in coins (base asset), not contracts. No '3d' / '8h'.
+    """
+    inst = _okx_inst(symbol, market)
+    df = _extend_cache_monthly(
+        'okx_kline', {'symbol': inst, 'period': interval},
+        lambda s, e: _fetch_okx_kline_raw(inst, interval, s, e, spot=market == 'spot'),
+        start, end,
+    )
+    return _drop_forming_bar(_sanity_check_ohlc(df, f'{inst} {interval} okx_kline'), interval)
 
 
 # ── BYO kline source: Binance fapi, no key ────────────────────────────────────
@@ -8444,10 +8535,12 @@ FEED_TIMING = {
                  f"{_FSC_FIN_RULES} §3(3)); Q1/Q3/annual as twstock_financials"},
     'twfutures_bid_ask_vol': {'tz': 'UTC', 'period': 'infer', 'available': 'after_period',
                               'delay': pd.Timedelta(seconds=30), 'calendar': 'bars', 'fresh': 'raise',
+                              'bars_label': 'close',
                               'basis': "api snapshot/run_sinopac_backfill.py _aggregate_ticks floors "
                                        "ticks to the minute (row = minute open); today's minutes are "
                                        "fetched on request and cached 30 s (tw/sinopac/services.py), "
-                                       "so a row is final 30 s after its minute closes"},
+                                       "so a row is final 30 s after its minute closes. TXF 1m bars "
+                                       "are stamped at their close minute (bars_label)"},
     'fear_greed': {'tz': 'UTC', 'period': pd.Timedelta(days=1), 'available': _same_day_at(1),
                    'calendar': 'days', 'fresh': 'raise',
                    'basis': "alternative.me publishes one row a day at 00:00 UTC: on 2026-09-24 "
@@ -8671,6 +8764,30 @@ def align_feed(bars, feed, source, interval, bar_tz=None, columns=None):
         req = _latest_by(_utc_ns(c_avail), c_s, close_ns)
         if len(c_s):   # bars that span no trading day (a weekend) have no row to wait for
             need_ns = np.where(req >= 0, c_s[np.maximum(req, 0)], -1)
+        if spec.get('bars_label') == 'close' and len(c_s) and pd.Timedelta(interval) == period \
+                == pd.Timedelta(minutes=1):
+            # 1m only: 5m and longer TXF bars are resampled label-left (08:45 opens the day), so
+            # their session-open need is not handled here and stays as it was.
+            # Bars stamped at their close minute, rows at their open minute: the first bar of a
+            # session (08:46, 15:01) would wait for a row stamped like the last bar of the one
+            # before (05:00, 13:45), which does not exist, instead of its own (08:45, 15:00).
+            # Such a need moves to the bar's own open minute. In history a need the feed does hold
+            # stays: the store's minute-END days (through 2026-06-10, see
+            # _drop_txf_settlement_window) stamp rows like the bars, and there the old need is what
+            # the bar can use; the row's presence is read at a stamp due by the bar's close, so the
+            # look-ahead replay sees the same need. A live tick's last bar always waits for its own
+            # minute — today's rows are tick aggregates stamped at the minute open, and the 13:45
+            # or 05:00 row some days carry must not stand in for 15:00 / 08:45.
+            opens = cand - period
+            o_avail = _after_own_period(opens, period) + spec.get('delay', pd.Timedelta(0))
+            o_s = _utc_ns(opens)
+            o_req = _latest_by(_utc_ns(o_avail), o_s, close_ns)
+            o_need = np.where(o_req >= 0, o_s[np.maximum(o_req, 0)], -1)
+            phantom = (need_ns >= 0) & ~np.isin(need_ns, s_ns[present])
+            if _live_feeds:
+                phantom[-1] = need_ns[-1] >= 0
+            need_ns = np.where(phantom, o_need, need_ns)
+            cand, c_avail, c_s = cand.append(opens), c_avail.append(o_avail), np.concatenate([c_s, o_s])
         used_ns = np.where(row >= 0, s_ns[np.maximum(row, 0)], -1)
         stale = (need_ns >= 0) & (used_ns < need_ns)
         out.loc[stale] = np.nan
@@ -8776,7 +8893,7 @@ def join_tw_flow(df, kind, interval, start, end, headers, id=None, prefix=None):
 # one of the two — tests/check_price_fetchers.py fails on a new one left out.
 _PRICE_FETCHERS = {
     'fetch_kline': 'crypto', 'fetch_kline_batch': 'crypto', 'fetch_bingx_kline': 'crypto',
-    'fetch_binance_ticker_24h': 'crypto',
+    'fetch_okx_kline': 'crypto', 'fetch_binance_ticker_24h': 'crypto',
     'fetch_twstock_price': 'tw', 'fetch_twstock_price_adj': 'tw',
     'fetch_twstock_price_batch': 'tw', 'fetch_twstock_price_adj_batch': 'tw',
     'fetch_twstock_ohlcv': 'tw', 'fetch_twstock_quote': 'tw', 'fetch_twstock_quote_batch': 'tw',

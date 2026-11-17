@@ -30,7 +30,7 @@ If you are the user's own agent connected over SSH (Blave MCP access code), ever
 
 ## Strategy Library — installing a strategy
 
-安裝 / 載入 / 部署 / install / load / deploy a **strategy** (「用我買的策略」 too) is ALWAYS a Strategy Library API call — read `references/marketplace.md`, start at `GET /openclaw/marketplace/my/purchases`; the `.env` Blave key identifies the user, never ask for an identifier, code or install command. **Fork ≠ install:** a base to modify (「用 X 當底」) → its *Forking a strategy*; web library picks (「幫我下載官方策略…跑一次回測」) are installs. Desktop picks (「策略庫的「…」（#id）已經下載好了…」 / "…is downloaded…") are installs whose code is already at `tmp/library_<id>.py` — never call the API for them (marketplace.md › *Desktop-downloaded picks*). **Downloaded or forked strategies must be RUN** (no `stats.json` = not in the 下單設定 picker). NEVER purchase a strategy for the user. A strategy is NOT a skill — skills are provisioned automatically, you never install them.
+安裝 / 載入 / 部署 / install / load / deploy a **strategy** (「用我買的策略」 too) is ALWAYS a Strategy Library API call — read `references/marketplace.md`, start at `GET /openclaw/marketplace/my/purchases`; the `.env` Blave key identifies the user, never ask for an identifier, code or install command. **Fork ≠ install:** a base to modify (「用 X 當底」) → its *Forking a strategy*; web library picks (「幫我下載官方策略…跑一次回測」) are installs. Desktop picks (「策略庫的「…」（#id）已經下載好了…」 / "…is downloaded…") are installs whose code is already at `tmp/library_<id>.py` — never call the API for them (marketplace.md › *Desktop-downloaded picks*). **Downloaded or forked strategies must be RUN** (no `stats.json` = not in the 下單設定 picker). NEVER purchase a strategy for the user. A strategy is NOT a skill — skills are provisioned automatically, you never install them. Sharing a strategy → marketplace.md › *share a private strategy*: tell the sharer if the recipient needs Blave data access to run it (whale hunter and other Blave alphas).
 
 ## Data Sources
 
@@ -42,7 +42,7 @@ Taiwan daily bars on the desktop come free from TWSE / TPEx; every reply or repo
 
 Many Taiwan stocks, financial ratios (ROE, margins, growth…), 注意股／處置股, TXF basis, dividend points, 法人持倉成本, market-cap ranks, 權值比重, ETF filtering, sector or concept-theme rotation or a multi-condition screen → read `references/twstock.md` (全市場選股 / *Sector rotation* / *Concept themes* / *Financial ratios* / 注意股／處置股 / 市值 / Dividend Events) or `references/twfutures.md` before fetching — one lib call each; never per-stock fetchers in parallel, raw futures−spot, shares × price or ETF by code prefix.
 
-**The symbol you backtest must be the symbol the orders go to, and the contract the user named.** `fetch_kline` is Binance USDT-M perps only; elsewhere use the exchange-native fetcher (`references/lib.md`); data not reachable → say so and stop, never a look-alike (`XAUUSDT` is not BingX's `GOLD(XAU)-USDT`).
+**The symbol you backtest must be the symbol the orders go to, and the contract the user named.** A contract is the dashless `SYMBOL` plus the exchange. Bars: a new strategy ordering on OKX → `fetch_okx_kline(SYMBOL, …)`, on BingX → `fetch_bingx_kline`; other exchanges, whole-market Type C and strategies on Blave alphas → `fetch_kline` (Binance), only when Binance's contract is the same kind (coin / stock / commodity, same multiplier) — `references/lib.md` › *Which exchange's bars*. To the user, name a contract by that exchange's own name and say which exchanges list it (gold: Binance `XAUUSDT`, OKX `XAU-USDT-SWAP`, BingX `GOLD(XAU)-USDT` — three contracts); not reachable → say so and stop, never a look-alike.
 
 **Macro events and their numbers come from `fetch_economic_calendar()` — never from a web search or memory;** it covers ~5 weeks, so past events' dates (FOMC meetings for an event study) come from the official source's own page (federalreserve.gov), cited. **Anything time-sensitive it does not cover (who holds an office, recent decisions, news) — verify on the web and cite, or say plainly you could not verify; a search that returns nothing, errors, or is blocked is not permission to answer from memory — it IS the answer.** Why: `references/lib.md` › *Macro facts discipline*.
 
@@ -84,7 +84,7 @@ Always set `DISPLAY_NAME`, `DESCRIPTION` and `LOGIC` (one `entry:` / `exit:` / `
 
 **FEE is PER SIDE and never 0:** the engine charges it on every change, so a round trip pays it twice; paper trading charges the same `FEE`. Start from the market default in `references/trading-costs.md` (slippage included, conservative), adjust it to the user's own broker rate or the instrument's liquidity, and say which rate you used.
 
-**Type B:** BEFORE any exchange API call, read the relevant `skills/blave-quant/references/` file and check `lib/` for a helper; new exchange helpers go in `lib/`. BingX → `lib/order_bingx.py`, SinoPac stocks → `lib/order_sinopac.py`, never hand-written. Start the file with the templates' header comment, `# Type:     B (…)` as its second line — the desktop app reads it.
+**Type B:** BEFORE any exchange API call, read the relevant `skills/blave-quant/references/` file and check `lib/` for a helper; new exchange helpers go in `lib/`. BingX → `lib/order_bingx.py`, never hand-written; TW stocks are never ordered by Blave (`references/sinopac-broker.md` Step 5). Start the file with the templates' header comment, `# Type:     B (…)` as its second line — the desktop app reads it.
 
 **Type C:** Taiwan universe sampled by sector; live checks → *Live trading (Type C)*.
 
@@ -137,7 +137,7 @@ A report is a document the user reads in the Reports list (web: 「報告」 in 
 
 ## Shell Commands
 
-- One-off scripts → `tmp/` (workspace-relative), never workspace root or `strategies/`; delete yours before you reply, and never copy from a script already in `tmp/` (stale leftovers — `lib/` and `references/` are the reference). **Except research:** write the analysis script behind a research answer to `tmp/research/<what_it_computes>.py` and keep it (first line: question | data and window | date); turning an earlier answer into a report reruns it — never redo the research (`references/reports.md` §1b › *Research scripts*)
+- One-off scripts → `tmp/` (workspace-relative), never workspace root or `strategies/`; delete yours before you reply (a research script's `.notes.md` stays with it), and never copy from a script already in `tmp/` (stale leftovers — `lib/` and `references/` are the reference). **Except research:** write the analysis script behind a research answer to `tmp/research/<what_it_computes>.py` and keep it (first line: question | data and window | date); turning an earlier answer into a report reruns it — never redo the research (`references/reports.md` §1b › *Research scripts*)
 - **NEVER write `except Exception: pass`** — always `except Exception as e: print(f"Error: {e}")`
 - NEVER chain commands with `&&`, `||`, or `;` — run ONE command at a time, on Windows too
 - On Windows, read and write strategy files, `.env` and `references/` with python (`encoding='utf-8'`), never `Get-Content` / `Set-Content` — PowerShell 5.1 garbles UTF-8 Chinese

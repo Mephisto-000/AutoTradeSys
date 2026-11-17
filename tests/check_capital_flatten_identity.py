@@ -1,4 +1,5 @@
 # Modified by Mephisto-000 on 2026-10-25: the no-account-lib case hides SinoPac's new account lib.
+#   (2026-11-18) 永豐 keys stay part of the close-all (upstream leaves its odd-lot-era keys out).
 """群益 leg of 全部平倉 under an identity that can't log in to SKCOM — no network,
 no exchange, no Windows needed (the identity check is mocked).
 
@@ -179,6 +180,7 @@ from lib import tw_clock as _twc  # noqa: E402
 HOLD = flatten.CAPITAL_QUEUED_HOLD_S
 _real_qu = _twc.queued_until
 _twc.queued_until = lambda now=None: None   # in session unless a case says otherwise
+_twc.close_hold = lambda now=None: None     # the broker takes closes (else flatten defers them)
 
 
 def park(at, intent="reduce"):
@@ -231,7 +233,9 @@ check(("capital", "TM2610") in closes, "N-1: pressed again 22 min after the send
 # N-4: sent out of session (14:00, or a weekend), it may sit queued to the next open — held past
 # that open plus settle, as the reconciler's queued_until, not just 16 min; the row names that time
 OPEN = _t0.time() + 3600
-_twc.queued_until = lambda now=None: OPEN
+# (only the send's own time reads out of session: the press right at a session's end, which 群益 took —
+# since Wei 11-15 a close-all while shut is sent anyway, and 群益 refusing it is a failure)
+_twc.queued_until = lambda now=None: OPEN if now is not None else None
 run_flatten(True, close={"TM2610": "sent"})
 hold = (json.load(open(flatten.LAST_PATH)).get("capital_hold_until") or {}).get("TMF")
 check(hold and abs(hold - (OPEN + flatten.CAPITAL_SETTLE_S)) < 2,
@@ -244,7 +248,8 @@ run_flatten(True, keep_last=True)
 q = queued_rows()
 check(("capital", "TM2610") not in closes and q and abs(q[0][3].get("until", 0) - (OPEN + flatten.CAPITAL_SETTLE_S)) < 2,
       f"N-4: the held row's until is the open, not 16 min after the send ({q[:1]})")
-_twc.queued_until = _real_qu
+# back to "in session" for the cases below
+_twc.queued_until = lambda now=None: None
 os.remove(flatten.LAST_PATH)
 
 res = run_flatten(False)
@@ -353,6 +358,27 @@ check("TMF" not in zeroed and any("未確認成交" in e[2] for e in errors),
 run_flatten(True, BOOK)  # control for the four above
 check("TMF" in zeroed and not errors, "self_ledger: 群益 close filled in full → TMF zeroed")
 
+# after the close (unmeasured clock) and in the pre-open (measured): 群益 is sent anyway (Wei 11-15 — no time
+# gate on the user's close; 群益's refusal would be a failure row), nothing is scheduled for the open
+_real_ptc = _lp0._PAPER_TW_CLOSE_PATH
+_lp0._PAPER_TW_CLOSE_PATH = os.path.join(BASE, "paper_tw_close.json")
+_lp0._SEED_LOCK_PATH = os.path.join(BASE, "ledger_seed.lock")
+_real_skew = _twc.skew
+for label, skew, until in (("after the close (unmeasured clock)", None, 3600), ("pre-open press (measured clock)", 0.0, 300)):
+    _twc.skew = (lambda now=None: None) if skew is None else (lambda now=None: 0.0)
+    _twc.queued_until = lambda now=None, u=until: _t0.time() + u
+    flatten._RUN["why"].clear()   # one process runs one flatten: earlier cases' reasons are not this run's
+    flatten._RUN["unconfirmed"].clear()
+    run_flatten(True, BOOK)
+    _twc.queued_until = lambda now=None: None
+    check(("capital", "TM2610") in closes and ("binance", "BTCUSDT") in closes and "TMF" in zeroed
+          and not os.path.exists(_lp0._PAPER_TW_CLOSE_PATH) and not [e for e in errors if e[0] == "TMF"],
+          f"{label}: 群益 sent and closed, nothing scheduled ({errors})")
+run_flatten(True, BOOK)
+check(("capital", "TM2610") in closes and "TMF" in zeroed, "in session (measured clock): closed as before")
+_twc.skew = _real_skew
+_lp0._PAPER_TW_CLOSE_PATH = _real_ptc
+
 # one venue unreadable → no stale-entry sweep at all (the book has no venue column)
 POS_ERR = RuntimeError("capital snapshot stale")
 run_flatten(True, BOOK, capital=POS_ERR)
@@ -403,6 +429,12 @@ finally:
         sys.modules["lib.account_sinopac"] = _real_acct
 check("ETHUSDT" not in zeroed and ("*", "sinopac") in [e[:2] for e in errors],
       f"order lib without account lib → no sweep + visible error ({sorted(zeroed)}, {errors})")
+# the shipped row. Upstream (futures only, Wei 2026-11-17) leaves odd-lot-era 永豐 keys out of the
+# close-all; in the AutoTradeSys fork they are the TW-stock venue, so the close-all reads them — the
+# stand-in keys here ("x") are refused, and that refusal is said, never skipped quietly
+run_flatten(True, BOOK)
+check(any(e[1] == "sinopac" for e in errors),
+      f"永豐 stock keys → part of the close-all (fake keys: a visible 永豐 error) ({sorted(zeroed)}, {errors})")
 EXTRA_ENV.clear()
 # a position row with no symbol at all could be any book key
 run_flatten(True, BOOK, capital={"": {"side": "long", "size": 1}})

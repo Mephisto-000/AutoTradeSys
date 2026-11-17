@@ -2,6 +2,8 @@
 #   one order chokepoint (_send_order) and a spot layer (TW stocks as spot inventory: board lots
 #   + intraday odd lots, price-protected and cash-checked) so lib/venue_wiring auto-wires SinoPac;
 #   (2026-10-31) cancel_spot_order passes the order gate, so it takes upstream's turn order lock.
+#   (2026-11-18) kept over upstream c1db277b's futures-only rewrite (its odd-lot path removed); the
+#   PaperMarketClosed docstring follows upstream 0.1.55's close-all (refused, not deferred).
 # Original work: Copyright 2025-2026 WuChi Technology Company Limited
 # Licensed under the Apache License, Version 2.0
 """
@@ -139,10 +141,10 @@ class DuplicateOrder(Exception):
 
 class PaperMarketClosed(SinopacError):
     """A TW stock order outside the TWSE session (09:00–13:30 on a trading
-    day). The class NAME is the contract manager/flatten._defer_tw_close
+    day). The class NAME is the contract manager/flatten._refuse_tw_futures
     matches (shared with lib/order_paper's TW stocks): a close-all that meets
-    it is deferred to the reconciler's first round after the open instead of
-    being booked as closed."""
+    it is refused and said (a market_closed row), never booked as closed nor
+    deferred to the open (upstream 0.1.55)."""
 
 
 MarketClosed = PaperMarketClosed

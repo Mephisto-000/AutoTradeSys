@@ -7,11 +7,13 @@
 // 文字鈕 .btn-quiet(spec-desktop-settings-cleanup §0):
 //   ④ 關於的「服務條款 · 隱私權政策」、隱私頁的「隱私權政策」:字的左緣 = 內容欄起點(關於那一行 #set-up-line 的左緣)
 //   ⑤ 對照:把 UA 的左右 padding 蓋回去,④要壞
+// 左下角一列(spec sidebar-conversion §4.3):⑫ zh／en × 180／236／400 放不放得下、手機讓位
 // 設定 modal 方案 B(spec settings-modal-b-2026-10-24):
-//   ⑥ S7/S15 分類欄:目前項底色 = --surface-muted、hover 用的 --surface-row-hover 跟它不同(亮暗都量);視覺高 34、熱區上下各補 5 到 44
+//   ⑥ S7/S15 分類欄:目前項底色 = --surface-muted、hover 用的 --surface-row-hover 跟它不同(亮暗都量);視覺高 34、每一顆可點高 44、相鄰相接不重疊(鈕距 10);矮視窗分類欄自己捲
 //   ⑦ S8 「一般」三組:組內 8、組間 32;「關於」緊接防睡那組、隔 32(不釘底)
 //   ⑧ S9 每一類第一行字到內容區頂端 16–23(資料來源空清單時以前是 40)
 //   ⑨ 0.1.39 驗收熱區(☰、迴紋針、送出、托盤 ×)⑩ 聊天欄寬度縮放後還原 ⑪ ＋ 不疊空分頁、換語言分頁名跟著換
+// ⑰ 錯誤回報卡熱區與 1024×680 展開後鈕列看得到 ⑱ 手機配對商店鈕熱區 ⑲ 優化 › 部位大小:〔套用金額〕各狀態熱區、補救連結、窄版右緣對齊
 // 跑法:node tests/check_shell_layout.js(找不到 shell/node_modules 的 Electron 就 SKIP)
 const path = require("path"), fs = require("fs");
 const SHELL = path.join(__dirname, "..", "shell");
@@ -105,13 +107,34 @@ app.whenReady().then(async () => {
     ok(`⑥ S7 ${theme}:目前項 = --surface-muted＋600(${c.cur});hover 走 --surface-row-hover(${c.hover}),跟目前項、卡面都不同`, c.cur === c.muted && c.w === "600" && c.hover !== c.muted && c.hover !== c.card && c.rule);
   }
   await X(`document.documentElement.setAttribute("data-theme", "light")`);
-  const hit = await X(`(() => { const cats = [...document.querySelectorAll("#set-cats .set-cat")].filter((b) => !b.hidden), f = cats[0], l = cats[cats.length - 1], a = f.getBoundingClientRect(), b = l.getBoundingClientRect(), x = a.left + a.width / 2;
+  // 每一顆都拿 44 量(canon › modal 內分類欄 › 熱區):沿鈕的中線每 1px 取一點,數 elementFromPoint 落在這顆上的連續高度。
+  // 相鄰熱區重疊(鈕距 < 10)時前一顆會被後一顆的 ::before 吃掉、量不到 44;鈕距 > 10 則兩顆中間有點不到的縫
+  const hitOf = (showAll) => X(`(() => { const conn = document.querySelector('#set-cats .set-cat[data-set-cat="connect"]'), was = conn.hidden, connHidden = was && getComputedStyle(conn).display === "none"; if (${showAll}) conn.hidden = false;
+    const nav = document.getElementById("set-cats"), cats = [...nav.querySelectorAll(".set-cat")].filter((b) => !b.hidden), a = cats[0].getBoundingClientRect(), x = a.left + a.width / 2;
     const at = (y) => { const e = document.elementFromPoint(x, y); return e && e.closest(".set-cat"); };
-    const own = cats.every((c) => { const r = c.getBoundingClientRect(); return at(r.top + 1) === c && at(r.bottom - 1) === c; });
-    const conn = document.querySelector('#set-cats .set-cat[data-set-cat="connect"]');
-    return { h: cats.map((c) => Math.round(c.getBoundingClientRect().height)), up: at(a.top - 4) === f, down: at(b.bottom + 4) === l, outUp: at(a.top - 6) !== f, outDown: at(b.bottom + 6) !== l, own,
-      connHidden: !!conn && conn.hidden && getComputedStyle(conn).display === "none" }; })()`);
-  ok(`⑥ S15 分類鈕視覺高 34(${hit.h.join("/")}),熱區上下各多 5:邊外 4px 還點得到、6px 點不到;每顆可見框的上下緣 1px 點到的都是自己(不被鄰居的熱區吃掉)`, hit.h.every((h) => h === 34) && hit.up && hit.down && hit.outUp && hit.outDown && hit.own, JSON.stringify(hit));
+    const zone = cats.map((c) => { const r = c.getBoundingClientRect(); let n = 0, top = null, bot = null;
+      for (let y = Math.round(r.top) - 12 + 0.5; y < r.bottom + 12; y++) if (at(y) === c) { n++; if (top == null) top = y - 0.5; bot = y + 0.5; }
+      return { n, solid: bot - top === n, up: r.top - top, down: bot - r.bottom }; });
+    const rs = cats.map((c) => c.getBoundingClientRect()), nr = nav.getBoundingClientRect(), cs = getComputedStyle(nav);
+    const out = { n: cats.length, h: rs.map((r) => Math.round(r.height)), zone: zone.map((z) => z.n), solid: zone.every((z) => z.solid), ext: zone.every((z) => Math.abs(z.up - 5) < 1 && Math.abs(z.down - 5) < 1), top: rs[0].top, up: zone.map((z) => z.up),   // 取樣格 1px,框的位置可能落在半 px 上
+      pitch: rs.slice(1).map((r, i) => Math.round(r.top - rs[i].top)), inPad: rs[0].top - 5 >= nr.top && rs[rs.length - 1].bottom + 5 <= nr.bottom,
+      stack: cs.isolation + "/" + getComputedStyle(cats[0], "::before").zIndex, fits: nav.scrollHeight <= nav.clientHeight,
+      connHidden };
+    conn.hidden = was; return out; })()`);
+  const hit = await hitOf(false), hit7 = await hitOf(true);
+  for (const [tag, m, n] of [["預設(「連結」沒開放)", hit, 6], ["七顆全開", hit7, 7]])
+    ok(`⑥ S15 ${tag} ${m.n} 顆:視覺高 34(${m.h.join("/")}),每一顆可點高都是 44(${m.zone.join("/")})、連續、上下各補 5;節距 44(${m.pitch.join("/")})所以相鄰熱區相接不重疊;首尾外補的 5 落在分類欄內距裡;不疊放(isolation/z-index = ${m.stack});高度放得下`,
+      m.n === n && m.h.every((h) => h === 34) && m.zone.every((z) => z === 44) && m.solid && m.ext && m.pitch.every((g) => g === 44) && m.inPad && m.stack === "auto/auto" && m.fits, JSON.stringify(m));
+  // 視窗矮到放不下:分類欄自己捲(不縮鈕距、不被 modal 的 overflow: hidden 裁掉最後一顆)
+  w.setContentSize(1024, 360); await nap(300);
+  const low = await X(`(() => { const conn = document.querySelector('#set-cats .set-cat[data-set-cat="connect"]'); conn.hidden = false;
+    const nav = document.getElementById("set-cats"), cats = [...nav.querySelectorAll(".set-cat")], last = cats[cats.length - 1], body = document.querySelector(".set-body").getBoundingClientRect();
+    const o = { vh: innerHeight, oy: getComputedStyle(nav).overflowY, sh: nav.scrollHeight, ch: nav.clientHeight, inBody: Math.round(nav.getBoundingClientRect().bottom) <= Math.round(body.bottom) };
+    nav.scrollTop = nav.scrollHeight; const r = last.getBoundingClientRect(), e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    o.lastHit = !!e && e.closest(".set-cat") === last; o.lastIn = r.bottom <= body.bottom; o.pitch = Math.round(r.top - cats[cats.length - 2].getBoundingClientRect().top);
+    nav.scrollTop = 0; conn.hidden = true; return o; })()`);
+  ok(`⑥ S15 矮視窗(內容高 ${low.vh}):分類欄被設定框限高(${low.ch} < 內容 ${low.sh})、overflow-y: auto,捲到底最後一顆點得到;節距仍是 44`, low.oy === "auto" && low.sh > low.ch && low.inBody && low.lastHit && low.lastIn && low.pitch === 44, JSON.stringify(low));
+  w.setContentSize(1024, 760); await nap(300);
   ok("⑥ 平台沒開放手機查看時,「連結」那顆真的不佔位(display: none)", hit.connHidden);
   const gap = await X(`(() => { const r = (id) => document.querySelector(id).getBoundingClientRect(), rows = [...document.querySelectorAll('#set-modal .set-pane[data-set-cat="display"] > .set-row')].filter((x) => !x.hidden).map((x) => x.getBoundingClientRect());
     const sc = document.querySelector(".set-content").getBoundingClientRect();
@@ -153,21 +176,22 @@ app.whenReady().then(async () => {
     applyLangChoice("en"); const en = [...$("cs-tabs").querySelectorAll(".tab-t")].map((x) => x.textContent);
     applyLangChoice("zh"); const zh = [...$("cs-tabs").querySelectorAll(".tab-t")].map((x) => x.textContent);
     return { reuse, n0, two: second !== first, en, zh }; })()`);
-  // ⑫ 更新膠囊「重新啟動更新：{v}」(Wei 11-01):側欄預設 236 與最窄 180、zh／en、下單中多一個「…」,字都完整(span 不溢出),記下有沒有拿掉圖示
+  // ⑫ 左下角一列(spec sidebar-conversion-2026-11-10 §4.3、§12):zh／en × 側欄 180／236／400,帳號那一格放最寬的「免費試用」／Free Trial、更新圓鈕在、
+  //    手機條件都成立。180:三樣不溢出、不折行、手機讓位;236 與 400:四樣都在、靠左(齒輪左緣 = 列左緣 + 6)、右邊留白;列高 44
   w.setContentSize(1440, 760); await nap(400);
-  const pills = [], UP0 = await X(`JSON.stringify(UP)`);
-  for (const lang of ["zh", "en"]) for (const sw of [236, 180]) for (const ph of ["ready", "blocked"]) {
-    await X(`setLang(${JSON.stringify(lang)}); paneSt.side.off = false; paneSt.side.w = paneSt.side.want = ${sw}; panesRender(false); UP = { phase: ${JSON.stringify(ph)}, version: "0.1.41", current: "0.1.40" }; upPillPaint();`); await nap(450);
-    pills.push(await X(`(() => { upPillFit(); const tx = $("up-pill-t"), pl = $("up-pill");
-      return { lang: ${JSON.stringify(lang)}, sw: ${sw}, ph: ${JSON.stringify(ph)}, text: tx.textContent, sw0: tx.scrollWidth, cw: tx.clientWidth, pill: Math.round(pl.getBoundingClientRect().width), title: pl.title, aria: pl.getAttribute("aria-label"),
-        foot: Math.round(document.querySelector(".ws-foot").getBoundingClientRect().width), noIc: pl.classList.contains("no-ic") }; })()`)); }
-  await X(`setLang("zh"); UP = ${UP0}; upPillPaint(); paneSt.side.w = paneSt.side.want = PANES.side.def; panesRender(false);`);
+  const rows = [], UP0 = await X(`JSON.stringify(UP)`), PH0 = await X(`JSON.stringify(PH)`);
+  for (const lang of ["zh", "en"]) for (const sw of [180, 236, 400]) {
+    await X(`setLang(${JSON.stringify(lang)}); paneSt.side.off = false; paneSt.side.w = paneSt.side.want = ${sw}; panesRender(false); UP = { phase: "ready", version: "0.1.53", current: "0.1.52" }; upPillPaint();
+      PH = { visible: true, signedIn: true, pairedEver: false }; window.__pv0 = window.__pv0 || planView; planView = () => "offer"; sideBooted = true; sideCvPaint();`); await nap(450);
+    rows.push(await X(`(() => { const row = $("foot-row"), rr = row.getBoundingClientRect(), kids = [...row.children].filter((k) => !k.hidden && getComputedStyle(k).position !== "fixed"), last = kids[kids.length - 1].getBoundingClientRect();
+      return { lang: ${JSON.stringify(lang)}, sw: ${sw}, phone: !$("ph-pill").hidden, n: kids.length, h: Math.round(rr.height), over: Math.round(last.right - rr.right), gearL: Math.round($("ws-conn").getBoundingClientRect().left - rr.left),
+        cvH: Math.round($("side-cv").getBoundingClientRect().height), cvW: Math.round($("side-cv").getBoundingClientRect().width) }; })()`)); }
+  await X(`setLang("zh"); UP = ${UP0}; upPillPaint(); PH = ${PH0}; planView = window.__pv0; sidePaint(); paneSt.side.w = paneSt.side.want = PANES.side.def; panesRender(false);`);
   w.setContentSize(1024, 760); await nap(300);
-  console.log("      膠囊量測:" + JSON.stringify(pills));
-  const at = (sw) => pills.filter((x) => x.sw === sw);
-  // 放不下先換短字、圖示留著(canon › 側欄提示格):英文下單中多一個「…」,全句或短句看字寬,哪個都不能溢出、不能拿圖示
-  ok(`⑫ 膠囊預設側欄 236:zh 與英文一般狀態全句;英文下單中全句或短句;字與版號完整、圖示留著`, at(236).length === 4 && at(236).every((x) => x.sw0 <= x.cw && x.text.includes("0.1.41") && !x.noIc && (x.lang === "en" && x.ph === "blocked" ? /^(Restart to update|Update): 0\.1\.41…$/.test(x.text) : /重新啟動更新|Restart to update/.test(x.text))), JSON.stringify(at(236)));
-  ok(`⑫ 最窄側欄 180:換短句「更新：0.1.41」、版號不被切、全句在 title 與可及名稱`, at(180).length === 4 && at(180).every((x) => x.sw0 <= x.cw && /^(更新：|Update: )0\.1\.41…?$/.test(x.text) && /重新啟動更新|Restart to update/.test(x.title) && x.aria === x.title && !x.noIc), JSON.stringify(at(180)));
+  console.log("      底列量測:" + JSON.stringify(rows));
+  const at = (sw) => rows.filter((x) => x.sw === sw);
+  ok(`⑫ 最窄側欄 180:zh／en 三樣不溢出、膠囊不折行(高 28)、手機讓位;列高 44`, at(180).length === 2 && at(180).every((x) => !x.phone && x.n === 3 && x.over <= 0 && x.cvH === 28 && x.h === 44), JSON.stringify(at(180)));
+  ok(`⑫ 側欄 236 與 400:zh／en 四樣都在、靠左(齒輪離列左緣 6)、右邊留白`, [...at(236), ...at(400)].length === 4 && [...at(236), ...at(400)].every((x) => x.phone && x.n === 4 && x.over <= 0 && x.gearL === 6 && x.h === 44), JSON.stringify([...at(236), ...at(400)]));
   // ⑭ 設計稽核 B4 的熱區(視覺不變):側欄 ＋／資料夾鈕 44×44 不重疊、提示音開關 44×44、「開啟系統設定」80×45
   const hot = await X(`(async () => { ${HIT} const o = {}, add = $("strat-add"), sg = $("sg-add"); $("strat-head").hidden = false; sg.hidden = false; o.add = __hit(add); o.sg = __hit(sg);
     await setOpen(); setCat("display"); await new Promise((r) => setTimeout(r, 400)); o.sw = __hit($("set-rs-sw")); const os = $("set-rn-os"), was = os.hidden; os.hidden = false; await new Promise((r) => setTimeout(r, 100)); o.go = __hit($("set-rn-os-go")); o.sug = __hit(document.querySelector(".set-sug .sw") || $("set-rs-sw")); os.hidden = was; setClose(); return o; })()`);
@@ -210,6 +234,53 @@ app.whenReady().then(async () => {
   ok(`⑮ 只有空的新列:〔儲存〕停用;打了金額立刻可按:${JSON.stringify([seq.saveOffBlank, seq.saveOffTyped])}`, seq.saveOffBlank === true && seq.saveOffTyped === false);
   ok(`⑮ 新列格子空的、游標在最前面打 1000 是 1,000、沒打就離開不補 0;已存過金額清空照舊寫 0:${JSON.stringify(seq)}`, seq.start === "" && seq.keptStart === "2,000" && seq.blurEmpty === "" && seq.typed === "1000" && seq.edit === 1000 && seq.after === "1,000" && seq.keptCleared === "0");
   ok(`⑪ 別的分頁空著又閒著:＋ 切過去、不疊空分頁;換語言分頁名跟著換:${JSON.stringify(tb)}`, tb.two && tb.reuse && tb.en.includes("New chat") && !tb.en.includes("新對話") && tb.zh.includes("新對話"));
+  // ⑰ 0.1.56 錯誤回報卡(1024×680,卡在對話最底):〔看會送出的內容〕〔收起〕、en 的 See What Will Be Sent 熱區 ≥44×44,不吃掉下面〔送出〕〔不送〕的 44;
+  //    展開後鈕列與勾選說明不用捲就看得到、展開鈕還在畫面上
+  w.setContentSize(1024, 680); await nap(400);
+  const er = await X(`(async () => { ${HIT} const nap = (ms) => new Promise((r) => setTimeout(r, ms)), o = {};
+    for (let i = 0; i < 12; i++) addMsg(i % 2 ? "you" : "agent", "訊息 " + i + " 這是一段比較長的對話內容,用來把聊天欄撐滿。");
+    errCard({ id: "lay1", n: 2, text: JSON.stringify(Array.from({ length: 40 }, (_, i) => ({ exc_type: "KeyError", msg: "line " + i })), null, 1) }); await nap(300);
+    const sc = $("chat-scroll"), tog = document.querySelector(".err-tog"), card = tog.closest(".msg"), act = card.querySelector(".fault-act"), note = card.querySelector(".err-note");
+    const acts = () => [...act.querySelectorAll("button")].filter((b) => b.getClientRects().length).map(__hit);
+    o.view = __hit(tog); o.acts = acts();
+    tog.click(); await nap(400);
+    const s = sc.getBoundingClientRect(), a = act.getBoundingClientRect(), n = note.getBoundingClientRect(), g = tog.getBoundingClientRect();
+    o.fit = { scTop: s.top, scBot: s.bottom, tog: g.top, act: a.bottom, note: n.bottom, outer: (() => { let e = sc.parentElement, v = 0; while (e) { v += e.scrollTop; e = e.parentElement; } return v; })() };
+    o.hide = __hit(tog); o.actsOpen = acts();
+    tog.click(); await nap(100); applyLangChoice("en"); await nap(100); tog.scrollIntoView({ block: "center" }); o.en = __hit(tog); o.enText = tog.textContent; applyLangChoice("zh");
+    errLive = null; card.remove(); sc.querySelectorAll(".msg").forEach((m) => m.remove()); return o; })()`);
+  const ge44 = (h) => h.w >= 44 && h.h >= 44;
+  ok(`⑰ 錯誤回報卡:〔看會送出的內容〕${JSON.stringify(er.view)}、〔收起〕${JSON.stringify(er.hide)}、en「${er.enText}」${JSON.stringify(er.en)} 熱區都 ≥44×44`, ge44(er.view) && ge44(er.hide) && ge44(er.en) && er.enText === "See What Will Be Sent");
+  ok(`⑰ 錯誤回報卡:〔送出〕〔不送〕熱區還是 ≥44 高,沒被展開鈕吃掉:${JSON.stringify([er.acts, er.actsOpen])}`, er.acts.length === 2 && [...er.acts, ...er.actsOpen].every((h) => h.h >= 44));
+  ok(`⑰ 1024×680 展開後:鈕列與勾選說明不用捲就在聊天欄裡、展開鈕還看得到、只捲聊天欄(外層 scrollTop 0):${JSON.stringify(er.fit)}`, er.fit.note <= er.fit.scBot && er.fit.act <= er.fit.scBot && er.fit.tog >= er.fit.scTop && er.fit.outer === 0);
+  w.setContentSize(1024, 760); await nap(300);
+  // ⑱ 手機配對 popover 的 App Store／Google Play 文字鈕熱區 ≥44×44
+  const ph = await X(`(async () => { ${HIT} slotPopPaint(); const pop = $("ph-pop"); pop.style.left = "20px"; pop.style.bottom = "20px"; pop.hidden = false; await new Promise((r) => setTimeout(r, 200));
+    const o = [...pop.querySelectorAll(".ph-links .btn-quiet")].map((b) => Object.assign(__hit(b), { t: b.textContent })); pop.hidden = true; return o; })()`);
+  ok(`⑱ 手機配對:App Store、Google Play 熱區 ≥44×44:${JSON.stringify(ph)}`, ph.length === 2 && ph.every(ge44));
+  // ⑲ 優化 › 部位大小(工具列＋部位大小那一區,主欄 544 窄版疊放、800 寬版一列):
+  //    〔套用金額〕可按、停用、停用帶補救連結、沒有目標格四種都 ≥44 高;補救連結 ≥44×44、在句尾時熱區不探出右緣;旁邊的框也還是 44;窄版目標值格右緣 = 投入資金格 = 〔套用金額〕
+  const sz = await X(`(async () => { ${HIT} const nap = (ms) => new Promise((r) => setTimeout(r, ms)), out = {};
+    for (const W of [544, 800]) for (const st of ["on", "off", "link", "noT"]) {
+      const host = document.createElement("div"); host.className = "pf"; host.style.cssText = "position:fixed;left:100px;top:60px;width:" + W + "px;background:#fff;z-index:99"; document.body.appendChild(host);
+      host.appendChild(mgToolbar(false)); mgBuildPage(host, false);
+      const q = (s) => host.querySelector(s), f = q("#mg-fund"); f.value = "100000"; f.dispatchEvent(new Event("input"));
+      if (st !== "noT") { q('.mg-size-seg button[data-m="lev"]').click(); await nap(30); const tt = q("#mg-t"); tt.value = "2"; tt.dispatchEvent(new Event("input")); }
+      await nap(30);
+      const ap = q(".mg-apply"), why = q(".mg-apply-why"), tw = q(".mg-t"), fd = q(".mg-szf:not(.mg-t)");
+      ap.disabled = st !== "on";
+      if (st === "on") why.textContent = ""; else if (st === "link") mgWhyFill(why, t("mg.why.tbMethod"), { link: "mg.why.tbMethod", go: "pick" }, "mg-why-fix"); else why.textContent = "配置分頁的策略跟這裡不同";
+      const lk = why.querySelector(".busy-fix"), R = (e) => e && e.getClientRects().length ? e.getBoundingClientRect() : null;
+      const edge = lk ? (() => { const m = q(".mg-sz").getBoundingClientRect(), b = lk.getBoundingClientRect(), y = b.y + b.height / 2, at = (x) => document.elementFromPoint(x, y) === lk;
+        return { own: at(b.right - 1), out: at(m.right + 1) }; })() : null;
+      out[W + st] = { edge, ap: __hit(ap), link: lk ? __hit(lk) : null, t: R(tw) ? __hit(tw) : null, fund: __hit(fd), right: [R(fd), R(tw), R(ap)].map((r) => r ? Math.round(r.right * 10) / 10 : null), tw: R(tw) ? Math.round(R(tw).width) : null };
+      host.remove(); }
+    return out; })()`);
+  ok(`⑲ 〔套用金額〕四種狀態 × 窄／寬都 ≥44 高:${JSON.stringify(Object.fromEntries(Object.entries(sz).map(([k, v]) => [k, v.ap])))}`, Object.values(sz).every((v) => v.ap.h >= 44 && v.ap.w >= v.ap.vw));
+  ok(`⑲ 停用原因的補救連結 ≥44×44:${JSON.stringify([sz["544link"].link, sz["800link"].link])}`, [sz["544link"].link, sz["800link"].link].every((h) => h && ge44(h)));
+  ok(`⑲ 補救連結在句尾:熱區不探出部位大小那一區的右緣:${JSON.stringify([sz["544link"].edge, sz["800link"].edge])}`, [sz["544link"].edge, sz["800link"].edge].every((e) => e && e.own && !e.out));
+  ok(`⑲ 旁邊的投入資金、目標值格熱區還是 44:${JSON.stringify(Object.fromEntries(Object.entries(sz).map(([k, v]) => [k, [v.fund.h, v.t && v.t.h]])))}`, Object.values(sz).every((v) => v.fund.h >= 44 && (v.t === null || v.t.h >= 44)));
+  ok(`⑲ 窄版:目標值格右緣 = 投入資金格 = 〔套用金額〕(${JSON.stringify(sz["544on"].right)});寬版目標值格照舊 76(${sz["800on"].tw})`, sz["544on"].right[0] === sz["544on"].right[1] && sz["544on"].right[1] === sz["544on"].right[2] && sz["800on"].tw === 76);
   console.log(red ? `\n${red} 紅` : "\nALL PASS");
   app.exit(red ? 1 : 0);
 });

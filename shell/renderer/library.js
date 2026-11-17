@@ -1,12 +1,12 @@
 /* 策略庫(設計:blave-canon output/designer/spec-desktop-library-2026-09-25.md;雲端工作頁 #lib_panel 縮成中欄的尺寸)。
-   側欄「策略庫」→ 中欄清單(市場選單、排序選單;預設推薦 = 官方或已驗證優先)→ 詳情(曲線、四個數字、三道關卡、怎麼交易)→「用這支」確認框 →
+   側欄「策略庫」→ 中欄清單(市場選單、排序選單;預設推薦 = 官方或過關優先)→ 詳情(曲線、四個數字、三道關卡、怎麼交易)→「用這支」確認框 →
    送給 agent 同一句固定訊息(lib.msg / lib.msgPaid,逐字同 web 的 workspace_lib_msg;runtime 認這個句型,一行不改)。
    - 清單由主行程打 api(renderer 的 CSP 不外連;主行程逐欄驗過型別才交過來);這裡仍一律 textContent。
    - 兩個視角各記一份「開著 / 詳情那支 / 分段 / 捲動」(LIB.bags,同 TR_BAGS 的作法);中欄誰該出現由 trade.js 的 envShowMain
      在最後一步問 libShowMain。選策略 / 開自動下單會 libLeave。
    - 「已安裝」(§1.2):外殼在 userData 記 { marketplace id → 本機策略資料夾名 };送出「用這支」那一輪結束、本機清單多了一支就記下;
      名字被刪就從表裡拿掉。雲端視角不寫檔:同一套「送出前記清單、之後看多了誰」的比法,只記在這次 app 開著的期間(libCloudChanged)。
-   - 不導流(§13):未驗證的社群策略也列(平鋪在同一份清單的尾段,帶「未驗證」tag;spec-desktop-0.1.6 §2),詳情用 /report 補到 400 點曲線、
+   - 不導流(§13):未過關的社群策略也列(平鋪在同一份清單的尾段,清單列不標過關與否;spec-desktop-0.1.6 §2),詳情用 /report 補到 400 點曲線、
      總報酬、關卡數值、回測期間;沒有任何開網頁的入口。
    - 付不出資料費(spec-desktop-0.1.6 §3):why 只有一個來源(主行程 libraryList 回的 why);清單分「現在就能用」與第二組,
      閘門卡掛在第二組頭上,詳情主鈕照這支要不要 Blave 資料分流(libGrouping / libCta)。本機「用這支」由主行程代下載。
@@ -76,7 +76,7 @@ function libIdeaOn(c) {
 function libDlKey(kind) { return kind === "signinFailed" ? "row.failed" : ["blocked", "gone", "rateLimited", "unsent", "agentOld", "agentOldReopen"].includes(kind) ? "lib.dl." + kind : "lib.dl.fail"; }
 // 確認框與購買框的資料費那一行(§4.1):本機、按小時計費、而且這支不是只用公開資料。兩個框共用這一支,條件不會漂
 function libFeeLine(env, dataAccess, needs) { return env !== "cloud" && dataAccess === "billed" && needs !== "none"; }
-// 推薦排序(同公開頁 library_rules.recoSort):已驗證 → 樣本長 → 新;刻意不看報酬 / Sharpe(最漂亮的回測多半最過擬合)
+// 推薦排序(同公開頁 library_rules.recoSort):過關 → 樣本長 → 新;刻意不看報酬 / Sharpe(最漂亮的回測多半最過擬合)
 function libCompare(a, b) {
   const va = a.verified ? 1 : 0, vb = b.verified ? 1 : 0;
   if (va !== vb) return vb - va;
@@ -86,11 +86,11 @@ function libCompare(a, b) {
   if (ca === cb) return 0; if (ca === null) return 1; if (cb === null) return -1;
   return cb - ca;
 }
-/* 這個分段要畫的一份清單(spec-desktop-0.1.6 §2.1):主鍵「官方或已驗證」在前,其後照 libCompare。主鍵寫成 code 是因為 libCompare
-   第一階只看 verified——「官方但沒跑關卡」在純 libCompare 下會掉到未驗證那一段;Wei 說的是「官方與已驗證在前」 */
+/* 這個分段要畫的一份清單(spec-desktop-0.1.6 §2.1):主鍵「官方或過關」在前,其後照 libCompare。主鍵寫成 code 是因為 libCompare
+   第一階只看 verified——「官方但沒跑關卡」在純 libCompare 下會掉到未過關那一段;Wei 說的是「官方與過關在前」 */
 function libRecoCmp(a, b) { return (Number(!!(b.is_official || b.verified)) - Number(!!(a.is_official || a.verified))) || libCompare(a, b); }
 /* 排序選單(spec library-sort-rows-2026-11-06 §3):key 與順序同網頁公開頁 #mp_sort 的 data-sort,另插 installs。
-   數值排序時未驗證或樣本未滿 1 年的沉底;官方身分不救(比的是數字可不可信)。同值照推薦決勝、缺值排最後(同 web valueSort) */
+   數值排序時未過關或樣本未滿 1 年的沉底;官方身分不救(比的是數字可不可信)。同值照推薦決勝、缺值排最後(同 web valueSort) */
 const LIB_SORTS = ["reco", "installs", "sample", "sharpe", "mdd", "annual", "newest"];
 const LIB_SINK_SORTS = ["sharpe", "mdd", "annual"];
 const LIB_FLOOR_YEARS = 1;
@@ -217,6 +217,14 @@ function libBuyBranch(status, body) {
   if (status === 402 && /no card bound/i.test(err)) return "noCard";
   return "failed";
 }
+// 一鍵框的結果 → lib_buy_result 的值(同網頁 bind_buy.js buyOutcome 的 result;already_purchased 縮成 already_owned)
+function libBuyResult(branch, status, body) {
+  const b = body || {};
+  if (branch === "ok") return status === 200 ? "success" : "already_owned";
+  if (branch === "charged") return (b.reason_code || b.reason) === "already_purchased" ? "already_owned" : "failed";
+  if (branch === "changed") return b.price_source === "none" ? "no_card" : b.price_source === "wallet" || b.price_source === "card" ? "changed" : "failed";
+  return { noCard: "no_card", topup: "needs_topup", inProgress: "in_progress", negative: "balance_negative" }[branch] || "failed";
+}
 /* 綁卡即購買(spec library-buy-with-bind-2026-11-06 §3,同網頁 bind_buy.js quoteOf):不帶 confirm 的報價回應 → 出哪一種框。
    trial = 框 1(順便開試用)、plain = 框 2(只買)、plan = 框 3(要方案、不給買);has_card = 報價前剛綁好卡(回一般購買)、
    owned = 已買過、open = 上一張付款頁還開著(下次帶 restart)、rate = 429;其餘 fallback(舊的「去綁卡」框) */
@@ -306,17 +314,26 @@ function libNoteId(s, lang) { const m = s && s.success_note_ids; const v = m && 
 /* 歡迎頁①的卡(spec desktop-welcome-library-first §2.3)。候選 = 免費 × 官方 × 不是自己的 × 這個視角沒裝過(installed 回呼);
    不看 purchased:官方策略 /code 抓過一次 api 就記一筆 0 元購買,不代表這台有。只留不用再付錢就能跑的,不拿要資料的補滿(歡迎頁是第一眼,不放牆;沒登入按下去先進詳情,welcome.js wcUse):
    雲端、資料已含 → 全部;其餘(沒登入／billed／none／方案制／查不到)→ 不用 Blave 資料的。billed 也只出不用資料的:第一眼不讓確認框多出收費句。
-   每個市場先一支、不到三支照 libVisible 補;回傳照 libVisible 的順序,不照挑的順序。c = { env, signedIn, dataAccess, wait, installed };wait = 帳號狀態還在讀 → null(骨架) */
+   每個市場先一支、不到三支照 libVisible 補;回傳照 libVisible 的順序,不照挑的順序。c = { env, signedIn, dataAccess, wait, installed, mkt };wait = 帳號狀態還在讀 → null(骨架)。
+   mkt = 主要市場(spec market-pref §5.1):先從那個市場照 libVisible 順序挑,不足三支再用上面的挑法從其他市場補;主要市場那幾支排前面。
+   主要市場那一池不看要不要 Blave 資料(Wei:台指期的官方策略全都要資料,照上面的規則沒登入一張都出不來);
+   按下去由 wcUse 照 libCtaOf 分流,用不了的先進詳情(沒登入看到登入鈕)。其他市場補位照舊只出不用再付錢就能跑的 */
 function wcReco(list, c) {
   const o = c || {};
   if (o.wait) return null;
   const seen = typeof o.installed === "function" ? o.installed : () => false;
   const runs = o.env === "cloud" || (o.signedIn !== false && o.dataAccess === "included") ? () => true : (s) => libNeeds(s) === "none";
-  const cands = libVisible((Array.isArray(list) ? list : []).filter((s) => s && libIsFree(s) && s.is_official === true && !s.is_owner && runs(s) && !seen(s)), "all");
-  const picked = [], mk = new Set();
-  cands.forEach((s) => { const m = String(libMarket(s)); if (picked.length < 3 && !mk.has(m)) { mk.add(m); picked.push(s); } });
-  cands.forEach((s) => { if (picked.length < 3 && !picked.includes(s)) picked.push(s); });
-  return cands.filter((s) => picked.includes(s));
+  const base = (Array.isArray(list) ? list : []).filter((s) => s && libIsFree(s) && s.is_official === true && !s.is_owner && !seen(s));
+  const cands = libVisible(base.filter(runs), "all");
+  const pick = (pool, n) => {
+    const picked = [], mk = new Set();
+    pool.forEach((s) => { const m = String(libMarket(s)); if (picked.length < n && !mk.has(m)) { mk.add(m); picked.push(s); } });
+    pool.forEach((s) => { if (picked.length < n && !picked.includes(s)) picked.push(s); });
+    return pool.filter((s) => picked.includes(s));
+  };
+  if (!LIB_MARKETS.includes(o.mkt)) return pick(cands, 3);
+  const mine = libVisible(base.filter((s) => libMarket(s) === o.mkt), "all").slice(0, 3);
+  return mine.concat(pick(cands.filter((s) => libMarket(s) !== o.mkt), 3 - mine.length));
 }
 // 卡的第一格(canon › Beginner strategy card › 指標列):回測樣本未滿 1 年講總報酬,否則年化
 function wcFirstKv(s) { return libUnderYear(s) ? "total" : "ann"; }
@@ -726,6 +743,7 @@ function libMktOpen() { libMenuOpen("lib-mkt-menu", "lib-mkt-trig"); }
 function libMktPick(mkt) {
   libMktClose(true);
   if (mkt === libBag().mkt) return;
+  libBag().mktUser = true;   // 手動切過:之後改主要市場不蓋回去(renderer/market.js)
   libBag().mkt = mkt; LIB.gone = false; libTrack("lib_mkt_pick"); libPaint();
 }
 // 排序選單(§3.4):選中那項、觸發器上的值
@@ -776,7 +794,6 @@ function libPaintListKeep() {
 }
 function libTags(s) {
   const out = [];
-  if (s.verified) out.push(libEl("span", "tag is-verified", t("lib.verified")));
   if (libIsFree(s)) out.push(libEl("span", "tag", t("lib.free")));
   else if (s.purchased || s.is_owner) out.push(libEl("span", "tag", t("lib.owned")));
   else { const p = libEl("span", "tag is-price"); p.append(libPriceNode(s)); out.push(p); }
@@ -1180,7 +1197,7 @@ function libPaintCta(s) {
   // 鈕下最多一行(Wei 11-09):有結果句時只出結果句(同網頁),續扣那一行收起來;重按會重新報價
   /* 付完那句(設計稽核第 4 條):鈕下結果槽、不加記號(灰記號的意思是「沒發生」),12px ink-2。本機會自動安裝,安裝中留著、裝好收掉 */
   if (bb && bb.kind === "paid" && c.state === "installed") LIB.bbRes.delete(s.id);
-  const paid = bb && bb.kind === "paid" && c.state !== "installed" ? libEl("p", "note up", libBbText(bb)) : null;
+  const paid = bb && bb.kind === "paid" && c.state !== "installed" ? libEl("p", "note up lib-res", libBbText(bb)) : null;
   if (paid) paid.setAttribute("role", "status");
   const bbl = libBbLines(bb);
   if (bbl.length || paid) note.textContent = "";
@@ -1416,6 +1433,7 @@ async function libBuyOneGo(s, q, opener) {
   const mine = !sc.hidden && (typeof delCtx === "undefined" || delCtx === ctx);
   const shut = () => { if (mine) delClose(false); };
   const body = r && r.body ? r.body : {}, branch = libBuyBranch(r ? r.status : 0, r ? r.body : null), main = () => libCtaMain() || opener;
+  try { window.blave.trackEvent("lib_buy_result", { result: libBuyResult(branch, r ? r.status : 0, body) }); } catch (_) { }
   const box = (next) => { if (mine) { libBuyOneBox(s, next, main()); return; } LIB.bbRes.set(s.id, { kind: "note", key: LIB_PB_MSG[next.msg], bad: next.msg === "failed" || next.msg === "negative" }); libSync(); };
   if (branch === "ok" || branch === "inProgress") LIB.stale = true;
   if (branch === "ok") {
@@ -1803,7 +1821,7 @@ function libChartDraw(host, r) {
   window.addEventListener("focus", () => { libRefresh(); libIdeaSync(); });
   window.addEventListener("focus", () => { if (LIB.bbWait) { LIB.bbWait.check = true; libBbPollSoon(0); } if (!$("lib").hidden) libBalLoad(); });   // 付完或儲值後切回 app   // 付完切回 app:立刻查一次綁卡即購買的結果
   window.addEventListener("blave:theme", () => { libSparkAll(); if (LIB.chart && LIB.chart.blaveRetheme) try { LIB.chart.blaveRetheme(); } catch (_) { } });   // 去瀏覽器綁卡 / 儲值回來:閘門要解(主行程回前景也會重問 account_status)
-  g("chat-idea").addEventListener("click", () => { if (typeof ideaOpen === "function") ideaOpen(g("chat-idea"), "welcome", "any"); });   // 歡迎頁①:開找點子框,不限市場
+  g("chat-idea").addEventListener("click", () => { if (typeof ideaOpen === "function") ideaOpen(g("chat-idea"), "welcome", libIdeaMkt(mktLibOf(MKT.v))); });   // 歡迎頁①:開找點子框,預設主要市場(沒設 = 不限)
   libIdeaSync();
   window.blave.libraryInstalled().then((m) => { if (m && typeof m === "object") { LIB.installed = m; if (typeof wcPaint === "function") wcPaint(); } }).catch(() => {});
 })();

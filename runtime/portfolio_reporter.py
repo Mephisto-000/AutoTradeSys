@@ -357,10 +357,14 @@ def tw_trading_day():
     return {"date": today, "trading": rec["verdict"]}
 
 
+# 台指期 book keys (群益 and 統一 alike: manager/flatten._book_key maps 群益's month codes to these)
+_TW_FUT_ROOTS = ("TXF", "MXF", "TMF")
+
+
 def deferred_close():
-    """Paper TW stock keys close-all deferred to the session open (lib/portfolio
-    defer_paper_tw_close, state/paper_tw_close.json), sorted; [] when none. 啟動下單
-    (resume or resume_wait) cancels them, so the start box lists them first."""
+    """Keys a 0.1.53 close-all deferred to the session open (state/paper_tw_close.json; a 0.1.54
+    lib drops them at its first round) — paper TW stocks and 台指期 roots — sorted; [] when none.
+    啟動下單 (resume or resume_wait) cancels them, so the start box lists them first."""
     rec = _read_json(os.path.join(WORKSPACE_STATE, "paper_tw_close.json"))
     keys = rec.get("keys") if isinstance(rec, dict) else None
     if not isinstance(keys, list):
@@ -370,7 +374,7 @@ def deferred_close():
         if not isinstance(k, str):
             continue
         sym, spot = (k[:-5], "@spot") if k.endswith("@spot") else (k, "")
-        if _TW_STOCK_RE.match(sym.upper()):
+        if _TW_STOCK_RE.match(sym.upper()) or (not spot and sym.upper() in _TW_FUT_ROOTS):
             out.add(sym.upper() + spot)
     return sorted(out)[:PORTFOLIO_WEIGHTS_MAX]
 
@@ -1069,6 +1073,8 @@ def venues():
                 and not m.group(1).upper().startswith("DATA_")):
             suffixes.setdefault(m.group(1).lower(), set()).add(m.group(2).upper())
     out = {}
+    # still listed, so the keys can be unbound; account false = runtime/account_reader reads none
+    dormant = venue_traits.dormant(WORKSPACE)
     for venue_id, sfx in suffixes.items():
         if "API_KEY" not in sfx:
             continue  # secret-only orphan: not an entry, same as before
@@ -1076,7 +1082,8 @@ def venues():
             "credentials": True,
             "pair": bool(sfx & {"SECRET_KEY", "PASSWORD", "PASSPHRASE"}),
             "order": os.path.isfile(os.path.join(lib_root, f"order_{venue_id}.py")),
-            "account": os.path.isfile(os.path.join(lib_root, f"account_{venue_id}.py")),
+            "account": (os.path.isfile(os.path.join(lib_root, f"account_{venue_id}.py"))
+                        and venue_id not in dormant),
         }
     if venue_traits.SINOPAC in out:
         out[venue_traits.SINOPAC]["simulation"] = _sinopac_simulation(lines)
@@ -1202,6 +1209,18 @@ def can_close_unbind(vens):
         return False
     return ("last_flatten.json" in src and '"--request-id"' in src and '"--venues"' in src
             and can_flatten(vens))
+
+
+def txf_close_refuses():
+    """The workspace's flatten.py sends a shut 台指期's close and reports a refusal as a failure
+    (manager/flatten._refuse_tw_futures, Wei 11-15) instead of deferring it to the open: the
+    pages' unbind box offers the close while 台指期 is shut only when this is true (this runtime
+    then skips its market_closed precheck); a cloud machine updates its lib on its own day."""
+    try:
+        with open(os.path.join(WORKSPACE, "manager", "flatten.py"), encoding="utf-8") as f:
+            return "def _refuse_tw_futures(" in f.read()
+    except OSError:
+        return False
 
 
 def unbind_clears_book():
@@ -1690,6 +1709,10 @@ def halt_state(hb=None, last=None):
         # 「暫停並關閉部位」: true only when a flatten really started (command_listener._mark_halt_closing);
         # absent on every other HALT and on runtimes before it
         **({"closing": info["closing"]} if isinstance(info.get("closing"), bool) else {}),
+        # the press that wrote it (command_listener._close_all): close_id matches last_flatten.close_id;
+        # already_halted = pressed while already paused, not a new pause
+        **({"close_id": info["close_id"][:64]} if isinstance(info.get("close_id"), str) and info["close_id"] else {}),
+        **({"already_halted": info["already_halted"]} if isinstance(info.get("already_halted"), bool) else {}),
         **({"mismatch": mismatch} if mismatch else {}),
         **({"unexplained": unexplained} if unexplained else {}),
         "blocked": _halt_denials(info.get("ts")),
@@ -2480,6 +2503,9 @@ def build_report(reporter=None):
         # TAIFEX regular session on the machine's corrected clock (lib/tw_clock; holidays not
         # known): {open, next_open (epoch s)}. None = this workspace has no tw_clock
         "txf_session": txf_session(),
+        # close-all while 台指期 is shut: true = sent, a refusal is a failure (nothing scheduled);
+        # false = an older lib defers it to the first round after the open (deferred_close)
+        "txf_close_refuses": txf_close_refuses(),
         # self_ledger: whether this machine diffs against the bot's own book —
         # the web's stop dialog phrases what 「關閉 bot 部位」actually closes
         # from this (bot's book only vs the whole account), the desktop's

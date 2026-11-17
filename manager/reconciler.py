@@ -476,40 +476,206 @@ def _note_manual_months(venue, rows, by_root=None):
         guard.audit('manual_month_excluded', venue=venue, contract=code, lots=lots)
 
 
-# ── Taiwan futures entry gate (lib/tw_clock) ──────────────────────────────────
+# ── Taiwan futures session gates (lib/tw_clock) ───────────────────────────────
 # An entry goes out only inside the regular session on a checked clock: a pre-open
 # market IOC is queued to the open, read as "not filled" and sent again every round
-# (+110 lots simulated from a 5-lot target). Closes are never held here.
-_entry_wake_at = None  # machine epoch of the next open an entry is waiting for (main loop)
-_clock_noted = None    # the skew this process last told the user about
+# (+110 lots simulated from a 5-lot target). A close waits only while the broker takes
+# no order at all (13:45–14:51, 05:00–08:31, weekends): sent then it is refused, and
+# sent again every round with a login of its own. A pre-open close goes. Both read the
+# clock checked against the api's (the machine's own when not measured, said once — Wei),
+# and the order lib's window reads the same clock for closes.
+_entry_wake_at = None  # machine epoch of the next open / pre-open an order is waiting for (main loop)
+_clock_noted = None    # the band ('off' / 'far' / 'far_halt') this process last told the user about
+
+
+def _wake_at(at):
+    global _entry_wake_at
+    _entry_wake_at = at if _entry_wake_at is None else min(_entry_wake_at, at)
+
+
+def _tw_close_held(sym, venue):
+    """True = this TW futures close waits for the broker's next pre-open (logged only: not an
+    error, nothing sent); the main loop is woken then. Not measured (fewer than KEEP samples, or
+    past SKEW_MAX_S): held on the machine's own clock, and said once (P1 tw_clock_unchecked, HALT
+    or not) — a clock hours off would otherwise hold a stop in the session unseen. Unmeasured, it
+    first asks the api once (tw_clock.probe) and holds only if that still measures nothing."""
+    try:
+        from lib import tw_clock
+        halted = guard.halted()
+        hold = tw_clock.close_hold()
+        if tw_clock.skew() is None and _probe(tw_clock):  # not measured at all: ask before either clock decides (as flatten)
+            hold = tw_clock.close_hold()
+        if not halted:  # under HALT no close goes but close-all's leg: the entry words don't fit
+            _clock_episode(sym, venue, tw_clock)
+        unchecked = tw_clock.skew() is None
+    except (ImportError, AttributeError):  # half-updated workspace: closes go, as before
+        return False
+    if hold is None:
+        return False
+    if unchecked:
+        _unchecked_close_note(sym, venue, tw_clock, halted)
+    _wake_at(hold['until'])
+    from datetime import datetime
+    at = datetime.fromtimestamp(hold['until'], tw_clock.TAIPEI).strftime('%a %H:%M')
+    logging.info(f"[reconciler/{venue}] {sym}: close waits — the broker takes no order until {at}")
+    return True
+
+
+def _tw_halt_close_held(sym, venue):
+    """True = a close under HALT waits for the regular session. Since 0.1.54 no close leg goes
+    out under HALT (a 0.1.53 deferred close-all is dropped, lib.portfolio._drop_tw_deferred); kept
+    one more version as the last gate against a pre-open close queued at the broker."""
+    if not guard.halted():
+        return False
+    try:
+        from lib import tw_clock
+        until = tw_clock.queued_until()
+        if tw_clock.skew() is None and _probe(tw_clock):
+            until = tw_clock.queued_until()
+        unchecked = tw_clock.skew() is None
+    except (ImportError, AttributeError):
+        return False
+    if until is None:
+        return False
+    if unchecked:  # the open read off this machine's own clock
+        _unchecked_close_note(sym, venue, tw_clock, True)
+    _wake_at(until)
+    logging.info(f"[reconciler/{venue}] {sym}: close-all's close waits for the open")
+    return True
+
+
+def _gross(tw_clock):
+    return getattr(tw_clock, 'gross_skew', tw_clock.skew)()
+
+
+def _probe(tw_clock):
+    """No measurement at all: one on-demand sample (rate-limited in tw_clock.probe). True = a reply
+    was noted, so the caller reads the clock again. Past SKEW_MAX_S is measured: no request."""
+    if _gross(tw_clock) is not None:
+        return False
+    return bool(getattr(tw_clock, 'probe', lambda: False)())
+
+
+CLOCK_REPEAT_S = 3600  # the platform's cooldown for these rows (api agent_events p1_cooldown_s)
+_last_said = (None, 0.0)
+
+
+def _say_again(band):
+    """False = `band` is the row this process wrote last, under CLOCK_REPEAT_S ago: samples
+    flickering in and out of a measurement end and start a spell, and say nothing new. Stamps it
+    otherwise."""
+    global _last_said
+    now = time.time()
+    if _last_said[0] == band and now - _last_said[1] < CLOCK_REPEAT_S:
+        return False
+    _last_said = (band, now)
+    return True
+
+
+def _clock_episode(sym, venue, tw_clock):
+    """One P1 row per band of a clock past SKEW_BLOCK_S, from whichever leg sees it first — a
+    stop-out round has no entry; a change of band is a new row. Up to SKEW_MAX_S ('off') closes run
+    on the corrected clock (clock_skew_hold, whose platform copy says closes go); past it ('far')
+    closes run on this machine's clock (tw_clock_unchecked, carrying the machine's sentence)."""
+    global _clock_noted, _unchecked_noted
+    g = _gross(tw_clock)
+    if g is None:
+        if _clock_noted is not None:  # not back within SKEW_BLOCK_S: no longer measured
+            logging.warning(f"[reconciler/{venue}] clock samples gone — not measured, entries read this machine's clock")
+            _clock_noted = None
+        return
+    _unchecked_noted = False  # samples again: the next unchecked spell is a new episode
+    if abs(g) <= tw_clock.SKEW_BLOCK_S:
+        if _clock_noted is not None:
+            logging.info(f"[reconciler/{venue}] clock back within {tw_clock.SKEW_BLOCK_S} s of the api's — entries resume")
+            guard.audit('entry_clock_resumed', venue=venue)
+            _clock_noted = None
+        return
+    band = 'far' if abs(g) > tw_clock.SKEW_MAX_S else 'off'
+    if _clock_noted == band:
+        return
+    _clock_noted = band
+    guard.audit('order_denied_clock', venue=venue, symbol=sym, skew=round(g, 1))
+    if not _say_again(band):
+        return
+    from lib.portfolio import _record_order_error
+    if band == 'far':
+        _record_order_error(sym, venue, f"這台電腦的時鐘{tw_clock.skew_words(g)}。台指期新倉暫停，"
+                                        f"平倉要等它顯示開盤才送。打開系統的自動設定時間就會恢復。",
+                            extra={'kind': KIND_CLOCK_UNCHECKED, 'clock': 'far'})
+    else:
+        _record_order_error(sym, venue, f"這台電腦的時鐘{tw_clock.skew_words(g)}。台指期新倉先暫停，"
+                                        f"平倉照常。打開系統的自動設定時間就會恢復。",
+                            extra={'kind': KIND_CLOCK_HOLD})
+
+
+_unchecked_noted = False  # a close held on an unmeasured clock was said this spell (cleared by a measurement)
+
+
+def _unchecked_close_note(sym, venue, tw_clock, halted):
+    """A close held on this machine's own clock (skew() not known): one P1 row per spell.
+    Not measured: said here, HALT or not. Past SKEW_MAX_S: _clock_episode says it outside HALT;
+    under HALT (no entry goes anyway) this row says the close only, once — a 'far' row said
+    before the HALT already covers it."""
+    global _unchecked_noted, _clock_noted
+    g = _gross(tw_clock)
+    from lib.portfolio import _record_order_error
+    if g is None:
+        if _unchecked_noted:
+            return
+        _unchecked_noted = True
+        guard.audit('close_held_unchecked_clock', venue=venue, symbol=sym)
+        if not _say_again('unmeasured'):
+            return
+        _record_order_error(sym, venue, "量不到這台電腦的時鐘準不準。台指期平倉要等它顯示開盤才送。"
+                                        "請打開系統的自動設定時間。",
+                            extra={'kind': KIND_CLOCK_UNCHECKED, 'clock': 'unmeasured'})
+    elif halted and abs(g) > tw_clock.SKEW_MAX_S and _clock_noted not in ('far', 'far_halt'):
+        _clock_noted = 'far_halt'
+        guard.audit('close_held_unchecked_clock', venue=venue, symbol=sym, skew=round(g, 1))
+        if not _say_again('far_halt'):
+            return
+        _record_order_error(sym, venue, f"這台電腦的時鐘{tw_clock.skew_words(g)}。"
+                                        f"台指期平倉要等它顯示開盤才送。請打開系統的自動設定時間。",
+                            extra={'kind': KIND_CLOCK_UNCHECKED, 'clock': 'far_halt'})
+
+
+def _clock_round():
+    """Each round: a measured clock ends the unmeasured spell — also when no TW futures leg ran in
+    between to see it. The next spell's row is still subject to _say_again."""
+    global _unchecked_noted, _clock_noted
+    if not _unchecked_noted and _clock_noted != 'far_halt':
+        return
+    try:
+        from lib import tw_clock
+        g = _gross(tw_clock)
+        if g is not None:
+            _unchecked_noted = False
+        # under HALT _clock_episode does not run: a clock back under SKEW_MAX_S ends the 'far_halt' spell here
+        if _clock_noted == 'far_halt' and (g is None or abs(g) <= tw_clock.SKEW_MAX_S):
+            _clock_noted = None
+    except Exception:  # half-updated workspace: the flag stays, at worst one note too few
+        pass
 
 
 def _tw_entry_held(sym, venue):
     """True = this TW futures entry waits (logged, a P1 row once per clock episode)."""
-    global _entry_wake_at, _clock_noted
     try:
         from lib import tw_clock
     except ImportError:
         return False
     hold = tw_clock.entry_hold()
+    # about to send on an unmeasured clock, or held for 1–2 samples hours off (not said yet): ask first
+    if (hold is None or hold['why'] == 'clock') and _probe(tw_clock):
+        hold = tw_clock.entry_hold()
+    _clock_episode(sym, venue, tw_clock)
     if hold is None:
-        if _clock_noted is not None:
-            logging.info(f"[reconciler/{venue}] clock back within {tw_clock.SKEW_BLOCK_S} s of the api's — entries resume")
-            guard.audit('entry_clock_resumed', venue=venue)
-            _clock_noted = None
         return False
     if hold['why'] == 'session':
-        _entry_wake_at = hold['until'] if _entry_wake_at is None else min(_entry_wake_at, hold['until'])
+        _wake_at(hold['until'])
         logging.info(f"[reconciler/{venue}] {sym}: entry waits for the regular session")
         return True
     logging.warning(f"[reconciler/{venue}] {sym}: entry held — this clock is {hold['skew']:+.0f} s off the api's")
-    if _clock_noted is None:
-        _clock_noted = hold['skew']
-        guard.audit('order_denied_clock', venue=venue, symbol=sym, skew=round(hold['skew'], 1))
-        from lib.portfolio import _record_order_error
-        _record_order_error(sym, venue, f"這台電腦的時鐘{tw_clock.skew_words(hold['skew'])}。台指期新倉先暫停，"
-                                        f"平倉照常。打開系統的自動設定時間就會恢復。",
-                            extra={'kind': KIND_CLOCK_HOLD})
     return True
 
 
@@ -574,7 +740,15 @@ def _capital_place_order(symbol, signed_diff, asset_spec=None, reduce_only=False
         logging.info(f"[reconciler/capital] {root}: close of {lots} waits — the close sent before is "
                      f"not reported yet and may be queued at the broker")
         return False
+    if reduce_only and (_tw_close_held(root, venue_traits.CAPITAL)
+                        or _tw_halt_close_held(root, venue_traits.CAPITAL)):
+        _closes_deferred.add(root)
+        return False
     if not reduce_only:
+        if root in _closes_deferred:
+            logging.info(f"[reconciler/capital] {root}: entry of {lots} waits — this round's close "
+                         f"of {root} was deferred, the position is still open")
+            return False
         if row is not None:
             logging.info(f"[reconciler/capital] {root}: entry of {lots} waits — a send reported no fill "
                          f"and is not claimed yet (see _capital_claim_pending)")
@@ -1016,10 +1190,52 @@ class PresidentCacheLagError(CapitalCacheLagError):
 # other roots are untouched.
 PENDING_SENT_PATH = 'state/president_pending_sent.json'
 PENDING_SENT_MAX_READS = 3
-# roots whose close leg this round was skipped (snapshot not caught up): a flip's
-# entry leg must not open the other side on top of the still-open position. Cleared
-# by _next_round().
+# roots whose close leg this round was skipped (snapshot not caught up, the broker's
+# closed hours — 統一 and 群益 both): a flip's entry leg must not open the other side on
+# top of the still-open position. Cleared by _next_round().
 _closes_deferred = set()
+# venue -> machine epoch: the broker answered the market is shut (order_president SessionClosed with
+# from_broker) — nothing is sent there before this, the next session's open (_next_session_at)
+_broker_shut_until = {}
+
+
+def _next_session_at():
+    """Machine epoch of the next TAIFEX session open after now (lib/tw_clock, corrected clock);
+    an hour from now on a workspace without it."""
+    try:
+        from lib import tw_clock
+        s = tw_clock.skew() or 0
+        return tw_clock.next_open(time.time() - s) + s
+    except (ImportError, AttributeError):
+        return time.time() + 3600
+
+
+KIND_BROKER_SHUT = 'broker_session_closed'   # api agent_overview routes it (P3), not an order_error P1
+_BROKER_SHUT_WORDS = {True: "統一期貨回覆休市，這筆平倉沒成交，下一個交易時段再送。",
+                      False: "統一期貨回覆休市，這筆新倉沒成交，下一個交易時段再送。"}
+
+
+def _note_broker_shut(sym, reduce_only):
+    """One order_errors row (kind broker_session_closed) for a leg 統一 refused as the market shut, or
+    held because it did; the same leg again inside the cooldown counts on that row."""
+    from lib.portfolio import _order_error_fresh, _record_order_error
+    msg = _BROKER_SHUT_WORDS[bool(reduce_only)]
+    leg = 'reduce' if reduce_only else 'entry'
+    _record_order_error(sym, venue_traits.PRESIDENT, msg, {'kind': KIND_BROKER_SHUT},
+                        repeat=not _order_error_fresh(sym, msg, leg))
+
+
+def _president_broker_shut(sym, reduce_only, e):
+    """統一 answered the market is shut (order_president.SessionClosed from_broker). 9901 is the whole
+    venue: nothing is sent there before the next session (_broker_shut_until). 9876 names one product
+    (the expiring month after a settlement day's 13:30): only that contract waits — order_president
+    refuses it before the login — and the other months, stops included, go on. Said either way."""
+    if getattr(e, 'contract', None) is None:
+        until = _broker_shut_until[venue_traits.PRESIDENT] = _next_session_at()
+    else:
+        until = getattr(e, 'until', None) or _next_session_at()
+    _wake_at(until)
+    _note_broker_shut(sym, reduce_only)
 
 
 class PendingUnreadable(RuntimeError):
@@ -1187,11 +1403,14 @@ def _row_booked(key, row):
 KIND_CLOCK_HOLD = 'clock_skew_hold'     # entries held for this machine's clock; nothing was sent
 KIND_NO_REPORT = 'order_unconfirmed'    # 群益 took it and has not reported the fill (the existing kind)
 KIND_TW_HOLD = 'tw_entry_hold'          # the parked-send record unreadable or unsaved: entries held, closes go
+KIND_CLOCK_UNCHECKED = 'tw_clock_unchecked'  # clock not measured (or past SKEW_MAX_S): closes on this machine's clock
 # (the HALTs below write no row: HALT is a full freeze and the platform's halt P1 carries its reason)
-_VENUE_WORDS = {venue_traits.PRESIDENT: ('統一', '統一 app '), venue_traits.CAPITAL: ('群益', '群益下單軟體')}
+_VENUE_WORDS = {venue_traits.PRESIDENT: ('統一', '統一 app '), venue_traits.CAPITAL: ('群益', '群益下單軟體'),
+                getattr(venue_traits, 'SINOPAC', None): ('永豐', '永豐 app ')}
 
 
-_VENUE_EN = {'統一': ('President', 'the President app'), '群益': ('Capital', 'the Capital app')}
+_VENUE_EN = {'統一': ('President', 'the President app'), '群益': ('Capital', 'the Capital app'),
+             '永豐': ('SinoPac', 'the SinoPac app')}
 
 
 def _en():
@@ -1472,6 +1691,21 @@ def _president_place_order(symbol, signed_diff, asset_spec=None, reduce_only=Fal
         logging.info(f"[reconciler/president] {sym}: close of {lots} waits — the one sent before "
                      f"the open is queued at the broker")
         return False
+    if reduce_only and (_tw_close_held(sym, venue_traits.PRESIDENT)
+                        or _tw_halt_close_held(sym, venue_traits.PRESIDENT)):
+        _closes_deferred.add(sym)
+        return False
+    until = _broker_shut_until.get(venue_traits.PRESIDENT)
+    if until is not None and time.time() < until:
+        # the broker itself said the market is shut (9901: a holiday, a typhoon): no send — and no
+        # login — until the next session; a held close says so (the same row, deduped)
+        if reduce_only:
+            _closes_deferred.add(sym)
+            _note_broker_shut(sym, True)
+        _wake_at(until)
+        logging.info(f"[reconciler/president] {sym}: {'close' if reduce_only else 'entry'} of {lots} waits — "
+                     f"統一 answered the market is shut; next try at the next session")
+        return False
     if not reduce_only:
         if guard.halted():
             return False
@@ -1501,13 +1735,36 @@ def _president_place_order(symbol, signed_diff, asset_spec=None, reduce_only=Fal
                          f"caught up with the last order")
         return False
     net_before = _president_nets()
+    session_closed = getattr(order_president, 'SessionClosed', ())
     if reduce_only:
-        leg = order_president.place_futures_market_order({}, sym, action, lots, 'reduce',
-                                                         book_months=months)
+        try:
+            leg = order_president.place_futures_market_order({}, sym, action, lots, 'reduce',
+                                                             book_months=months)
+        except session_closed as e:
+            _closes_deferred.add(sym)
+            if getattr(e, 'from_broker', False):
+                logging.warning(f"[reconciler/president] {sym}: close of {lots} refused, market shut — {e}")
+                _president_broker_shut(sym, True, e)
+                return False
+            # the lib's window refused it before any login, on the clock the hold above passed:
+            # only at an edge. Said once per cooldown (the next minute retries), as a plain row:
+            # the existing kinds all say closes go
+            from lib.portfolio import _order_error_fresh, _record_order_error
+            _wake_at(time.time() + 60)
+            logging.info(f"[reconciler/president] {sym}: close of {lots} deferred — {e}")
+            msg = "統一期貨現在不收單，這次平倉沒送出，一分鐘後再送。"
+            _record_order_error(sym, venue_traits.PRESIDENT, msg,
+                                repeat=not _order_error_fresh(sym, msg, 'reduce'))
+            return False
     else:
         try:
             leg = order_president.place_futures_market_order({}, sym, action, lots, 'entry',
                                                              book_months=months)
+        except session_closed as e:
+            logging.info(f"[reconciler/president] {sym}: entry of {lots} waits — {e}")
+            if getattr(e, 'from_broker', False):
+                _president_broker_shut(sym, False, e)
+            return False
         except order_president.EntryDeferred as e:
             # the snapshot has not caught up with the last order (a flip's close
             # leg, a moment ago): the entry picks its month next round —
@@ -1544,11 +1801,425 @@ def _president_place_order(symbol, signed_diff, asset_spec=None, reduce_only=Fal
     }
 
 
+# ── SinoPac (永豐期貨) hand-wired path ───────────────────────────────────────
+# Routed only once lib/venue_traits lists "futures" for 永豐 (hand_wired follows it). Lots end to
+# end, positions from lib/sinopac_worker's snapshot (read through lib/sinopac_futures_account,
+# lib/account_sinopac from the gate flip on), the snapshot keyed by month code like 統一's.
+# The read-your-writes marker is machine-wide (lib/sinopac_vault): one worker sends every order
+# and one list_positions reads every month, and M0-b's lag was the whole account reading [].
+# Its account held one position, so whether the lag is per row or the whole list is not known; a
+# per-contract marker would trust a read for one root while another's send is unsettled. The cost:
+# a flatten's first close waits inside manager/flatten.TURN_SETTLE_BUDGET_S (25 s), and each
+# further root's close waits up to lib/sinopac_vault.ORDER_SETTLE_S in the worker before its pre-send read —
+# send time that tests/check_turn_money_lock.py's sum does not count (it counts no venue's sends).
+# Parked sends follow 群益's rule, per root with every month's expected net: an outcome the worker
+# never reported (OrderNotConfirmed) does not name its month. A send is parked when it came back
+# 'sent' (IOC with no fill seen; broker_ack while 永豐's status was not final) or unknown;
+# _sinopac_claim_pending settles it from the first snapshot read ORDER_SETTLE_S past the send.
+SINOPAC_PENDING_PATH = 'state/sinopac_pending_sent.json'
+
+
+class SinopacCacheLagError(CapitalCacheLagError):
+    """The 永豐 snapshot's read started before this machine's last send had settled (M0-b: the
+    position read lags a fill) — skip the round, not a failed read."""
+
+
+def _sinopac_acct():
+    from lib import sinopac_futures_account   # the gate flip renames it lib/account_sinopac
+    return sinopac_futures_account
+
+
+def _sinopac_login_stopped():
+    try:
+        from lib import sinopac_vault
+        return sinopac_vault.login_stopped()
+    except Exception:
+        return False
+
+
+def _sinopac_waiting():
+    try:
+        return _sinopac_acct().waiting()
+    except Exception:
+        return None
+
+
+def _sinopac_root(code):
+    from lib import president_contracts as c
+    code = str(code or '').strip().upper()
+    return code[:3] if c.PROD_RE.match(code) else None
+
+
+def _sinopac_nets(root=None):
+    """{month code: signed lots} of every row in the worker snapshot, the user's months included
+    (a parked send is matched against the raw account). A lagging snapshot → SinopacCacheLagError."""
+    acct = _sinopac_acct()
+    try:
+        rows = acct.position_rows()
+    except acct.SnapshotLag as e:
+        raise SinopacCacheLagError(str(e)) from e
+    nets = {}
+    for r in rows:
+        if root is None or r['root'] == root:
+            nets[r['productid']] = nets.get(r['productid'], 0.0) + float(r['net'])
+    return nets
+
+
+def _save_sinopac_pending(pending):
+    from lib import president_vault
+    president_vault.replace_json(SINOPAC_PENDING_PATH, pending)
+
+
+_sinopac_pending_unreadable_noted = False
+
+
+def _note_sinopac_pending_unreadable(root, err):
+    global _sinopac_pending_unreadable_noted
+    logging.error(f"[reconciler/sinopac] {err} — no 永豐 entry until it reads again (never remove it: it holds sends that may have filled)")
+    if _sinopac_pending_unreadable_noted or not _tw_hold_row_ok():
+        return
+    _sinopac_pending_unreadable_noted = True
+    from lib.portfolio import _record_order_error
+    _record_order_error(root or 'TXF/MXF/TMF', venue_traits.SINOPAC,
+                        "永豐待確認的單讀不到紀錄。新倉先暫停，平倉照常。重新開啟 Blave；還是這樣，寫信到 info@blave.org。",
+                        extra={'kind': KIND_TW_HOLD})
+
+
+def _sinopac_park(root, result, requested, base, intent=None, halted=False):
+    """_capital_park for 永豐 (same rule, its own file): `result` {'fill_qty', 'status', 'symbol'
+    (month code or None), 'broker_ack'}, `base` {month: net} read before the send (None: unknown).
+    Returns the row's park id, None (no row) or False (the park file unreadable: nothing claims
+    this send later)."""
+    filled = float(result.get('fill_qty') or 0) * (1 if requested > 0 else -1)
+    unfilled = requested - filled
+    code = str(result.get('symbol') or '').strip().upper()
+    key = f"{venue_traits.SINOPAC}:{root}"
+    try:
+        pending = _pending_sent(SINOPAC_PENDING_PATH)
+    except PendingUnreadable as e:
+        guard.audit('order_unfilled_unparked', venue=venue_traits.SINOPAC, symbol=root, lots=unfilled,
+                    error=str(e))
+        _note_sinopac_pending_unreadable(root, e)
+        return False
+    row = pending.get(root)
+    booked = _row_booked(key, row) if row is not None else False
+    if booked:
+        old_id = _park_id(key, row)
+        guard.audit('late_fill_already_booked', venue=venue_traits.SINOPAC, symbol=root,
+                    lots=row.get('lots'), park_id=old_id)
+        from lib import portfolio
+        portfolio.mark_park_released(old_id, True)
+        row = None
+    elif booked is None:
+        _halt_unknown_booked(root, root, row, venue_traits.SINOPAC, key)
+    if not unfilled and (row is None or row.get('halted')):
+        return None if row is None else _park_id(key, row)
+    if row is None or row.pop('halted', None):
+        row = {'root': root, 'lots': 0.0, 'legs': (row or {}).get('legs', []), 'reads': [],
+               'months_expected': None if base is None else dict(base)}
+    exp = row.get('months_expected')
+    if exp is not None and filled:
+        if _sinopac_root(code) != root:
+            exp = None  # a fill that names no month: the row cannot be matched any more
+        else:
+            exp[code] = exp.get(code, 0.0) + filled
+    row['months_expected'] = exp
+    row['lots'] = float(row['lots']) + unfilled
+    row['reads'] = []
+    if unfilled:
+        leg = {'at': time.time(), 'lots': unfilled, 'status': result.get('status'),
+               'contract': code or None, 'orderno': result.get('ordno') or None, 'intent': intent}
+        if result.get('broker_ack'):
+            leg['broker_ack'] = True  # held QUEUED_HOLD_S like 統一's 0000 (_row_queued)
+        queued = _queued_until()
+        if queued:
+            leg['queued_until'] = queued
+        row['legs'].append(leg)
+        guard.audit('order_unfilled_parked', venue=venue_traits.SINOPAC, symbol=root, lots=unfilled,
+                    status=result.get('status'), contract=code or None)
+        logging.warning(f"[reconciler/sinopac] {root}: {unfilled:+g} lots reported no fill — "
+                        f"parked; no {root} entry until a read claims it")
+    if halted:
+        row['halted'] = True
+    pending[root] = row
+    _save_sinopac_pending(pending)
+    return _park_id(key, row)
+
+
+def _sinopac_claim_pending(started):
+    """_capital_claim_pending for 永豐's rows: exactly one month moved by the parked lots → booked
+    there; nothing moved → not taken, cleared (held past the open / QUEUED_HOLD_S when 永豐 took
+    it unreported); anything else → PENDING_SENT_MAX_READS reads, then HALT."""
+    global _entry_wake_at
+    try:
+        pending = _pending_sent(SINOPAC_PENDING_PATH)
+    except PendingUnreadable as e:
+        _note_sinopac_pending_unreadable(None, e)
+        return
+    if not pending:
+        return
+    from lib import portfolio
+    from lib.sinopac_vault import ORDER_SETTLE_S
+    nets = _sinopac_nets()
+    try:
+        booked = portfolio._booked_park_ids('late_fill_park_id')
+    except OSError:
+        booked = set()
+    save = lambda: _save_claimed(pending, venue_traits.SINOPAC, path=SINOPAC_PENDING_PATH,  # noqa: E731
+                                 save=_save_sinopac_pending)
+    for root, row in list(pending.items()):
+        lots, exp = float(row['lots']), row.get('months_expected')
+        park_id = _park_id(f"{venue_traits.SINOPAC}:{root}", row)
+        moved = None
+        if isinstance(exp, dict):
+            codes = {c for c in nets if _sinopac_root(c) == root} | set(exp)
+            moved = {c: nets.get(c, 0.0) - float(exp.get(c, 0.0)) for c in codes}
+            moved = {c: d for c, d in moved.items() if abs(d) > 1e-9}
+        expected = sum(float(v) for v in exp.values()) if isinstance(exp, dict) else None
+        net = sum(v for c, v in nets.items() if _sinopac_root(c) == root)
+        ordernos = [str(l['orderno']) for l in row.get('legs') or [] if l.get('orderno')]
+        if park_id in booked:
+            del pending[root]
+            save()
+            guard.audit('late_fill_already_booked', venue=venue_traits.SINOPAC, symbol=root, lots=lots,
+                        park_id=park_id)
+            portfolio.mark_park_released(park_id, True)
+        elif moved is not None and len(moved) == 1 and abs(next(iter(moved.values())) - lots) < 1e-9:
+            contract = next(iter(moved))
+            took = _book_late_fill_or_halt('永豐', root, venue_traits.SINOPAC, contract, lots, park_id,
+                                           ordernos)
+            del pending[root]
+            save()
+            portfolio.mark_park_released(park_id, True)
+            if took is None:  # sent before an unbind emptied this book: the user's now, not booked
+                guard.audit('late_fill_dropped_after_reset', venue=venue_traits.SINOPAC, symbol=root,
+                            contract=contract, lots=lots, legs=row['legs'], park_id=park_id)
+            else:
+                guard.audit('late_fill_adopted', venue=venue_traits.SINOPAC, symbol=root, contract=contract,
+                            lots=lots, legs=row['legs'], park_id=park_id)
+                logging.warning(f"[reconciler/sinopac] {root}: the account shows the {lots:+g} lots in "
+                                f"{contract} the order reported no fill for — booked, not re-sent")
+        elif moved == {} and _row_queued(row, started, ORDER_SETTLE_S):
+            wake = _row_queued(row, started, ORDER_SETTLE_S) + 1
+            _entry_wake_at = wake if _entry_wake_at is None else min(_entry_wake_at, wake)
+            logging.info(f"[reconciler/sinopac] {root}: {lots:+g} lots may still be queued at the broker")
+        elif moved == {}:
+            del pending[root]
+            save()
+            guard.audit('unfilled_order_cleared', venue=venue_traits.SINOPAC, symbol=root, lots=lots,
+                        legs=row['legs'])
+            portfolio.mark_park_released(park_id, False)
+            logging.info(f"[reconciler/sinopac] {root}: the {lots:+g} lots did not fill (account "
+                         f"unchanged) — cleared, the next diff may send again")
+        elif row.get('halted'):
+            if guard.halted():
+                continue
+            del pending[root]
+            save()
+            guard.audit('parked_order_dropped', venue=venue_traits.SINOPAC, symbol=root, lots=lots,
+                        legs=row['legs'])
+            portfolio.mark_park_released(park_id, False)
+            logging.warning(f"[reconciler/sinopac] {root}: HALT cleared with {lots:+g} parked lots still "
+                            f"unexplained — dropped as the user's; entries resume")
+        else:
+            reads = row.setdefault('reads', [])
+            if started not in reads:
+                reads.append(started)
+            if len(reads) < PENDING_SENT_MAX_READS:
+                logging.warning(f"[reconciler/sinopac] {root}: account {net:+g} does not explain the "
+                                f"{lots:+g} parked lots ({len(reads)}/{PENDING_SENT_MAX_READS} reads)")
+                continue
+            before = f"{expected:g} 口" if expected is not None else "不明"
+            msg = _halt_words('永豐', '永豐 app ', root, lots, len(reads), before, f"{net:g} 口")
+            _park_unexplained(msg, root, venue_traits.SINOPAC, park_id)
+            row['halted'] = True
+            save()
+    _save_claimed(pending, venue_traits.SINOPAC, end_of_round=True, path=SINOPAC_PENDING_PATH,
+                  save=_save_sinopac_pending)
+
+
+def _sinopac_get_positions(claim=False):
+    """{symbol: {'side', 'size': lots, 'exchange', 'months'}} from the worker snapshot. Errors
+    propagate (stale / worker down / one root in two months / unverified) — never {}. A snapshot
+    whose read started inside the last send's settle window → SinopacCacheLagError (TRANSIENT:
+    the round is skipped, M0-b's [] after a fill is never read as flat). `claim`: a reconcile
+    round's read settles parked sends first."""
+    from lib.portfolio import book_months
+    acct = _sinopac_acct()
+    ok, started, last = acct.snapshot_caught_up()
+    if not ok:
+        raise SinopacCacheLagError(f"永豐快照(查詢開始 {started:.0f})未晚於最後一筆下單({last:.0f})"
+                                   f"加寬限——本輪跳過,等下一輪快取更新")
+    if claim:
+        _sinopac_claim_pending(started)
+    owned = book_months(venue_traits.SINOPAC)
+    try:
+        raw = acct.get_positions({}, book_months=owned)
+        manual = [] if owned is None else acct.split_position_rows(book_months=owned)[2]
+    except acct.SnapshotLag as e:  # the worker replaced the file with a lagging read meanwhile
+        raise SinopacCacheLagError(str(e)) from e
+    by_root = {}
+    for r in manual:
+        ym = acct.contract_month(r['productid'])
+        by_root.setdefault(r['root'], {})[ym] = by_root.get(r['root'], {}).get(ym, 0.0) + r['net']
+    _note_manual_months(venue_traits.SINOPAC, [(r['productid'], r['net']) for r in manual], by_root)
+    return {sym: {'side': p['side'], 'size': p['size'], 'exchange': venue_traits.SINOPAC,
+                  'months': {acct.contract_month(p['productid']):
+                             p['size'] if p['side'] == 'long' else -p['size']}}
+            for sym, p in raw.items()}
+
+
+def _sinopac_place_order(symbol, signed_diff, asset_spec=None, reduce_only=False):
+    """signed_diff in LOTS (> 0 buy), round-half-up. A reduce_only leg is a close of the bot's own
+    lots (the worker sends it as Cover on the book's month and refuses one the position does not
+    cover); any other leg is an entry (the book's month, else the near month — never a month the
+    user holds on their own). Nothing goes out on a snapshot that has not caught
+    up with the last send: the park baseline would predate it."""
+    import math
+    from lib import order_sinopac
+    from lib.portfolio import book_months
+
+    sym = str(symbol).upper()
+    if sym not in order_sinopac.FUT_ROOTS:
+        raise RuntimeError(f"sinopac: {symbol!r} is not TXF/MXF/TMF — only TW index futures are wired")
+    lots = math.floor(abs(signed_diff) + 0.5)  # round-half-up; NOT round() (banker's rounding)
+    if lots < 1:
+        return False
+    action = 'buy' if signed_diff > 0 else 'sell'
+    intent = 'reduce' if reduce_only else 'entry'
+    owned = book_months(venue_traits.SINOPAC)  # the worker leaves the user's own months alone
+    months = None if owned is None else owned.get(sym, set())
+    try:
+        row = _pending_sent(SINOPAC_PENDING_PATH).get(sym)
+    except PendingUnreadable as e:
+        row = {'legs': []}  # unknown whether lots are parked: entries wait, closes go
+        _note_sinopac_pending_unreadable(sym, e)
+    if reduce_only and any(l.get('queued_until') or (l.get('broker_ack') and l.get('intent') == 'reduce')
+                           for l in (row or {}).get('legs') or []):
+        # a close 永豐 took unreported may sit queued: the worker reads the position as still held
+        # and would send a second Cover beside it
+        logging.info(f"[reconciler/sinopac] {sym}: close of {lots} waits — the close sent before is "
+                     f"not reported yet and may be queued at the broker")
+        return False
+    if reduce_only and (_tw_close_held(sym, venue_traits.SINOPAC)
+                        or _tw_halt_close_held(sym, venue_traits.SINOPAC)):
+        _closes_deferred.add(sym)
+        return False
+    if not reduce_only:
+        if guard.halted():
+            return False
+        if sym in _closes_deferred:
+            logging.info(f"[reconciler/sinopac] {sym}: entry of {lots} waits — this round's close "
+                         f"of {sym} was deferred, the position is still open")
+            return False
+        if row is not None:
+            logging.info(f"[reconciler/sinopac] {sym}: entry of {lots} waits — a send reported no fill "
+                         f"and is not claimed yet (see _sinopac_claim_pending)")
+            return False
+        if _tw_entry_held(sym, venue_traits.SINOPAC):
+            return False
+    ok, _started, _last = _sinopac_acct().snapshot_caught_up()
+    if not ok:
+        if reduce_only:
+            _closes_deferred.add(sym)
+        logging.info(f"[reconciler/sinopac] {sym}: {intent} of {lots} waits — the snapshot has not "
+                     f"caught up with the last order")
+        return False
+    try:
+        base = _sinopac_nets(sym)
+    except Exception as e:  # a close still goes; a park then has no baseline (as 群益's)
+        logging.warning(f"[reconciler/sinopac] {sym}: account read for the park baseline failed ({e})")
+        base = None
+    requested = lots if action == 'buy' else -lots
+    try:
+        result = order_sinopac.place_futures_market_order({}, sym, action, lots, intent,
+                                                          book_months=months)
+    except order_sinopac.SnapshotNotSettled as e:
+        # the worker saw a send under ORDER_SETTLE_S old and sent nothing: next round
+        if reduce_only:
+            _closes_deferred.add(sym)
+        logging.info(f"[reconciler/sinopac] {sym}: {intent} of {lots} deferred — {e}")
+        return False
+    except order_sinopac.SessionClosed as e:
+        if reduce_only:
+            _closes_deferred.add(sym)
+        if getattr(e, 'from_broker', False):
+            _wake_at(_next_session_at())
+            logging.warning(f"[reconciler/sinopac] {sym}: {intent} of {lots} refused, market shut — {e}")
+        else:
+            logging.info(f"[reconciler/sinopac] {sym}: entry of {lots} waits — {e}")
+        return False
+    except order_sinopac.OrderNotConfirmed as e:
+        # may have filled: parked, never re-sent blind
+        result = {'status': 'unknown', 'fill_qty': 0.0, 'symbol': getattr(e, 'contract', None),
+                  'broker_ack': True, 'error': str(e)}
+    got = float(result.get('fill_qty') or 0)
+    if got > lots + 1e-9:
+        if _en():
+            msg = (f"SinoPac reported {got:g} lots filled on {sym}, {lots} sent. Not booked. All trading "
+                   f"paused, closes and stops too. Check {sym} in the SinoPac app. Blave won't handle any "
+                   f"difference. Then press Start trading.")
+        else:
+            msg = (f"永豐回報 {sym} 成交 {got:g} 口，比送出的 {lots} 口多。Blave 沒有記這筆。自動下單已全部暫停，"
+                   f"平倉與停損也不會送。到永豐 app 核對 {sym} 部位，差額 Blave 不會處理。之後再按「啟動下單」。")
+        guard.audit('order_overfill_refused', venue=venue_traits.SINOPAC, symbol=sym, lots=lots, fill_qty=got)
+        try:
+            guard.trip_halt(msg, 'reconciler')
+        except Exception as e:
+            logging.error(f"[reconciler/sinopac] HALT file not written ({e}) — halted in this process")
+        finally:
+            _sinopac_park(sym, dict(result, fill_qty=0.0, status='sent', broker_ack=True), requested, base,
+                          intent, halted=True)
+        return False
+    if (got + 1e-9 < lots and result.get('status') in ('sent', 'filled')
+            and result.get('broker_status') not in ('Cancelled', 'Failed', 'Inactive')):
+        result = dict(result, broker_ack=True)  # 永豐 took it and its status was not final: more may fill
+    park_id = None
+    if got + 1e-9 < lots or row is not None:
+        park_id = _sinopac_park(sym, result, requested, base, intent)
+    if result.get('broker_ack') and got + 1e-9 < lots:
+        # P1 (notifications.md 下單失敗 row, kind order_unconfirmed): the claim settles it
+        from lib.portfolio import _record_order_error
+        if park_id is False:
+            msg = (f"永豐收了 {sym} {lots - got:g} 口，還沒回報成交，Blave 記不進待確認紀錄。"
+                   f"{sym} 新倉先停，平倉照常。到永豐 app 核對這筆。")
+        elif got:
+            msg = (f"永豐只回報成交 {got:g}／{lots} 口。另外 {lots - got:g} 口有成交會自動記帳，"
+                   f"沒成交會照訊號再送，不用自己補單。")
+        elif reduce_only:
+            msg = (f"永豐收了 {sym} {lots} 口平倉，還沒回報成交。{sym} 新倉和下一筆平倉先停，"
+                   f"最多等 {QUEUED_HOLD_S // 60} 分鐘。有成交會自動記帳，沒成交會照訊號再送，不用自己補單。")
+        else:
+            msg = (f"永豐收了 {sym} {lots} 口，還沒回報成交。{sym} 新倉先停，平倉照常。"
+                   f"有成交會自動記帳，沒成交會照訊號再送，不用自己補單。")
+        extra = {'kind': KIND_NO_REPORT}
+        if isinstance(park_id, str):
+            extra['park_id'] = park_id
+        elif park_id is False:
+            extra['unparked'] = True
+        _record_order_error(sym, venue_traits.SINOPAC, msg, extra=extra)
+    return {
+        'avg_price':       float(result.get('avg_fill_price') or 0.0),
+        'executed_qty':    got,
+        'exchange':        venue_traits.SINOPAC,
+        'resolved_symbol': result.get('symbol'),
+        'status':          result.get('status'),
+        'orderno':         result.get('ordno'),
+        'sent_qty':        lots,
+        'sent_symbol':     result.get('symbol'),
+    }
+
+
 # venue id -> (get_positions, place_order) for every hand_wired venue in
 # lib.venue_traits; tests/check_venue_traits.py pins the two in step.
 _HAND_WIRED = {venue_traits.CAPITAL: (_capital_get_positions, _capital_place_order),
                venue_traits.PRESIDENT: (_president_get_positions, _president_place_order)}
-_CLAIMS = (venue_traits.CAPITAL, venue_traits.PRESIDENT)  # their reads take claim=True
+# getattr: a half-updated workspace's venue_traits has no SINOPAC (nor the trait)
+_SINOPAC_ID = getattr(venue_traits, 'SINOPAC', None)
+if venue_traits.has(_SINOPAC_ID, 'hand_wired'):  # on with the futures gate flip
+    _HAND_WIRED[_SINOPAC_ID] = (_sinopac_get_positions, _sinopac_place_order)
+# their reads take claim=True
+_CLAIMS = (venue_traits.CAPITAL, venue_traits.PRESIDENT, _SINOPAC_ID)
 
 
 def _president_credentials_ready():
@@ -1629,7 +2300,9 @@ def place_order(symbol, signed_diff, asset_spec=None, reduce_only=False,
     Exchange Routing). signed_diff is a LOT COUNT here (2026-08-14, no
     lots<->TWD conversion), round-half-up to whole lots, no TWAP/custom support.
 
-    Replace this body ONLY for a venue WITHOUT official libs. Contract:
+    Replace this body ONLY for a venue WITHOUT official libs — never for TW
+    stocks on any broker (SinoPac included): Blave does not auto-trade them.
+    Contract:
       return False  = intentionally skipped (below exchange minimum, or the
                       leg is executing asynchronously) — no Telegram here,
                       no phantom trade
@@ -1652,6 +2325,9 @@ def place_order(symbol, signed_diff, asset_spec=None, reduce_only=False,
     if exchange == venue_traits.CAPITAL and _capital_login_stopped():
         # 群益 answered 300/307: nothing logs in with these credentials until the user re-enters
         # the password (lib/capital_vault BLOCK) — skip like 統一's stop, other venues go on
+        return False
+    if _SINOPAC_ID and exchange == _SINOPAC_ID and _sinopac_login_stopped():
+        # the 永豐 worker stopped on a failed login: nothing can send until the user confirms one
         return False
     if exchange == venue_traits.PRESIDENT and not _president_credentials_ready():
         # desktop, right after the daemon (re)started: the app hands the passwords over
@@ -1755,10 +2431,15 @@ def _halt(reason, message, retrip=False, notify=True):
     event carries this reason to the page, email and Telegram — so no machine
     Telegram on top (the account-changed trip; canon notifications.md)."""
     global _halt_file_seen
+    keep = {}
     if guard.halted():
-        if not retrip or (guard.halt_info() or {}).get('source') != 'reconciler':
+        info = guard.halt_info() or {}
+        if not retrip or info.get('source') != 'reconciler':
             return False
-    guard.trip_halt(reason, 'reconciler')  # raises if the file did not land
+        # a close-all pressed on this pause (runtime command_listener._close_all) keeps its press id:
+        # the page pairs it with last_flatten.close_id
+        keep = {k: info[k] for k in ('close_id', 'already_halted') if k in info}
+    guard.trip_halt(reason, 'reconciler', **keep)  # raises if the file did not land
     _halt_file_seen = True
     if notify:
         send_telegram(message)
@@ -2088,6 +2769,7 @@ def _next_round():
     global _round_no
     _round_no += 1
     _closes_deferred.clear()
+    _clock_round()
 
 
 STOP_NOTICE_RETRY_AFTER_S = 60  # the stop's writer sends its P1 within this; past it, this round does
@@ -2172,6 +2854,13 @@ def _get_positions_guarded(now=None):
             raise ReadSkipped(f"{venue} login stopped — round skipped", original=e) from e
         if venue == venue_traits.CAPITAL and _capital_login_stopped():
             raise ReadSkipped(f"{venue} login stopped — round skipped", original=e) from e
+        if _SINOPAC_ID and venue == _SINOPAC_ID and _sinopac_login_stopped():
+            # the worker wrote a not-ok snapshot and its one venue_login_blocked: not an outage
+            raise ReadSkipped(f"{venue} login stopped — round skipped", original=e) from e
+        if _SINOPAC_ID and venue == _SINOPAC_ID and _sinopac_waiting():
+            # a login that got no answer, waiting for its spaced retry; the worker sends that streak's
+            # exchange_unreachable itself (lib/sinopac_worker.announce_due), so no outage clock here
+            raise ReadSkipped(f"{venue} worker login retry — round skipped", original=e) from e
         gap = _president_waiting() if venue == venue_traits.PRESIDENT else None
         if gap:
             # logged out outside a trading window, or a TIMEOUT waiting for its one retry: planned
@@ -2493,6 +3182,12 @@ if __name__ == '__main__':
         reap_dead_inflight()
     except Exception as _e:
         logging.warning(f"[reconciler] dead-inflight reap skipped: {_e}")
+
+    try:  # resident: an unmeasured clock may ask the api once before a TW futures gate acts on it
+        from lib import tw_clock as _twc
+        _twc.probe_enabled = os.environ.get("BLAVE_CLOCK_PROBE") != "0"   # tests/_run_all.py: 0
+    except ImportError:
+        pass
 
     _round_marker(False)
     last_mtimes = {}

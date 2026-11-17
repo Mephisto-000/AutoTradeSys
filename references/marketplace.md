@@ -181,7 +181,7 @@ Fields: total_return, annual_return, sharpe, max_drawdown, backtest_start, backt
 **Do not include `pnl_curve`** — P&L chart is displayed as an uploaded image, not rendered from data.
 Response: `{"status": "ok", "strategy_id": ..., "pnl_image_url": "https://..." | null}`
 
-`gates` = the quality-gate results of **this same backtest**, which drive the library's "Verified" badge:
+`gates` = the quality-gate results of **this same backtest**, which drive the library's sort order and whether a community listing appears on the landing page (the library shows each gate's result on the detail page; there is no badge):
 ```json
 {
   "mcpt_status": "pass" | "fail" | "not_applicable",
@@ -192,9 +192,9 @@ Response: `{"status": "ok", "strategy_id": ..., "pnl_image_url": "https://..." |
 ```
 - `mcpt_p` / `mcpt_n` are required numbers unless `mcpt_status` is `not_applicable` (Type C portfolios), where they are `null`.
 - `robust.ratio` = plateau Sharpe ÷ selected Sharpe (`lib/param_scan.find_plateau`); `fee.rate` = `lib.costs.fee_of(s)` (`from lib.costs import fee_of`) — the strategy's `FEE`, else its market default, i.e. the rate the backtest was charged; never `null` (a strategy without `FEE` still has a rate, and a `null` rejects the whole call with 400). `fee.actual` = the venue's per-side taker cost.
-- The server computes pass/fail and "Verified" itself — do not send a `verified` key (it is ignored).
+- The server computes pass/fail and the overall result itself — do not send a `verified` key (it is ignored).
 - A malformed `gates` rejects the whole call with 400 and nothing is written.
-- **A full-metrics refresh without `gates` clears the stored gates and the badge disappears.** Whenever you re-post numbers, re-run the gates (MCPT + parameter scan) on that backtest and send them in the same call.
+- **A full-metrics refresh without `gates` clears the stored gates: the listing no longer counts as passed, so it sorts after the passed ones and a community listing leaves the landing page.** Whenever you re-post numbers, re-run the gates (MCPT + parameter scan) on that backtest and send them in the same call.
 - Posting only `stats` (curve refresh, no metric fields) leaves gates untouched.
 
 **Admin flow — after running backtest:**
@@ -363,9 +363,10 @@ Response: `{"status": "ok"}`
 
 **Flow when user wants to share a private strategy with specific users:**
 1. If the strategy isn't uploaded yet → `POST /openclaw/marketplace/strategies/private` first
-2. `POST /openclaw/marketplace/strategies/{id}/share` with the target user IDs
-3. Confirm back to the user which strategy ID was shared with which UIDs
-4. Tell the user to inform the recipient: **請對方跟他的 Blave Agent 說「幫我看一下有沒有人分享策略給我」**，agent 會自動去 shared-with-me 撈取並載入。
+2. Before sharing, check whether the recipient will need Blave data access to run it: for each `.py` in `strategies/<name>/`, `python3 -c "import sys; from lib.quality_check import blave_data_need; print(blave_data_need(open(sys.argv[1], encoding='utf-8').read()))" <file>`. Any `True` → tell the sharer the recipient needs Blave data access, naming what it reads (e.g. whale hunter); otherwise any `None` → say it may need it; all `False` → it runs on public data. The share still goes ahead — this is a heads-up, not a gate.
+3. `POST /openclaw/marketplace/strategies/{id}/share` with the target user IDs
+4. Confirm back to the user which strategy ID was shared with which UIDs
+5. Tell the user to inform the recipient: **請對方跟他的 Blave Agent 說「幫我看一下有沒有人分享策略給我」**，agent 會自動去 shared-with-me 撈取並載入。
 
 Share with specific user IDs:
 ```

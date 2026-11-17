@@ -114,7 +114,9 @@ own. Execution styles: market and TWAP work; chase falls back to market (no limi
 - **Session:** while TWSE is shut (outside 09:00–13:30 on a trading day) lib.portfolio holds
   SinoPac's TW keys as they are — no order, no error; the page shows the market closed. A daily
   strategy's evening signal trades on the first round after 09:00. Close-all outside the
-  session is deferred to the open (`PaperMarketClosed` → `defer_paper_tw_close`).
+  session is refused and said, never deferred to the open (upstream 0.1.55, Wei 11-15:
+  `PaperMarketClosed` → `manager/flatten._refuse_tw_futures`, a `[order_reject:market_closed]`
+  row): the shares stay, and the user presses close-all again in the session.
 - **Sizing:** TWD diff ÷ the best ask (buy) → whole shares; sells come in shares from the
   bot's book. The size gate is ≈1.05 shares (lib.execute).
 - **Board lots** (`shares // 1000`): `StockOrderLot.Common`, LMT **IOC** at the protected price;

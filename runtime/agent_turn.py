@@ -618,6 +618,33 @@ def _counts_as_reply(text):
     return bool(visible_text(text) or _EXPORT_TAG_RE.search(text or ""))
 
 
+# 回覆只剩一句「上面已列出」:內容寫在工具呼叫前(已被收去活動列)或只在思考裡。只記 log 量發生率,不改回覆。
+# 不收裸 above／以上:「站上 20MA above」「20% 以上」是正常量化用語。
+_DANGLING_REF_RE = re.compile(
+    r"上面(?:已|列|提|那)|如上(?:所|述|列|表|圖|[，。,.\s]|$)|上述|前面(?:已|列|提)|以上列"
+    r"|\b(?:listed|shown|mentioned|outlined|see|as) above|\babove (?:list|ideas|options|results)",
+    re.I,
+)
+_DANGLING_REF_MAX_CHARS = 200
+
+
+def dangling_reference(reply, had_tools):
+    """有工具呼叫的回合,最終回覆很短又指向「上面」→ 回傳命中的字樣;否則 None。"""
+    if not had_tools:
+        return None
+    text = visible_text(reply)
+    if not text or len(text) > _DANGLING_REF_MAX_CHARS:
+        return None
+    m = _DANGLING_REF_RE.search(text)
+    return m.group(0) if m else None
+
+
+def _log_dangling_reference(reply, had_tools):
+    tok = dangling_reference(reply, had_tools)
+    if tok:
+        print(f"[agent_turn] dangling_reference len={len(visible_text(reply))} token={tok!r}", file=sys.stderr)
+
+
 _RECONCILER_STALE_S = 300  # 同 portfolio_reporter.HEARTBEAT_STALE_S
 
 
@@ -2261,6 +2288,21 @@ def preferences_rule():
     return "".join(parts)
 
 
+# 給模型看的用全名;畫面標籤的「加密」是外殼與 web 的事
+_MAIN_MARKET_NAMES = {"crypto": "加密貨幣", "twstock": "台股", "txf": "台指期", "usstock": "美股"}
+
+
+def main_market_rule(v):
+    """用戶的主要市場(電腦版 --main-market、web／App 經 context.main_market)。
+    all、沒帶、不認得的值都回空字串:不能讓一個怪值把整輪弄成 exit 2。"""
+    name = _MAIN_MARKET_NAMES.get(v) if isinstance(v, str) else None
+    if not name:
+        return ""
+    return ("\n\n---\n\n## 主要市場（runtime 規則）\n"
+            f"用戶主要做{name}。用戶沒講市場或標的時，以{name}為預設來挑資料、舉例和建策略；"
+            "用戶講了別的市場就照他講的做，不必提醒他設定過主要市場。\n")
+
+
 # Shared across all surfaces: the model tends to narrate its own process as
 # user-facing text ("Let me check...", "Now I will...") — that's internal
 # reasoning, not something the user needs to read. Kept out of AGENTS.md
@@ -2269,7 +2311,13 @@ def preferences_rule():
 _NO_NARRATION = (
     "不要寫「Let me check...」「Now I will...」這類自言自語的執行過程當作正式內容——"
     "那些是內部推理，不是要給用戶看的話。只留使用者真正需要看到的內容"
-    "（結果、發現、決定、簡短的下一步提示），跳過「我正在做什麼」的旁白。"
+    "（結果、發現、決定、簡短的下一步提示），跳過「我正在做什麼」的旁白。\n"
+    # Both sinks drop text written before a tool call (WebSink.on_tool / TelegramSink.on_tool) and
+    # history keeps only the final text: a list written before closing browser tabs reached nobody.
+    "Only the text after your last tool call stays in the chat; text before a tool call only flashes in "
+    "the activity panel and your thinking is never shown. Finish all tool calls (closing browser tabs too) first, then put everything "
+    "the user needs (lists, results) in that final text, self-contained — never point back to earlier "
+    "text (「上面已列出」「如上」 / \"listed above\", \"as above\").\n"
 )
 
 # 交易所／券商名,中英各一,照 shell/i18n/zh.po、en.po 的 msgstr(tests/check_strategy_display_names.py 釘住);
@@ -2283,7 +2331,7 @@ _VENUE_NAMES = {
 }
 
 # Telegram uses LEGACY Markdown (single-asterisk bold) and cannot render
-# tables at all; each text segment becomes its own message bubble.
+# tables at all.
 # 兩個 sink 共用的回覆風格(語法各自另訂)。長度紀律一定要兩邊都掛——
 # 只掛 web 的結果就是 TG 上問一句「台積電多少」回 15 行全套報價(實測)。
 _STYLE_RULES = (
@@ -2297,6 +2345,7 @@ _STYLE_RULES = (
     "一般回覆 3–8 行；使用者要細節或分析再展開。\n"
     "- 程式碼一律寫進檔案,不貼在對話裡;片段以 10 行為上限。\n"
     "- 回測結果只報關鍵數字(報酬、Sharpe、最大回撤、勝率這類挑 3–4 個)。\n"
+    "- 回測的 FEE 與 Total Fees 是交易成本(手續費＋稅＋滑價,每邊扣一次):中文寫「交易成本」,不寫「手續費」;英文寫 trading cost。\n"
     "- 不要向使用者敘述內部探索過程或背景任務狀態。\n"
     "- 使用者看不到檔案系統,別對他列目錄或路徑;指涉用「左側策略頁」「回測分頁」。\n"
     "- 提到策略寫 DISPLAY_NAME;沒有就用 # Strategy: 或用戶慣稱;都沒有才用代號。"
@@ -2316,7 +2365,6 @@ TELEGRAM_FORMATTING_RULE = (
     "- 代碼用反引號 `文字`\n"
     "- 不支援標題（#）、不支援表格（|）—表格一律改成清單（- 開頭）或分行條列\n"
     "段落之間適時空行，不要擠成一大塊。\n\n"
-    "**每個文字段落之間會各自變成一則獨立 Telegram 訊息**（工具呼叫前後會分開送）。\n\n"
     + _STYLE_RULES
     + _NO_NARRATION
 )
@@ -2582,6 +2630,7 @@ class TelegramSink:
         self.pending_new_bubble = False
         self._last_status = ""
         self.typing_task = None
+        self._had_tools = False
 
     async def start(self):
         self.typing_task = asyncio.create_task(_typing_loop(self.token, self.chat_id))
@@ -2599,6 +2648,7 @@ class TelegramSink:
     def on_tool(self, block):
         # 同 WebSink:後面還有工具呼叫的文字段是旁白。TG 是邊打邊編輯同一則訊息,
         # 所以要把已經送出的那則刪掉,否則旁白會變成一堆零碎訊息。
+        self._had_tools = True
         if self.chunk_text.strip():
             self.streamer.discard()
             self._last_status = self.chunk_text
@@ -2664,6 +2714,7 @@ class TelegramSink:
             # 用最後一句旁白當回覆,別讓用戶收到空氣。
             reply = convert_markdown_tables_to_list(narration)
             self.streamer.finish(reply)
+        _log_dangling_reference(reply, self._had_tools)
         return reply
 
 
@@ -3809,6 +3860,8 @@ class WebSink:
         if cleaned != seg:
             self.full_text = self.full_text[: self._seg_start] + cleaned
             self._send({"type": "text_replace", "text": cleaned})
+        if not self.interrupted:
+            _log_dangling_reference(cleaned, bool(self._kinds))
         # 被 Stop 截斷的回合不給建議也不送轉出檔——半途的里程碑判定不可信。
         if not self.interrupted:
             for chunk in exports:
@@ -5196,7 +5249,8 @@ def mcp_blocked_rule(blocked):
     )
 
 
-def _codex_prompt(prompt, sink, mcp_mounted, browser_mounted=False, lang_rule="", mcp_blocked=None):
+def _codex_prompt(prompt, sink, mcp_mounted, browser_mounted=False, lang_rule="", mcp_blocked=None,
+                  main_market=None):
     """The Codex engine has no system-prompt channel, so the per-turn rules ride in front of
     the prompt. AGENTS.md is NOT included: Codex reads cwd's AGENTS.md itself
     (codex_engine.build_args lifts its size cap), and inlining it would feed it twice.
@@ -5205,7 +5259,8 @@ def _codex_prompt(prompt, sink, mcp_mounted, browser_mounted=False, lang_rule=""
     mcp_mounted is the same value handed to codex_engine.run, so the fence rule and the
     attached server can never disagree."""
     return ("[Runtime 規則(系統層級,位階等同 AGENTS.md;不是使用者說的,不要複述)]"
-            + python_rule() + data_access_rule() + preferences_rule() + _formatting_rule_for(sink)
+            + python_rule() + data_access_rule() + preferences_rule() + main_market_rule(main_market)
+            + _formatting_rule_for(sink)
             + mcp_rule(mcp_mounted, getattr(sink, "session_id", None)) + mcp_blocked_rule(None if mcp_mounted else mcp_blocked)
             + browser_rule(browser_mounted, desktop_web(sink, browser_mounted))
             + turn_note_rule(sink) + parallel_rule(sink) + lang_rule + "\n\n---\n\n" + prompt)
@@ -5255,7 +5310,7 @@ async def run_turn(session_id, message, model, sink, viewing_strategy=None, view
                    viewing_view=None, ui_lang=None,
                    engine="claude", codex_bin=None, effort=None, mcp_config=None,
                    viewing_env=None, mcp_servers=None, suggest_mode="normal", clarify_form=False,
-                   handoff_card=False):
+                   handoff_card=False, main_market=None):
     # engine="codex" 是電腦版專屬(用戶自己的 Codex 訂閱),只換掉「呼叫模型並消化它的
     # 事件流」那一段;prompt、session store、兜底分類、寫回歷史全部共用。機隊不帶
     # --engine,走的是原本那條路,一行都不經過 codex 分支(閘門:
@@ -5398,7 +5453,7 @@ async def run_turn(session_id, message, model, sink, viewing_strategy=None, view
     sysprompt_path = _write_system_prompt_file(
         agents_md + ('' if _relay_mode() else model_catalog_rule(session_id)) + python_rule() + data_access_rule()
         + mcp_rule(cloud_mcp, session_id) + browser_rule(browser_mounted, web) + turn_note_rule(sink) + parallel_rule(sink)
-        + preferences_rule()
+        + preferences_rule() + main_market_rule(main_market)
         + reply_lang_rule(lang_msg, reply_lang)
         + _formatting_rule_for(sink)
     ) if agents_md and not use_codex else None
@@ -5534,7 +5589,8 @@ async def run_turn(session_id, message, model, sink, viewing_strategy=None, view
 
             await codex_engine.run(
                 codex_bin, _codex_prompt(prompt, sink, bool(codex_mcp_url), browser_mounted,
-                              reply_lang_rule(lang_msg, reply_lang), codex_mcp_blocked), WORKSPACE,
+                              reply_lang_rule(lang_msg, reply_lang), codex_mcp_blocked,
+                              main_market), WORKSPACE,
                 {**os.environ,
                  **{k: v for k, v in turn_env.items() if not k.startswith("ANTHROPIC_")}},
                 sink, _codex_tool_start, _codex_tool_done, model=model, effort=effort,
@@ -5879,6 +5935,8 @@ def main():
     parser.add_argument("--clarify-form", action="store_true")
     # 外殼畫得出搬策略動作卡、而且自己會搬(電腦版 0.1.47 起帶);沒帶的外殼 agent 照 references 自己搬
     parser.add_argument("--handoff-card", action="store_true")
+    # 用戶的主要市場(電腦版 main.js、web_bridge 只帶 all 以外的值)。不設 choices:怪值當沒帶,不 exit 2
+    parser.add_argument("--main-market", default=None)
     args = parser.parse_args()
     if args.message_stdin:
         raw = sys.stdin.buffer.read(MESSAGE_STDIN_MAX + 1)
@@ -5928,6 +5986,7 @@ def main():
         effort=args.effort, mcp_config=args.mcp_config, viewing_env=args.viewing_env,
         mcp_servers=args.mcp_servers, suggest_mode=args.suggest_mode,
         clarify_form=args.clarify_form, handoff_card=args.handoff_card,
+        main_market=args.main_market,
     ))
     if args.scheduled:
         _write_sched_outcome()
