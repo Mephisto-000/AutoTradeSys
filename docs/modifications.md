@@ -86,5 +86,23 @@
   - 上游只改了策略庫的一鍵購買框（用 Blave 帳號付款，不碰交易所金鑰），永豐的功能不受影響，程式不改
   - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 0.1.52（VERSION `2026-11-09-c`），
     再執行 `tools/sinopac_deploy.py --apply`
+- 2026-11-18：同步上游 `main` 至 `730e7653`（電腦版 0.1.56，runtime 1.1.165）
+  - 上游 `c1db277b` 把 venue id `sinopac` 改做永豐**期貨**（開關關著、拿掉零股股票路徑），與本 fork 的永豐股票同名同檔；
+    依使用者決定保留 fork 的股票版：`lib/order_sinopac.py`、`lib/venue_traits.py`（與 `runtime/venue_traits.py`）的永豐列
+    （不帶上游的 `verified_modes`／`bound_marker`／`cred_env`，避免帳戶讀取與全部平倉跳過永豐股票）、`references/sinopac-broker.md`；
+    上游的期貨程式（`lib/sinopac_worker.py`、`lib/sinopac_vault.py`、`lib/sinopac_futures_account.py`）照收但不會啟動
+  - 修改（檔頭已註明）：`AGENTS.md` 的 Type B 規則保留「永豐股票 → `lib/order_sinopac.py`」（上游改成「Blave 不下台股單」），
+    `tools/sinopac_deploy.py` 的部署清單多帶 `AGENTS.md`（電腦版會把它拷進 workspace）
+  - `shell/renderer/trade.js`：上游把連接框改成磚，永豐金的磚接在「台股」組最後（Mac 也列）、步驟 1 權限句用永豐版、
+    步驟 2 多一句先接模擬，Passphrase 欄位判斷補上永豐不在 `CX_VENUES` 的情況；`.po` 與 `strings.js` 收上游刪掉的兩個字串
+  - 上游 0.1.55 起全部平倉在休市時不再延到開盤（回報「休市中沒有平倉」，開盤後要再按一次），永豐股票跟著上游；
+    [`docs/sinopac.md`](sinopac.md)、`references/sinopac-broker.md`、`tests/check_sinopac_wiring.py` 已改成新行為
+  - 配合的既有測試：上游只測永豐期貨的 `check_sinopac_futures.py`、`check_sinopac_futures_wiring.py` 在 fork 整支 SKIP；
+    `check_venue_traits.py`、`check_capital_flatten_identity.py`、`check_restart_stop_order_gate.py`、`check_halt_freeze.py`、
+    `check_state_read_retry.py`、`check_win_replace_retry.py`、`check_shell_connect_venues.js`、`check_shell_trade.js`、
+    `check_shell_onboarding.js` 改成驗 fork 的股票版
+  - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 0.1.56（VERSION `2026-11-17-b`），
+    再執行 `tools/sinopac_deploy.py --apply`；App 要用本 fork build 的版本（官方 0.1.56 App 內的 `runtime/venue_traits.py`
+    把永豐當成未驗證的期貨，帳戶讀取會跳過永豐股票）
 
 詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
