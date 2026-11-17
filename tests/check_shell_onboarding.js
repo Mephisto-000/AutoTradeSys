@@ -1,3 +1,5 @@
+// Modified by Mephisto-000 on 2026-11-18: the connect dialog's 台股 tiles end with SinoPac (永豐金) on this
+//   computer, Mac included (AutoTradeSys fork).
 // 歡迎頁入門步驟(spec .claude/output/specs/agent-onboarding-e-f-spec-2026-10-19.md;shell/renderer/welcome.js + trade.js 連接框)。
 //   ① 純邏輯(從原文切出來跑):onbSteps 步驟狀態機(0.1.29 起不分市場、三步:①②同時、③輪到才露、狀態檔沒讀到不下結論)、
 //      onbPhase E／F 切換(當下完成就換成 F、送 onb_done,上線那天就已經完成的不送);沒有「都設好了」那一行
@@ -281,16 +283,20 @@ function rest() {
       return { C, L, log, w, flat: (function walk(n, out) { out.push(n); (n.children || []).forEach((c) => walk(c, out)); return out; })(w, []) };
     };
     const a = run({}), tiles = a.flat.filter((n) => n.className === "cx-tile");
-    ok("③ 還沒選:兩組磚(加密貨幣三家＋台灣期貨群益、統一),磚是 type=button、id 帶交易所、組有 role=group 指到組標籤;沒有已綁模擬那一句",
-      JSON.stringify(tiles.map((n) => n.id)) === JSON.stringify(["cx-tile-binance", "cx-tile-bingx", "cx-tile-okx", "cx-tile-capital", "cx-tile-president"])
+    // AutoTradeSys fork:這台電腦的「台股」組最後多一塊永豐金
+    ok("③ 還沒選:兩組磚(加密貨幣三家＋台灣期貨群益、統一＋永豐金),磚是 type=button、id 帶交易所、組有 role=group 指到組標籤;沒有已綁模擬那一句",
+      JSON.stringify(tiles.map((n) => n.id)) === JSON.stringify(["cx-tile-binance", "cx-tile-bingx", "cx-tile-okx", "cx-tile-capital", "cx-tile-president", "cx-tile-sinopac"])
       && tiles.every((n) => n.type === "button" && !n.disabled) && a.flat.filter((n) => n.className === "cx-tiles").every((g) => g.attrs.role === "group" && /^cx-grp-/.test(g.attrs["aria-labelledby"]))
       && !a.flat.some((n) => n.className === "cx-replace"), JSON.stringify(tiles.map((n) => n.id)));
     tiles[2].on.click();
     ok("③ 點磚:記 cx_venue_pick(不帶交易所名)、進那一家、重畫、加密貨幣先查 IP、焦點交給 cxFocusStart", a.C.CXF.venue === "okx" && a.log.join() === "cx_venue_pick,paint,ip,focus", a.log.join());
     const b = run({ paperBound: true, platform: "darwin" });
-    ok("③ 已綁模擬:磚上方一句 cx.replacePaper;Mac:台灣期貨標籤下是 cx.macTw、不出期貨磚",
+    ok("③ 已綁模擬:磚上方一句 cx.replacePaper;Mac:台灣期貨標籤下是 cx.macTw、不出期貨磚(永豐金的磚照出,AutoTradeSys fork)",
       b.w.children[0].className === "cx-replace" && b.w.children[0].textContent === "cx.replacePaper" && b.flat.some((n) => n.className === "cx-macnote" && n.textContent === "cx.macTw")
-      && !b.flat.some((n) => /cx-tile-(capital|president)/.test(n.id)));
+      && !b.flat.some((n) => /cx-tile-(capital|president)/.test(n.id)) && b.flat.some((n) => n.id === "cx-tile-sinopac"));
+    const cl = run({ env: "cloud" });
+    ok("③ 雲端:台股組只有群益,沒有永豐金(AutoTradeSys fork:雲端主機沒有它的 lib 與憑證)",
+      !cl.flat.some((n) => n.id === "cx-tile-sinopac") && cl.flat.some((n) => n.id === "cx-tile-capital"));
     const c = run({ busy: true });
     ok("③ 模擬送出中:磚停用", c.flat.filter((n) => n.className === "cx-tile").every((n) => n.disabled));
     // replace-paper A 案:綁著模擬、自動下單正在跑、選了一家 → 主鈕正上方 cx.replacePaperRun;沒在跑(暫停、停了、不知道)、還在磚、驗證碼那一步、沒綁模擬都不出

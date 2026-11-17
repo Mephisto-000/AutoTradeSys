@@ -1,3 +1,7 @@
+# Modified by Mephisto-000 on 2026-11-18: skipped whole in the AutoTradeSys fork — lib/order_sinopac is
+#   the fork's TW-stock lib, not upstream's futures producer this file drives.
+# Original work: Copyright 2025-2026 WuChi Technology Company Limited
+# Licensed under the Apache License, Version 2.0
 """永豐期貨 wired into the reconciler, flatten and the account reader — no broker, no network.
 
 0. Gate off (the shipped row has no verified mode; the odd-lot path is gone): hand_wired /
@@ -40,6 +44,14 @@ import sys
 import tempfile
 import time
 import types
+
+# AutoTradeSys fork: the `sinopac` venue is the TW-stock lib here; upstream's futures producer
+# (place_futures_market_order) is not in it, so this whole file is a SKIP (tests/_run_all.py)
+with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib", "order_sinopac.py"),
+          encoding="utf-8") as _f:
+    if "def place_futures_market_order(" not in _f.read():
+        print("SKIP 永豐期貨: lib/order_sinopac is the AutoTradeSys fork's TW-stock lib (no futures producer)")
+        sys.exit(0)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REPO_ENV = os.path.join(ROOT, ".env")

@@ -1,4 +1,6 @@
 # AutoTradeSys fork addition (2026-10-25)
+#   (2026-11-18) upstream 0.1.55 (Wei 11-15): a close-all while the TWSE session is shut is refused and
+#   said, never deferred to the open — this file pins that for 永豐 instead of the old deferral.
 """SinoPac (永豐金) end to end through the platform's own pipeline — the real
 lib/venue_wiring auto-wire, lib/portfolio.reconcile, manager/reconciler's
 get_positions / place_order and manager/flatten, against the offline broker
@@ -10,7 +12,8 @@ of tests/sinopac_fake.py:
   - the user's own shares of the same stock are never sold — not by a close,
     not by close-all; a short signal is flat (cash shares cannot short);
   - while the TWSE session is shut the keys are held quietly (no order, no
-    error), and close-all defers to the open;
+    error); a close-all then is refused and said (upstream 0.1.55: never
+    deferred to the open — the user presses it again in the session);
   - the scoped close an unbind waits on (close_then_unbind, 2026-11-07) reads
     flat once the bot's shares are sold, and never while the market is shut;
   - a Type C portfolio of TW stocks trades through the same path.
@@ -177,22 +180,33 @@ SESSION[0] = True
 rnd()
 check(bot() == 1250.0, "the session opens: bought on the next round")
 
-print("== close-all keeps the user's shares; outside the session it waits for the open")
+print("== close-all keeps the user's shares; outside the session it is refused and said (upstream 0.1.55)")
 B.positions["0050"] += 500
 from manager import flatten  # noqa: E402  (chdirs to the repo root on import)
 os.chdir(WS)
 flatten._wait_for_inflight = lambda *a, **k: []
 flatten.LOCK_PATH = os.path.join(WS, "state", "flatten.lock")
+FLAT_ERRORS = []
+_real_flat_err = flatten._record_order_error
+flatten._record_order_error = lambda *a, **k: FLAT_ERRORS.append(a)
 SESSION[0] = False
 flatten._LOCK = None
+n_shut = len(B.placed)
 flatten.flatten()
-check(os.path.exists("state/HALT") and B.positions["0050"] == 1750
-      and json.load(open("state/paper_tw_close.json"))["keys"] == ["0050@spot"],
-      "market shut: HALT set, nothing sold, the close deferred to the open")
+check(os.path.exists("state/HALT") and B.positions["0050"] == 1750 and len(B.placed) == n_shut
+      and not os.path.exists("state/paper_tw_close.json")
+      and any(e[0] == "0050@spot" and e[1] == "sinopac" and "[order_reject:market_closed]" in e[2] for e in FLAT_ERRORS),
+      f"market shut: HALT set, nothing sold, nothing deferred, a market-closed refusal row for 0050@spot ({FLAT_ERRORS})")
 SESSION[0] = True
-rnd()   # the first round after the open sends the deferred close under the close pass
+n_placed = len(B.placed)
+rnd()   # HALT is a full freeze: the first round after the open sends nothing
+check(B.positions["0050"] == 1750 and bot() == 1250.0 and len(B.placed) == n_placed and os.path.exists("state/HALT"),
+      f"after the open: nothing sent on its own, still paused ({B.positions['0050']})")
+flatten._LOCK = None
+flatten.flatten()   # the user presses close-all again in the session
+flatten._record_order_error = _real_flat_err
 check(B.positions["0050"] == 500 and bot() == 0.0 and os.path.exists("state/HALT"),
-      f"after the open: the bot's 1,250 sold, the user's 500 kept, still paused ({B.positions['0050']})")
+      f"pressed again in the session: the bot's 1,250 sold, the user's 500 kept, still paused ({B.positions['0050']})")
 fresh()
 config({"tw_a": 250_000})
 signal(1.0)

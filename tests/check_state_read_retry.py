@@ -1,4 +1,6 @@
 # Modified by Mephisto-000 on 2026-10-25: exemptions for the SinoPac .env reads.
+#   (2026-11-18) upstream's futures-producer read point in lib/order_sinopac is left out (the fork's
+#   lib/order_sinopac is the stock lib and reads no worker response file).
 """Windows: reading a state file while another process's os.replace swaps it (or Defender scans it)
 raises PermissionError Errno 13 at open() (third interpreter round: lib/execute.load_state on
 strategies/<name>/state.json, a bare json.load(open(path))). The reconciler, reporters and workers
@@ -182,8 +184,6 @@ EXEMPT = [
      'worker', 'polls for the first snapshot; a failed read is `continue` until the deadline'),
     ('lib/president_worker.py', 'load_json', 'path',
      'helper', "the retry helper's own open, or the half-updated-workspace fallback"),
-    ('lib/order_sinopac.py', '_await_response', 'base + ".resp.json"',
-     'worker', 'polls for the worker\'s answer; a failed read is a 0.2 s sleep until the deadline'),
     ('lib/sinopac_worker.py', '_read_text', 'path',
      'helper', "the open _read_env wraps in read_retry (.env)"),
     ('lib/sinopac_vault.py', '_read_text', 'path',

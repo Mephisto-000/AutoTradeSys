@@ -1,3 +1,5 @@
+# Modified by Mephisto-000 on 2026-11-18: P4's request-flag check on lib/order_sinopac runs only where it is
+#   upstream's futures producer (the fork's lib/order_sinopac is the stock lib and relays nothing).
 """HALT is a full freeze (Wei 2026-10-17, 0.1.27): while state/HALT exists no
 order of any kind leaves the machine — entries, reduces, closes, a flip's close
 leg, SL/TP — whoever tripped it (the user's 暫停, or a safety trip). The one way
@@ -403,7 +405,11 @@ def _pass_shape():
     osrc = open(os.path.join(ROOT, "lib", "order_sinopac.py"), encoding="utf-8").read()
     kws = {k.arg: ast.unparse(k.value) for n in ast.walk(ast.parse(osrc)) if isinstance(n, ast.Call)
            for k in n.keywords if k.arg in ("halt_close_pass", "close_all_pass")}
-    if kws != {"halt_close_pass": "fields['intent'] == 'reduce' and guard.halt_closes_allowed()",
+    # AutoTradeSys fork: the stock lib sends no request file (no _submit_futures), so it carries no flags
+    if "def _submit_futures(" not in osrc:
+        if kws:
+            errs.append(f"the fork's stock lib/order_sinopac carries relay flags: {kws}")
+    elif kws != {"halt_close_pass": "fields['intent'] == 'reduce' and guard.halt_closes_allowed()",
                "close_all_pass": "fields['intent'] == 'reduce' and guard.close_all_granted()"}:
         errs.append(f"order_sinopac's request flags do not come from the pass its process holds: {kws}")
     return errs

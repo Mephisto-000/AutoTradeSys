@@ -1,3 +1,5 @@
+# Modified by Mephisto-000 on 2026-11-18: upstream's futures-producer writer lib/order_sinopac._write_request
+#   is left out of ③ (the fork's lib/order_sinopac is the stock lib and writes no request file).
 """Windows: os.replace onto a state file loses with PermissionError (WinError 5) while another
 process reads it (second Windows test machine 10-14: state/president_connect.json during 統一's
 「切到測試主機」, Defender at 100% CPU). The ack came back ok:false and `busy` stayed on disk, so the
@@ -162,7 +164,6 @@ try:
         ("lib/capital_vault.py", "mark_order_sent"), ("lib/capital_vault.py", "_write_block"),
         ("lib/president_vault.py", "replace_json"),
         ("lib/sinopac_vault.py", "mark_order_sent"), ("lib/sinopac_worker.py", "_atomic_write"),
-        ("lib/order_sinopac.py", "_write_request"),
         ("manager/reconciler.py", "_save_outage"), ("manager/reconciler.py", "_save_account_guard"),
         ("manager/reconciler.py", "_save_account_id_read"), ("manager/wait_for_bar.py", "_save_state"),
     }
