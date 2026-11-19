@@ -105,4 +105,18 @@
     再執行 `tools/sinopac_deploy.py --apply`；App 要用本 fork build 的版本（官方 0.1.56 App 內的 `runtime/venue_traits.py`
     把永豐當成未驗證的期貨，帳戶讀取會跳過永豐股票）
 
+- 2026-11-20：同步上游 `main` 至 `1ca4008f`（電腦版 0.1.57，runtime 1.1.166，VERSION `2026-11-19-c`）
+  - 上游這版：對帳器卡住偵測（進度戳記 240 秒沒動就重啟，一小時第 3 次先暫停交易）、電腦睡醒後新開倉等策略重算、
+    Telegram 改背景送、拿券商密碼的行程不再把 workspace 放在 sys.path（`lib/secret_imports.py`）並擴大 agent 不能改的凍結清單、
+    期貨停放紀錄存不進時寫旁檔不重送、Python 小版本變了自動重建 venv、改價 v3 付款框、左下帳戶選單等
+  - `lib/order_sinopac.py`：永豐股票單等成交的輪詢每次有回應就更新對帳器的進度戳記（只在對帳器自己的行程）——
+    收盤集合競價（13:25 送、等 13:30 撮合再撤單）與 09:10 前的零股合理會等超過 240 秒，不改會被卡住偵測誤殺並暫停交易；
+    新測試 `tests/check_sinopac_hang_progress.py`
+  - `runtime/secret_code.py`：凍結清單補上 fork 的 `lib/account_sinopac.py`、`lib/sinopac_session.py`（永豐下單會載入、處理 CA 密碼）
+  - `shell/requirements.txt`（上游新增的依賴鏡像）補 `shioaji==1.7.9`，與 `shell/main.js` 的清單一致；`shell/main.js` 衝突照上游新寫法、
+    保留永豐 SDK 下載量；上游只測永豐期貨的 `tests/check_tw_park_save_refused.py` 永豐那輪在 fork SKIP
+  - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 0.1.57
+    （workspace VERSION `2026-11-19-c`），再執行 `tools/sinopac_deploy.py --apply`；App 要用本 fork build 的版本
+    （`runtime/` 隨 App 出貨，凍結清單與永豐的交易所設定都在裡面）
+
 詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
