@@ -11,6 +11,8 @@ requests==2.34.2
 certifi==2026.10.23
 python-dotenv==1.2.3
 scipy==1.18.1
+# AutoTradeSys fork (2026-11-20): shioaji is main.js's optional 'sinopac' group, listed where WORKSPACE_DEPS has it
+shioaji==1.7.9
 curl_cffi==0.16.3
 lxml==6.1.3
 peewee==4.5.2
