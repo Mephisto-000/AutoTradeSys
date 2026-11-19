@@ -1,3 +1,6 @@
+# Modified by Mephisto-000 on 2026-11-20: the 永豐 scenarios are skipped in the AutoTradeSys fork —
+#   lib/order_sinopac is the fork's TW-stock lib, not upstream's futures producer they drive;
+#   群益 and 統一 run unchanged.
 """A TW futures send whose park record cannot be saved is never sent a second time — no broker.
 
 The broker took the order, the fill report did not come (or came short), and the save of
@@ -916,9 +919,18 @@ SCENARIOS = ("sent", "partial", "recover", "refused", "reduce", "halted", "unrea
 ONLY = {"president": ("side_n2", "n2_mem", "nd_recover"), "capital": ("side_flatten",)}
 
 
+def _sinopac_futures():
+    with open(os.path.join(SRC, "lib", "order_sinopac.py"), encoding="utf-8") as f:
+        return "def place_futures_market_order(" in f.read()
+
+
 def main():
     failed = []
-    for venue in ("capital", "president", "sinopac"):
+    venues = ("capital", "president", "sinopac")
+    if not _sinopac_futures():
+        print("SKIP 永豐期貨: lib/order_sinopac is the AutoTradeSys fork's TW-stock lib (no futures producer)")
+        venues = ("capital", "president")
+    for venue in venues:
         for sid in SCENARIOS + ONLY.get(venue, ()):
             tmp = tempfile.mkdtemp(prefix=f"parksave-{venue}-{sid}-")
             try:
