@@ -14,7 +14,7 @@
 What may be added and edited in here is a closed list:
 
 - **`manager/executors/<name>.py`** — a custom execution style, the only new file this directory takes (`references/lib.md` › *Custom executors*; the loader in `lib/execute.py` reads exactly that path).
-- **`manager/reconciler.py`** — hand-wired venue plumbing, and only that: `get_positions()` / `place_order()` for a venue without an official lib (see *reconciler.py* below and `references/lib.md`). Official venues are auto-wired — do not touch it for them.
+- **`manager/reconciler.py` and `manager/flatten.py` — read-only for you** (the runtime refuses the edit; only a Blave update changes them). Supported venues are auto-wired; a venue Blave does not support yet needs Blave to ship code (`references/exchange-connect.md` rule 7).
 - **`manager/manager.py` and `manager/management_backtest.py` — never.** A new weighting method, including a variant of the built-in optimiser, is a new `allocators/<name>/allocator.py` (`references/allocator-code.md` › *Never edit the built-in*).
 
 ## management_backtest.py
@@ -108,7 +108,7 @@ When the user asks about leverage or target volatility:
 
 ## reconciler.py
 
-Polls every 5 seconds; only reconciles when a strategy's `state.json` mtime changes (plus `state/execution/kick`, touched when an async execution completes). `get_positions()` and `place_order()` are exchange-specific stubs to fill in once. `lib/portfolio.py` contains `reconcile()` logic; applies `leverage` from portfolio_config.
+Polls every 5 seconds; only reconciles when a strategy's `state.json` mtime changes (plus `state/execution/kick`, touched when an async execution completes). `get_positions()` and `place_order()` route through `lib/venue_wiring.py` (the Taiwan brokers through their own blocks) — Blave's code, read-only for you. `lib/portfolio.py` contains `reconcile()` logic; applies `leverage` from portfolio_config.
 
 **Execution styles:** on auto-wired official venues, `place_order()` routes through `lib.execute.dispatch_order`, which reads the portfolio-wide `portfolio_config["execution_default"]` (one 市價/TWAP/chase/custom setting for every order — see `references/lib.md` › *Execution styles*). TWAP/custom run in a background thread; while one is in flight for a symbol, further legs for that symbol return `False` (deferred) and the residual gap re-reconciles after completion. Hand-wired venues (TW brokers) bypass this entirely.
 
@@ -198,7 +198,7 @@ start, on every credentials change, and in close-all before it sells anything:
   flag (an older page) the book is kept. Binding another venue over it never
   empties it, flag or not: seed `venue_reset`, its
   `venue_account` and migration `pending` dropped, its parked unconfirmed
-  orders released, 統一/群益 `*_pending_sent.json` deleted, and the last
+  orders released, 統一/群益/永豐 `*_pending_sent.json` and its `.unsaved` side file deleted, and the last
   snapshot (`manager/last_reconcile.json`) removed. Whatever stays on the
   account is the user's — bound back, even to the same account, those
   positions are manual and a strategy may open its own on top. Other venues'
@@ -581,6 +581,41 @@ fill could silently go missing from the book now fail loud instead:
   silently re-buying fills the log never received;
 - a failed `manager/orders.jsonl` append under `self_ledger` trips HALT (the
   file IS the book there; in account-read mode it stays best-effort);
+- a 統一 / 群益 / 永豐 send whose park record (`state/*_pending_sent.json`) cannot be saved: the row
+  goes to the park file's side file (`<park file>.unsaved`) and HALT is tripped; a restart reads it
+  back, and the next save the park file takes merges it in and removes the side file. Until the
+  claim settles that row (its fill booked, or cleared as not filled), pressing Start trading while
+  the park file still refuses it trips HALT again; once it is settled, trading goes on even if the
+  park file still refuses. Never delete either file by hand. If the side file is refused too (a full
+  disk), the row is kept in the reconciler process only and a restart forgets it.
+  **A side file that cannot be read has no way out in the app.** If a side file
+  (`state/*_pending_sent.json.unsaved`) exists but cannot be opened, does not parse as a JSON
+  object, or holds an entry that is not itself a JSON object (`null`, a number, a string), every
+  press of Start trading is followed by HALT again in the next reconciler round — closes and stops
+  are not sent either — and doing what the pause reason says (check the position, press Start
+  trading) only repeats it. This is not something the user did wrong. Confirm it read-only before
+  saying so: `state/HALT` has `source` `reconciler` and the "no fill report, may not be booked"
+  reason — naming `TXF/MXF/TMF` when the file does not read at all, the bad entry's own key when one
+  entry is not an object; `state/audit.jsonl` shows `halt_tripped` again after each `halt_cleared`;
+  the side file is there and fails `json.load`, or loads with an entry that is not an object; the
+  reconciler log has a line naming the side file itself, `….unsaved does not parse (…) while … is
+  held outside the park file — HALT`. Do not go by the reason alone: a pause that was already on
+  keeps its own source and reason, so this one may only appear after the user has pressed Start
+  trading once, and with a bad entry it reads exactly like the ordinary case. The side file and the
+  log line are what settle it: the ordinary case (a side file that loads and holds only rows and
+  marks) logs `park file not saved … is held outside it — HALT` and ends when the claim settles the
+  row; a park file that does not read names the park file in that line, not `.unsaved`, and ends
+  when it reads again. A file another program holds for a moment clears by itself — look again after
+  a minute before concluding. Where that log is: on the desktop app, `state/reconciler.log` (`.1`
+  beside it is the one before); on a cloud Linux machine, the output of the
+  `blave-agent-reconciler.service` unit, or the `reconciler` tmux session on a machine without the
+  unit; a cloud Windows machine keeps no reconciler log (the `blaveclaw-reconciler` service has no
+  output file) — there, go by the side file and `state/audit.jsonl`. Then tell the user that while
+  this lasts Blave sends nothing on any venue — no entry, no close, no stop — so they must watch and
+  handle their positions in the broker's own app, and ask them to write to info@blave.org to have it
+  cleared. Never delete, edit or move the side file or the park file yourself (they may hold a send
+  that filled: removed, it goes out again), and never suggest unbinding the broker to get past it —
+  that empties the bot's book as well;
 - `manager/seed_ledger.py` REFUSES to seed while any execution is in flight
   (seeding mid-execution double-counts its fills);
 - `manager/flatten.py` waits up to 30s after tripping HALT for in-flight
@@ -595,6 +630,14 @@ fill could silently go missing from the book now fail loud instead:
   when `state/HALT` can't land; `reap_dead_inflight` exits the process
   outright when the halt can't persist, keeping its markers for the next boot
   to retry (halt/notify first, marker cleanup last).
+
+**Hang watch (desktop 0.1.58):** `manager/reconciler.py` writes `state/heartbeat/reconciler_progress`
+(its pid) at startup and touches it around every order leg, position read and per-symbol lookup.
+The runtime kills a reconciler whose stamp has not moved for 240 s and the supervisor starts the
+next one; the third kill within an hour first trips HALT (source `hang_watch`). Never delete the
+stamp, `state/execution/hang_kill.json` or `hang_kills.json`, and never restart the reconciler
+yourself because of them. A marker left by a killed leg pauses trading like any other
+`execution_interrupted`.
 
 **Capital (群益) / lot-based rows:** the book needs no case of its own there —
 a capital-routed leg's `signed_diff` and `executed_qty` are both LOTS (see
@@ -959,9 +1002,21 @@ three is ignored. Rules:
   force and the lib on disk lacks the marker; a funded switch already in force is refused only on positive
   evidence of old code), `CONTRACT_EXPOSURE_MISMATCH`, `CONTRACT_HALTED` (HALT set and the code
   that trades cannot freeze a rollover — an older lib), `CONTRACT_GATED` (a strategy on either contract waits for a new
-  signal), `CONTRACT_PARKED` (統一 lots parked on either contract, or the park file unreadable) —
+  signal), `CONTRACT_PARKED` (統一 / 群益 / 永豐 lots parked on either contract, or a park file unreadable) —
   the last three whenever the new amount is above 0 —, `NOT_TXF_FAMILY`, `CONTRACT_TYPE`
   (Type B/C), `BAD_CONTRACT`.
+  A `CONTRACT_PARKED` that waiting does not end: the park file's name says whose it is
+  (`state/president_pending_sent.json` 統一, `capital_…` 群益, `sinopac_…` 永豐, each with its
+  `.unsaved` side file). If that broker is not in the `ids` of `manager/credentials.ui.json`, the
+  file is left from a broker that is no longer connected (an older page's disconnect, or another
+  venue bound over it); the reconciler only settles the parked rows of the broker it reads, so this
+  one stays. Both ways out start with the user connecting that broker again (AGENTS.md § Broker
+  Onboarding; it replaces a broker connected now and pauses trading). Then either the reconciler
+  settles the row on its next account read — after a disconnect it stays stopped until the user
+  presses 啟動下單 — or the user disconnects that broker again on the 自動下單 page (desktop 0.1.48
+  or later, or the web), which deletes the file and empties the bot's book for that broker. The
+  second way is only for a broker that is not in `ids`: for one that is, never suggest unbinding
+  to get past a parked row. Never delete the file yourself.
 
 **Drift band (`notional` rows, `self_ledger` off).** Target is a fixed notional and `actual` is
 size × mark, so a held position reads as a gap every heartbeat and the reconciler trades the
