@@ -4,6 +4,9 @@
 #   (2026-10-31) cancel_spot_order passes the order gate, so it takes upstream's turn order lock.
 #   (2026-11-18) kept over upstream c1db277b's futures-only rewrite (its odd-lot path removed); the
 #   PaperMarketClosed docstring follows upstream 0.1.55's close-all (refused, not deferred).
+#   (2026-11-20) a leg polled toward its end (_settle_leg) touches the reconciler's progress stamp
+#   (upstream 0.1.57 hang watch: 240 s, sized for ~120 s legs; the 13:25 closing auction and a
+#   pre-09:10 odd lot wait longer) — only in the reconciler process that owns the stamp.
 # Original work: Copyright 2025-2026 WuChi Technology Company Limited
 # Licensed under the Apache License, Version 2.0
 """
@@ -125,6 +128,29 @@ PRICE_TTL_S = 10.0
 # one spot execution at a time per process: a TWAP slice thread and the
 # reconcile loop never interleave their legs on the broker session
 _exec_lock = threading.Lock()
+
+# manager/reconciler.PROGRESS_PATH (relative to the workspace, the reconciler's cwd), runtime/hang_watch
+# kills a reconciler whose stamp stands still for HANG_STALL_S (240 s). A leg that keeps answering
+# while it waits for the closing auction is progress; a broker call that never returns still stops it.
+_PROGRESS_PATH = os.path.join("state", "heartbeat", "reconciler_progress")
+_progress_own = (None, False)   # (stamp file identity, written by this process)
+
+
+def _touch_progress():
+    """Move the reconciler's progress stamp — only when this process wrote it (flatten or an agent
+    turn running this lib never hides a stalled reconciler). Best effort, never raises."""
+    global _progress_own
+    try:
+        st = os.stat(_PROGRESS_PATH)
+        key = (st.st_dev, st.st_ino) if st.st_ino else None   # the reconciler replaces the file at startup
+        if key is None or _progress_own[0] != key:
+            from lib.winreplace import load_json
+            doc = load_json(_PROGRESS_PATH)
+            _progress_own = (key, isinstance(doc, dict) and doc.get("pid") == os.getpid())
+        if _progress_own[1]:
+            os.utime(_PROGRESS_PATH)
+    except (OSError, ValueError):
+        pass
 
 SinopacError = ss.SinopacError
 
@@ -680,6 +706,7 @@ def _settle_leg(env, trade, mult, wait_s):
     cancel_at = None
     while True:
         trade = _refresh(env, trade)
+        _touch_progress()   # this poll answered: the reconciler is not hung (hang watch, 240 s)
         res = _normalize(trade, mult)
         done = res["status"] in _TERMINAL or (
             res["order_qty"] > 0 and res["filled_qty"] + res["cancel_qty"] >= res["order_qty"])
