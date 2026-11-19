@@ -1,3 +1,6 @@
+# Modified by Mephisto-000 on 2026-11-20: SECRET_CODE_FILES also freezes lib/account_sinopac.py and
+#   lib/sinopac_session.py — the AutoTradeSys fork's SinoPac stock layer, which lib/order_sinopac.py loads
+#   inside the password processes (tests/check_secret_code_graph.py finds them in the import graph).
 """The workspace code that runs where the broker passwords are.
 
 SECRET_CODE_FILES: every file a process handed the 群益 / 統一 / 永豐 passwords loads — the three broker workers,
@@ -21,6 +24,7 @@ SECRET_CODE_FILES = (
     "lib/order_president.py", "lib/order_sinopac.py", "lib/order_stockcoin.py", "lib/paper_data.py",
     "lib/portfolio.py", "lib/president_contracts.py", "lib/president_quote.py", "lib/president_vault.py",
     "lib/president_worker.py", "lib/progress.py", "lib/reject_token.py", "lib/secret_imports.py",
+    "lib/account_sinopac.py", "lib/sinopac_session.py",  # AutoTradeSys fork (SinoPac stocks)
     "lib/sinopac_futures_account.py", "lib/sinopac_vault.py", "lib/sinopac_worker.py", "lib/stock_perps.py",
     "lib/tw_clock.py", "lib/twf_feed.py", "lib/unconfirmed.py", "lib/venue_errors.py", "lib/venue_traits.py",
     "lib/venue_wiring.py", "lib/winreplace.py", "manager/flatten.py", "manager/reconciler.py",
