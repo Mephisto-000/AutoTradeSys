@@ -119,4 +119,22 @@
     （workspace VERSION `2026-11-19-c`），再執行 `tools/sinopac_deploy.py --apply`；App 要用本 fork build 的版本
     （`runtime/` 隨 App 出貨，凍結清單與永豐的交易所設定都在裡面）
 
+- 2026-11-24：同步上游 `main` 至 `5b0a87db`（電腦版 0.1.58、0.1.59，runtime 1.1.169，VERSION `2026-11-22-b`）
+  - 上游這版：永豐**期貨**本機／雲端開通流程（`shell/renderer/sinopac.js`、`shell/sinopac_local.js`、`runtime/sinopac_service.py` 等，
+    外殼旗標 `SINOPAC_LOCAL_ON` 關著、runtime 另看 venue_traits 期貨閘門）、下單標的在交易所不存在時擋下（`symbol_unavailable`，
+    只查六家加密貨幣，永豐不受影響）、部分減倉結果不明不重送、billing 改 Agent 方案、寬版版面與 README 標語等
+  - `runtime/command_listener.py`：上游讓 credentials 裡任何 `sinopac_*` 行都過期貨的 `sinopac_service.bind_gate`，
+    fork 的永豐股票（連接框送的 `SINOPAC_API_KEY` + `SINOPAC_SECRET_KEY` 一對）會被拒；新增 `_fork_sinopac_stock_bind`，
+    只在這台電腦、剛好那一對、不是 `vault:` 哨兵也不是期貨流程暫存的寫入才跳過，照舊跑 `_local_real_key_gate`；
+    新測試 `tests/check_sinopac_bind_gate.py`
+  - `shell/renderer/trade.js`：上游期貨框有三處沒看旗標就攔下 `sinopac`（按「連接」直接 return、不檢查金鑰空白、
+    解除框說會刪憑證檔），改成旗標開才走期貨；台股組的永豐金磚在上游旗標打開時不重複列
+  - `shell/daemon.js`：`SINOPAC_ENV` 合成上游期貨五行加 fork 的 `SINOPAC_LIVE`、`SINOPAC_BOUND_TS` 共七行（解除綁定都拿得掉）；
+    `runtime/local_daemon.py` 照舊永遠開 SINOPAC；`README.md`、`references/sinopac-broker.md` 保留 fork 的股票版
+  - 測試：上游新測試 `tests/check_shell_sinopac_local.js` ⓪ ⑤ 配合 fork（現股的解除名單、幣別、顯示名不看旗標，`SINOPAC_ENV` 七行）；
+    `tests/check_venue_traits.py` 的永豐自有檔加上游的期貨檔；`.gitleaksignore` 補上游 0.1.59 行號移動後的 i18n key 誤判
+  - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 0.1.59
+    （workspace VERSION `2026-11-22-b`），再執行 `tools/sinopac_deploy.py --apply`；App 要用本 fork build 的版本
+    （上面 runtime 與外殼的修正都隨 App 出貨，官方 App 0.1.58 起綁不了永豐股票）
+
 詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
