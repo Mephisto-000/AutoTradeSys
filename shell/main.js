@@ -780,6 +780,16 @@ function errReport() {
   });
   return _er;
 }
+/* 畫面在某條回合結束後問(帶 sid)= 只問那一輪記的;沒帶 = 剛開 app。sid 沒跑過 → since 無限大,什麼都不問。
+   running 兩種都帶:還在跑的那幾輪記的留給它們自己 */
+function errScope(sid) {
+  const running = new Map();
+  for (const [k, r] of turns) if (r.startedAt) running.set(k, r.startedAt);
+  // 剛收尾、還沒輪到它自己問的那條(畫面晚 1.5 秒才問):它這一輪之後記的先留著,不被先問的那條當過期丟掉(稽核 0.1.59 B-6)
+  for (const [k, at] of turnStartAt) if (!running.has(k)) running.set(k, at);
+  if (typeof sid !== "string" || !sid) return { running };
+  return { sid, since: turnStartAt.has(sid) ? turnStartAt.get(sid) : Infinity, running };
+}
 /* Blave 餘額(balance.js):電腦版自己的端點,帶帳號 token + app_secret;只回數字給自家畫面,憑證不出主行程。 */
 let _balance = null;
 function balanceHost() {
@@ -1649,12 +1659,14 @@ function stratAnnReturn(st) {
   const tr = num(st["Total Return [%]"]);
   if (tr === null) return null;
   const day = (s) => { const m = typeof s === "string" && /^(\d{4})-(\d{2})-(\d{2})/.exec(s); return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : null; };
-  const s = day(st.start), e = day(st.end);
+  // 起點與 365.25 同回測頁 annualReturn(QA 0158 P2-2:START 早於第一根 K 時年化偏低)
+  const d0 = Array.isArray(st.daily_dates) && st.daily_dates.length ? day(st.daily_dates[0]) : null;
+  const s = d0 !== null ? d0 : day(st.start), e = day(st.end);
   let days = s !== null && e !== null ? Math.round((e - s) / 86400000) : null;
   if (!(days > 0)) days = Array.isArray(st.daily_dates) ? st.daily_dates.length : 0;
   const base = 1 + tr / 100;
   if (!(days > 0) || !(base > 0)) return null;
-  const ann = (Math.pow(base, 365 / days) - 1) * 100;
+  const ann = (Math.pow(base, 365.25 / days) - 1) * 100;
   return isFinite(ann) ? ann : null;
 }
 /* 策略名稱規則(canon notifications §3.1):同 api openclaw/strategy_names.clean 與 renderer trStratLabel 一字不差,
@@ -3214,7 +3226,27 @@ async function libraryDownload(strategyId) {
     libWriteWs(dir, name, b.code);
     if (b.security && typeof b.security === "object") libWriteWs(dir, sec, JSON.stringify(b.security));
   } catch (_) { return { ok: false, kind: "fail" }; }
+  libPickRecord(b.code, strategyId);
   return { ok: true };
+}
+/* 裝好那支的 source.json 不靠 agent 記得寫(0.1.59 實測漏寫 → 自動迭代把策略庫那支當新策略調參):記下 sha256(碼) → 策略庫 id,
+   lib/runner.py _claim_library_pick 在那份碼第一次回測時補寫。記不下來照舊靠 agent 寫,下載本身不算失敗 */
+const LIB_PICKS_FILE = "library_picks.json", LIB_PICK_TTL_MS = 24 * 3600 * 1000, LIB_PICKS_MAX = 20;
+function libPickRecord(code, strategyId) {
+  try {
+    const dir = path.join(WS, "state");
+    fs.mkdirSync(dir, { recursive: true });
+    if (fs.realpathSync(dir) !== path.join(fs.realpathSync(WS), "state")) return;   // 同 tmp:被換成往外的 symlink 就不寫
+    const file = path.join(dir, LIB_PICKS_FILE), t = Date.now();
+    let m = {};
+    try { const buf = wsfile.read(file, 64 * 1024); m = buf ? JSON.parse(buf.toString("utf8")) : {}; } catch (_) { m = {}; }   // 策略碼寫得到 state/:FIFO、/dev/zero 不能卡住主行程(稽核 0.1.59 S-1)
+    const keep = Object.entries(m && typeof m === "object" && !Array.isArray(m) ? m : {})
+      .filter(([k, v]) => /^[0-9a-f]{64}$/.test(k) && v && Number.isInteger(v.id) && Number.isFinite(v.at) && t - v.at < LIB_PICK_TTL_MS)
+      .slice(-(LIB_PICKS_MAX - 1));
+    const out = Object.fromEntries(keep);
+    out[crypto.createHash("sha256").update(code, "utf8").digest("hex")] = { id: strategyId, at: t };
+    wsfile.replace(file, JSON.stringify(out));
+  } catch (_) { /* 記不下來:agent 照 marketplace.md 自己寫 */ }
 }
 /* 「已安裝」對照表(規格 §1.2):{ marketplace id → 本機策略資料夾名 },只有這台電腦視角在用。存 userData、不進 workspace
    (agent 讀得到 workspace;這張表是外殼自己的記憶)。patch = { id, name } 記一筆、{ id, name: null } 拿掉一筆、不給只讀。 */
@@ -3436,6 +3468,7 @@ const safeId = (v) => (typeof v === "string" && SAFE_ID.test(v) ? v : null);
    rec.phase:queued(只有超過雲端名額的才有;只放記憶體,關 app 就不送)| starting(送出到 spawn 之間,也擋同一條連按)| running。
    「有沒有回合」一律問 anyTurn()(機器層級的鎖)或 turns.has(sid)(那一條自己);tests/check_shell_turn_table.js 列舉每一處 */
 const turns = new Map();
+const turnStartAt = new Map();   // sid → 最近收尾那一輪的開跑時間(turnFinish 記):錯誤回報只問那一輪之後記的(errScope)
 const turnQueue = [];   // 排隊中的 sid,FIFO
 let turnSeqN = 0;
 const liveTurnCount = () => { let n = 0; for (const r of turns.values()) if (r.phase !== "queued") n++; return n; };
@@ -3516,6 +3549,8 @@ function tradeHost() {
     });
     // 統一(只有 Windows):daemon 重起後補交帳密——跟著常駐程式走,5 秒一輪(防睡併進 awakeSync)
     if (WIN) { const tm = setInterval(() => startStep("president", presSync), 5000); if (tm.unref) tm.unref(); }
+    // 永豐(Mac 與 Windows):同一件事,旗標開才跑
+    if (SINOPAC_LOCAL_ON) { const tm = setInterval(() => startStep("sinopac", spSync), 5000); if (tm.unref) tm.unref(); }
   }
   return _tradeHost;
 }
@@ -3548,6 +3583,28 @@ function capitalLocal() {
     log: (m) => console.error(m),
   });
   return _capitalLocal;
+}
+/* 永豐期貨本機開通(sinopac_local.js;畫面 renderer/sinopac.js)。金鑰、身分證、憑證密碼只在這個行程經過、safeStorage 存;
+   送給 daemon 時用它這次啟動的 secret 封裝(daemon.sealSinopac),機器端只放記憶體、經 stdin 交給下單程式。Mac 與 Windows 都走得到。
+   旗標關 = IPC 不註冊、補交不跑(解除連接除外);翻開要跟 runtime 的期貨閘門(venue_traits verified_modes)同一版 */
+// = renderer/trade.js SINOPAC_LOCAL_ON(tests/check_shell_sinopac_local.js 釘兩處相同)
+const SINOPAC_LOCAL_ON = false;
+let _sinopac = null, _spCloud = null;
+function sinopac() {
+  if (!_sinopac) _sinopac = require("./sinopac_local").createSinopac({
+    userData: app.getPath("userData"),
+    seal: { available: () => safeStorage.isEncryptionAvailable(), encrypt: (v) => safeStorage.encryptString(v), decrypt: (b) => safeStorage.decryptString(b) },
+    host: () => _tradeHost,
+    // spec §7:系統開檔框停在「下載項目」、篩 .pfx;路徑不出這個行程
+    pickFile: async () => { const w = BrowserWindow.getAllWindows()[0]; let dl; try { dl = app.getPath("downloads"); } catch (_) { dl = undefined; }
+      const r = await dialog.showOpenDialog(w, { defaultPath: dl, properties: ["openFile"], filters: [{ name: "PFX", extensions: ["pfx"] }] }); return r.canceled ? null : r.filePaths[0]; },
+  });
+  return _sinopac;
+}
+function spSync() {
+  if (!_tradeHost) return;
+  const r = _tradeHost.status().report; if (!r) return;
+  sinopac().resync(r).catch(() => {});
 }
 /* daemon 每次起來都是空手:存著的帳密再交一次 */
 function presSync() {
@@ -3993,6 +4050,9 @@ async function runTurn(rec, { sessionId, message, model: rawModel, effort: rawEf
   const useBlave = conn.kind === "blave";
   if (plan.proxyToken) await acctRelay().start();   // 轉送口起不來就整輪失敗(不退回把帳號 token 放進環境)
   const dataAccess = syncDataAccess(plan.dataKey, signedIn);
+  // 自動迭代額度(spec agent-auto-iterate §3.2、11-18 裁定):Blave AI 照 account_status.iterate_tier(api 判,只靠綁卡前額度＝basic);
+  // 讀不到、太舊、舊 api 沒這欄 → basic(fail-closed);自己的引擎(Claude Code、Codex、自帶金鑰)→ full。回合開始定一次
+  const iterTier = !useBlave ? "full" : lastAcct && Date.now() - lastAcct.at <= ACCT_FRESH_MS && lastAcct.body.iterate_tier === "full" ? "full" : "basic";
   // `blave` MCP:拿得到碼才掛;拿不到(沒主機、端點還沒上線、被限速、連不上)= 這一輪不掛,回合照常。
   // 兩條引擎都寫同一份單次設定檔(0600、workspace 以外、回合結束就刪),runtime 用 --mcp-config 判「這一輪有沒有掛」。
   // Claude 經那份檔吃 MCP;Codex 不吃檔——吃 `-c mcp_servers.blave.*`(runtime/codex_engine.py 組)+ 只給 codex 子行程的
@@ -4051,6 +4111,8 @@ async function runTurn(rec, { sessionId, message, model: rawModel, effort: rawEf
     BLAVE_AGENT_STATE: path.join(BASE, "state"),
     BLAVE_AGENT_DB: path.join(BASE, "state", "session.db"),
     BLAVE_TURN_INTERRUPT_FILE: rec.stopFile,
+    // 錯誤回報:lib/error_report.py 記下是哪條對話,卡只出在那條(shell/errreport.js pending 的 scope);只在本機,不送
+    BLAVE_CHAT_SID: sessionId,
     // 回合來源(spec §2.8):外殼內部叫 mobile,對 runtime 與 api 一律 app;runtime 只寫進回合 log
     ...(rec.origin === "mobile" ? { BLAVE_TURN_ORIGIN: "app" } : {}),
     // K 線走 Binance 公開 API(桌面版沒有 Blave 資料訂閱)。獨立、明確 opt-in 的
@@ -4087,6 +4149,9 @@ async function runTurn(rec, { sessionId, message, model: rawModel, effort: rawEf
     // 澄清表單(renderer/form.js):電腦版 spawn 的永遠是包裡那份 runtime,沒有版本錯配(tests/check_shell_viewing.js 釘著 runtime 認得)。
     // 手機來的回合不帶:手機畫不出表單,模型寫了 <form> 用戶只會等不到問題
     ...(rec.origin === "mobile" ? [] : ["--clarify-form"]),
+    // 答案鈕(renderer/answers.js):同表單,手機那輪不帶,模型照 AGENTS.md 在正文列條列選項
+    ...(rec.origin === "mobile" ? [] : ["--answer-buttons"]),
+    "--iter-tier", iterTier,
     // 搬策略動作卡(renderer/handoff.js):同表單卡,手機畫不出;旗標關著時畫面沒有搬的路,也不叫 agent 出卡
     ...(rec.origin === "mobile" || !cloudHandoffOn() ? [] : ["--handoff-card"]),
     // argv 上只有設定檔的**路徑**(碼在檔案裡,0600、workspace 以外、這一輪結束就刪);runtime 只在電腦版(LocalSink)認這個旗標
@@ -4112,6 +4177,8 @@ async function runTurn(rec, { sessionId, message, model: rawModel, effort: rawEf
       if (line.startsWith("@@BLAVE@@")) {
         try {
           const c = JSON.parse(line.slice(9)); if (c && c.type === "done") { rec.finalized = true; turnAwaiting = c.awaiting === true; sessWaitingSave(sessionId, turnAwaiting); }   // awaiting 只存;kinds 不存不畫
+          // 自動迭代收場(runtime iterate_turn_end;值已在 runtime 列舉過,telemetry 白名單再擋一次):只記埋點,不進畫面
+          if (c && c.type === "auto_iter") { tm().track("auto_iter_done", { r: c.done }); tm().track("auto_iter_rounds", { n: c.rounds }); continue; }
           if (c && c.type === "export") { const rec = noteExport(c, sessionId); if (rec) { c.id = rec.id; turnXp.push(rec); } }   // 卡重開要畫回來:快照先落地,id 給卡的「下載…」
           if (c && c.type === "card") {
             if (dataAccess === "own") continue;   // 用戶自己的 API 方案 key:出路在網站 API 頁,不出資料卡(runtime 本來就不送,這裡再擋一次)
@@ -4148,6 +4215,7 @@ function turnNice(child) {
 function turnFinish(rec, end, awaiting) {
   if (turns.get(rec.sid) !== rec) return false;
   turns.delete(rec.sid);
+  if (rec.startedAt) turnStartAt.set(rec.sid, rec.startedAt);
   try { fs.rmSync(rec.stopFile, { force: true }); } catch (_) { /* 留著也無害:下一輪是新檔名 */ }
   replyPending.set(rec.sid, { sid: rec.sid, awaiting: awaiting === true });   // 畫面判完 stopped／faulted 才送 reply-cue
   sendTurn(rec.sid, "turn-end", end);
@@ -4196,6 +4264,7 @@ async function startTurn(payload, origin) {
 /* 已經在表上的那一筆真的開跑。runTurn resolve = spawn 與 stdin 都成功、話交到 agent 手上;reject = 沒開跑,當一輪失敗收尾 */
 function turnLaunch(rec, payload) {
   rec.phase = "starting";
+  rec.startedAt = Date.now();
   turnParTrack();
   // 「上雲端運行」(cloud_started)0.1.47 起由 transfer-up 的 ack 成功送,不再看回合
   runTurn(rec, payload).catch((err) => {
@@ -4430,7 +4499,9 @@ app.whenReady().then(() => {
     if ((cmd === "resume" || cmd === "resume_wait") && intent !== "release") Promise.resolve(out).then((r) => {
       if (!r || !r.ok) return;
       const v = (_tradeHost && _tradeHost.status().report || {}).venues || {}, ids = Object.keys(v).filter((k) => venueReady(v[k]));
-      if (ids.length) { tm().track("trade_started", { venue_kind: ids.every((k) => k === "paper") ? "paper" : "real" }); try { uiPrefsPatch({ tradeStartedAt: Date.now() }); } catch (_) { /* 記不住:提示格早一點出,不影響下單 */ } }
+      // mode = 按下的那條、pre = 開框時預選的那條(啟動框帶 "start:<mode>:<pre>",spec 0158-catchup-intro §1.8);沒帶的舊路照指令猜
+      const how = /^start:(catch|wait|single):(catch|wait)$/.exec(typeof intent === "string" ? intent : "") || [null, cmd === "resume_wait" ? "wait" : "catch", cmd === "resume_wait" ? "wait" : "catch"];
+      if (ids.length) { tm().track("trade_started", { venue_kind: ids.every((k) => k === "paper") ? "paper" : "real", mode: how[1], pre: how[2] }); try { uiPrefsPatch({ tradeStartedAt: Date.now() }); } catch (_) { /* 記不住:提示格早一點出,不影響下單 */ } }
     }).catch(() => {});
     return out;
   });
@@ -4552,6 +4623,42 @@ app.whenReady().then(() => {
     handle("capl-step", (_e, name, o) => capitalLocal().step(String(name || ""), { afterUnlock: !!(o && o.afterUnlock === true) }), caplDenied);
     handle("capl-old", (_e, remove) => capitalLocal().oldCerts(remove === true), caplDenied);
   }
+  // 永豐本機(sinopac_local.js)只在 SINOPAC_LOCAL_ON 開著時註冊:旗標關 = 主行程這一層也到不了
+  if (SINOPAC_LOCAL_ON) {
+    const spDenied = { code: "NOT_ALLOWED" };
+    handle("sinopac-info", () => sinopac().info(), spDenied);
+    handle("sinopac-pick", () => sinopac().pick(), spDenied);
+    // 欄位送進來一次、拿不回去;null = 沿用存著的那一格(〔改金鑰〕〔換憑證〕只清那一類)
+    handle("sinopac-bind", (_e, a) => {
+      const s = (k) => (a && typeof a[k] === "string" ? a[k] : null);
+      return sinopac().bind({ apiKey: s("apiKey"), secret: s("secret"), personId: s("personId"), caPassword: s("caPassword") });
+    }, spDenied);
+    handle("sinopac-step", (_e, name) => sinopac().step(String(name || "")), spDenied);
+    handle("sinopac-close", () => { if (_spCloud) _spCloud.forget(); return _sinopac ? _sinopac.closeBox() : true; }, false);
+    /* 雲端主機的永豐開通(cloud_sinopac.js):欄位與憑證檔只在這個行程封裝(主機一次性公鑰),回給畫面的只有代號。
+       送完不管結果都要一份新狀態:長步驟的結果在主機回報的 sinopac_connect 裡 */
+    const spCloud = () => _spCloud || (_spCloud = require("./cloud_sinopac").createSinopacCloud({
+      send: (cmd, args, secrets, o) => cloudCmd().send(cmd, args, secrets, o),
+      pick: async () => { const w = BrowserWindow.getAllWindows()[0]; let dl; try { dl = app.getPath("downloads"); } catch (_) { dl = undefined; }
+        const r = await dialog.showOpenDialog(w, { defaultPath: dl, properties: ["openFile"], filters: [{ name: "PFX", extensions: ["pfx"] }] }); return r.canceled ? null : r.filePaths[0]; },
+      stat: (p) => fs.statSync(p), readFile: (p) => fs.readFileSync(p),
+      after: () => { cloudHost().start(); cloudHost().refresh(true).catch(() => {}); },
+    }));
+    handle("sinopac-cloud-pick", () => spCloud().pick(), spDenied);
+    handle("sinopac-cloud-upload", (_e, a) => {
+      const s = (k) => (a && typeof a[k] === "string" ? a[k] : "");
+      return spCloud().upload({ apiKey: s("apiKey"), secret: s("secret"), personId: s("personId"), caPassword: s("caPassword") });
+    }, spDenied);
+    handle("sinopac-cloud-step", (_e, name) => spCloud().step(String(name || "")), spDenied);
+  }
+  // 永豐解除連接在旗標外(安全方向):機器上的五行、憑證、停止檔先拿掉(runtime sinopac_service.drop,同時停 worker),成功了才丟這裡存的那組
+  handle("sinopac-unbind", async (_e, o) => {
+    const h = tradeHost(), SE = require("./daemon").SINOPAC_ENV;
+    if (o && o.close === true) return unbindAfterClose("sinopac", SE, o.requestId, () => sinopac().forget());
+    const r = await h.send("credentials_remove", { env: SE.map((k) => k.toLowerCase()), ...clearBookArg(h) });
+    if (r && r.ok) { sinopac().forget(); delete _forgetWhenGone.sinopac; }
+    return r;
+  }, { ok: false, error: "NOT_ALLOWED" });
   // 解除綁定在旗標外:旗標關的版本也要解得掉之前(測試包)留下的綁定(安全方向)。.env 那兩行先拿掉(runtime 同時停 worker、丟掉記憶體裡的那組),成功了才丟這裡存的帳密
   handle("capl-unbind", async (_e, o) => {
     const h = tradeHost(), CE = require("./daemon").CAPITAL_ENV;
@@ -4709,7 +4816,7 @@ app.whenReady().then(() => {
   handle("theme", () => themeGet(), "system");
   handle("theme-set", (_e, v) => themeSet(v), null);
   // 錯誤回報(shell/errreport.js):畫面只拿得到要顯示的那份文字與批次 id,送出的內容由主行程凍結,畫面只回決定
-  handle("err-report-pending", () => errReport().pending(), null);
+  handle("err-report-pending", (_e, sid) => errReport().pending(errScope(sid)), null);
   handle("err-report-decide", (_e, id, action, always) => errReport().decide(String(id || ""), action, always === true), false);
   handle("err-report-mode", () => errReport().mode(), "ask");
   handle("err-report-mode-set", (_e, m) => errReport().setMode(m), null);
@@ -4901,6 +5008,8 @@ let tmLabels = { running: "Auto trading is running", paperVenue: "Paper trading"
   ev_venue_login_blocked: "President login stopped", ev_venue_login_blocked_n: "New orders and closes can't go out. Press Sign In Again on the auto-trading page.",
   ev_venue_login_blocked_capital: "Capital login stopped", ev_venue_login_blocked_capital_n: "New orders and closes can't go out. Enter the trading password again on the auto-trading page.",
   ev_venue_login_blocked_capital_locked_n: "New orders and closes can't go out. Unlock it with Capital, then enter the trading password again on the auto-trading page.",
+  ev_venue_login_blocked_sinopac: "SinoPac login stopped", ev_venue_login_blocked_sinopac_n_UNKNOWN: "SinoPac refused the sign-in without a reason. New orders and closes can't go out. Press Sign In Again on the auto-trading page.",
+  ev_exchange_unreachable_sinopac: "Can't reach SinoPac for {hours} h", ev_exchange_unreachable_sinopac_n: "SinoPac strategies place no orders and no closes meanwhile. To manage positions, trade at SinoPac directly.",
   ev_exchange_unreachable_capital: "Capital account unreadable for {hours} h",
   ev_exchange_unreachable_capital_n: "Capital strategies place no orders and no closes meanwhile. Check the Capital connection, or restart Blave.",
   ev_halt_unconfirmed_n: "An order may have filled, so nothing goes out. Don't place it again yourself: tell your agent how much filled, then press Start trading.",
@@ -5481,10 +5590,12 @@ function p1ManualClose(e) {
 }
 function p1TwClock(sec) { return new Date(sec * 1000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Taipei" }); }
 const P1_EVENT_TYPES = P1_TYPES.filter((ty) => ty !== "halt" && ty !== "order_error" && P1_ERR_KINDS.indexOf(ty) < 0);   // 會出現在 events 裡的七型
-// 群益一直讀不到帳戶:exchange_unreachable 是 P2,第二則(≥150 分,對帳器每 2 小時一則)起升 P1。同 api level_for、renderer trExUnreachLong
+// 群益一直讀不到帳戶、永豐一直登入不上:exchange_unreachable 是 P2,滿 150 分那一則起升 P1(群益 30／150／270,永豐 25／150／270)。
+// 同 api agent_events._tw_unreadable_long(_TW_UNREADABLE_VENUES)、renderer trExUnreachLong
 const P1_UNREACH_MIN = 150;
-const p1UnreachLong = (ev) => ev.type === "exchange_unreachable" && !!ev.payload && ev.payload.venue === "capital"
-  && typeof ev.payload.minutes === "number" && ev.payload.minutes >= P1_UNREACH_MIN;
+const P1_UNREACH_VENUES = ["capital", "sinopac"];
+const p1UnreachLong = (ev) => ev.type === "exchange_unreachable" && !!ev.payload && P1_UNREACH_VENUES.indexOf(ev.payload.venue) >= 0
+  && typeof ev.payload.minutes === "number" && isFinite(ev.payload.minutes) && ev.payload.minutes >= P1_UNREACH_MIN;
 // 電腦睡醒(P2):主 session 11-17 依 Wei『只推播＋事件列』定：電腦版推播＝本機系統通知;不亮紅點
 const P2_NOTIFY_TYPES = ["machine_woke"];
 const p1Event = (ev) => P1_EVENT_TYPES.indexOf(ev.type) >= 0 || p1UnreachLong(ev) || P2_NOTIFY_TYPES.indexOf(ev.type) >= 0;
@@ -5567,8 +5678,12 @@ function p1FromState(r, mark, nowS) {   // 純函式:halt / 拒單從狀態檔�
       const mc = p1ManualClose(e), type = mc ? "manual_close_required" : P1_ERR_KINDS.indexOf(e.kind) >= 0 ? e.kind : "order_error";
       // 模擬帳戶的拒單、休市被拒且這次暫停已撤回(halt_lifted)的列是 P2(api level_for),本機不叫、只進事件列;帶 kind 的那幾型照舊 P1
       if (type === "order_error" && (e.exchange === "paper" || e.halt_lifted === true)) continue;
+      // silent 只認拒單(同 api):機器還沒到通知點(連 3 次才發)或已經發過、被 5 列窗擠出後重寫的列(lib/portfolio._RejectBackoff)
+      if (type === "order_error" && e.silent === true) continue;
       const strategies = Array.isArray(e.strategies) ? e.strategies.filter((x) => typeof x === "string" && x).slice(0, 10) : [];
-      out.show.push({ type, ts, cool: p1CoolKey(type, e),
+      // 帶 since 的是機器自己判過「該發」的那列(第 3 次、24 小時提醒):不再套本機冷卻,否則第 3 次會被
+      // 舊機器每小時一列時代的 3300 秒吃掉
+      out.show.push({ type, ts, cool: type === "order_error" && typeof e.since === "string" ? null : p1CoolKey(type, e),
         payload: { symbol: typeof e.symbol === "string" ? e.symbol : "", strategies, stuck: e.stuck === true, close_all: e.close_all === true, ...(mc || {}),
           ...(type === "tw_clock_unchecked" && P1_CLOCK_CASES.indexOf(e.clock) >= 0 ? { clock: e.clock } : {}) } });
     }
@@ -5621,12 +5736,15 @@ function p1Sync() {
     // 這裡的事件全部來自這台電腦的狀態檔:標題第一個詞講是哪一邊(雲端的通知之後由它自己的來源加 notifPrefixCloud)
     const closeAll = e.type === "order_unconfirmed" && e.payload && e.payload.close_all === true;
     const stuck = !closeAll && e.type === "order_unconfirmed" && e.payload && e.payload.stuck === true;
+    // 永豐(登入停了、連不上滿 150 分):自己那組字;登入停了的內文照原因(spec sinopac-connect §6.2,不帶券商原文)
+    const sinopac = !!e.payload && e.payload.venue === "sinopac" && (e.type === "venue_login_blocked" || p1UnreachLong(e));
+    // 永豐那一則 capital 也會是 true(p1UnreachLong):variant 先看 sinopac,群益的 LOCKED 內文看 reason,永豐的連不上沒有 reason
     const capital = (e.type === "venue_login_blocked" && e.payload && e.payload.venue === "capital") || p1UnreachLong(e);
     const mcr = e.type === "manual_close_required" && e.payload ? e.payload.reason : null;
     const clock = e.type === "tw_clock_unchecked" && e.payload ? e.payload.clock : null;   // 只選內文;標題同一個(沒有 ev_tw_clock_unchecked_<clock>)
     const hang = e.type === "execution_interrupted" && e.payload && e.payload.cause === "hang";
     const held = e.type === "machine_woke" && e.payload && e.payload.held === true;
-    const variant = hang ? "_hang" : held ? "_held" : closeAll ? "_close_all" : stuck ? "_stuck" : capital ? "_capital"
+    const variant = hang ? "_hang" : held ? "_held" : closeAll ? "_close_all" : stuck ? "_stuck" : sinopac ? "_sinopac" : capital ? "_capital"
       : mcr === "snapshot_lag" ? "_lag" : mcr === "queued" ? "_queued" : clock ? "_" + clock : "";
     const unexplained = e.type === "halt" && e.payload && e.payload.unexplained === true && !!e.payload.reason;
     const head = (unexplained && tmLabels.ev_halt_unexplained) || tmLabels["ev_" + e.type + variant] || tmLabels["ev_" + e.type];
@@ -5636,6 +5754,7 @@ function p1Sync() {
     const note = unexplained ? e.payload.reason
       : e.type === "halt" && e.payload && e.payload.unconfirmed && tmLabels.ev_halt_unconfirmed_n ? tmLabels.ev_halt_unconfirmed_n
       : capital && e.payload.reason === "LOCKED" && tmLabels.ev_venue_login_blocked_capital_locked_n ? tmLabels.ev_venue_login_blocked_capital_locked_n
+      : sinopac && e.type === "venue_login_blocked" ? tmLabels["ev_venue_login_blocked_sinopac_n_" + String(e.payload.reason || "UNKNOWN")] || tmLabels.ev_venue_login_blocked_sinopac_n_UNKNOWN
       : mcr === "queued" ? (e.payload.until ? String(tmLabels.ev_manual_close_required_queued_n || "").replace("{at}", p1TwClock(e.payload.until))
         : tmLabels.ev_manual_close_required_queued_soon_n)
       : p1Fill(tmLabels["ev_" + e.type + variant + "_n"] || tmLabels["ev_" + e.type + "_n"], e.payload);

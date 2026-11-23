@@ -420,7 +420,8 @@ function cnFreePaint() {
   const free = cnFreeMode(), q = cnFreeQ();
   h.textContent = t(free ? "cn.h.free" : "cn.h");
   ttl.textContent = t("cn.blave.name");
-  meta.textContent = free ? (q ? t("cn.blave.descFree", { q }) : t("cn.blave.descFreeNoNum")) : t("cn.blave.desc");
+  // 有登入贈額(api 給了數字)才講「送 AI 額度」,但不寫數字(Wei 11-20:對外不寫 AI 額度的 TWD)
+  meta.textContent = free ? (q ? t("cn.blave.descFree") : t("cn.blave.descFreeNoNum")) : t("cn.blave.desc");
 }
 
 /* ── 設定 › 模型接入 ───────────────────────────────────────
@@ -453,7 +454,7 @@ function codexPkgRow(pkg, x) {
 }
 function mdlOptions(d, curKind, tok, pend, ak, pkg) {
   const p = pend || {};
-  const out = [{ kind: "blave", nameKey: "cn.blave.name", desc: tok ? "cn.blave.descSetNoNum" : "cn.blave.descSet",   // 沒登入講登入那刻發的綁卡前額度(數字來自 api public_tiers.free_ai_credit,mdlPaint 填;拿不到就退成扣款那句),登入後只講怎麼收錢
+  const out = [{ kind: "blave", nameKey: "cn.blave.name", desc: tok ? "cn.blave.descSetNoNum" : "cn.blave.descSet",   // 沒登入講登入就送額度(有沒有贈額看 api public_tiers.free_ai_credit,字不寫數字;拿不到就退成扣款那句),登入後只講怎麼收錢
     st: null,
     // 已經有 token 就不必再跑一次 OAuth:切回去是一個選擇,不是重新授權
     act: p.oauth ? "oauth.cancel" : curKind === "blave" ? null : tok ? "cn.use" : curKind ? "cn.blave.signinSwitch" : "cn.blave.btn",
@@ -534,7 +535,7 @@ function mdlPaint() {
     // Codex 隨包那列的下載大小這一頁不講(Wei 11-09);下載進度太長放不進右欄,改畫在說明那一行、右欄空著(資料仍是 st,連結畫面與額度用完 modal 照舊讀)
     const dl = o.st && o.st.key === "cn.pkgDl", desc = o.pkg && o.desc === "cn.pkgSize" ? null : o.desc;
     if (dl) tc.appendChild(el("p", "m", t(o.st.key, o.st.vars)));
-    else if (desc) { const q = desc === "cn.blave.descSet" ? cnFreeQ() : ""; tc.appendChild(el("p", "m", desc === "cn.blave.descSet" ? (q ? t(desc, { q }) : t("cn.blave.descSetNoNum")) : o.descVars ? t(desc, o.descVars) : t(desc, /^row\./.test(desc) ? rowVars(o.kind, o.name) : undefined))); }
+    else if (desc) { const q = desc === "cn.blave.descSet" ? cnFreeQ() : ""; tc.appendChild(el("p", "m", desc === "cn.blave.descSet" ? (q ? t(desc) : t("cn.blave.descSetNoNum")) : o.descVars ? t(desc, o.descVars) : t(desc, /^row\./.test(desc) ? rowVars(o.kind, o.name) : undefined))); }
     else if (o.names) tc.appendChild(el("p", "m", o.names.join(t("ak.sep"))));
     lab.append(rd, tc); r.appendChild(lab);
     // label 是 display:contents,欄距與列內距點下去打到的是列本身:轉給 radio。label 裡面的點擊(含它合成的那一下)與右欄的鈕不轉
@@ -880,7 +881,7 @@ var UP = null;   // var:applyStatic 可能在這一行之前就被叫到(let 的
    開關的真值在主行程(telemetry.js 的狀態檔);這裡每次打開這一類就重讀,切換後以主行程回的為準。 */
 let PRIV = null;   // null = 還沒讀到(開關先鎖著,免得先畫成開、再跳成關)
 // 會收:組 → 組內幾句(0.1.39 設計稽核 §C)。key = priv.c.<組>.h 與 priv.c.<組>.<n>;組數與句數改了,tests/check_shell_settings.js 逐字對
-const PRIV_COLLECT = [["step", 4], ["strat", 5], ["feat", 10], ["stuck", 9], ["auth", 5], ["meta", 5], ["acct", 2]].map(([g, n]) => ["priv.c." + g + ".h", Array.from({ length: n }, (_, i) => "priv.c." + g + "." + (i + 1))]);
+const PRIV_COLLECT = [["step", 4], ["strat", 5], ["feat", 13], ["stuck", 9], ["auth", 5], ["meta", 5], ["acct", 2]].map(([g, n]) => ["priv.c." + g + ".h", Array.from({ length: n }, (_, i) => "priv.c." + g + "." + (i + 1))]);
 /* 功能被使用(canon .claude/docs/product-telemetry.md):只交一個白名單裡的名字給主行程,不帶內容、不計次(api 每安裝每 name 每日一列)。
    送出點放在「功能被使用」那一層(分頁切換、主要動作的 handler),不放 render;名字的字面在 tests/check_shell_telemetry.js 對兩端白名單掃 */
 function trackFeature(name) { try { window.blave.trackFeature(name); } catch (_) { } }   // 追蹤永遠不擋功能
@@ -3109,14 +3110,14 @@ let delCtx = null;
 function delConfirm(m, opener) {
   const cur = m.id === sessionId;
   const name = (m.title || t("cs.new")).slice(0, 40) + ((m.title || "").length > 40 ? "…" : "");
-  $("del-title").textContent = cur ? t("del.titleCur") : t("del.title", { title: name });
+  $("del-title").textContent = cur ? t("del.titleCur") : t("del.title", { title: name }); $("del-title").removeAttribute("title");
   $("del-body").className = "del-body";
   $("del-body").textContent = t(cur ? "del.bodyCur" : "del.body");
   $("del-ok").textContent = t("del.ok");
   delCtx = { m, opener };
   $("view-ws").inert = true;
   const sc = $("del-scrim"); sc.hidden = false;
-  requestAnimationFrame(() => sc.classList.add("open"));
+  requestAnimationFrame(() => { if (!sc.hidden) sc.classList.add("open"); });
   $("del-cancel").focus();
 }
 /* 同一個確認框,第二個用途:花錢的動作(啟動雲端方案)。不養第二份 DOM——標題、幾段字、主鈕的字
@@ -3162,12 +3163,13 @@ function delOkBusy(on) {
 // note:常駐說明縮成一行＋〔細節〕點開的小卡(mockup 03 A 版),小卡只放 details 裡帶 items 的那幾條;帶 text 的那一組(哪些部位算 Blave 的)
 // 留在收合的 <details>、summary 用它的 label(跟網頁同一份);沒有 note 才把全部塞進 <details>。
 // 小卡用點的不用 hover(裡面有連結);攤在那一行下面,流內、不用浮層 token;Esc 先收小卡再收框(escTop)
-function confirmBox({ title, lines, ok, onOk, opener, alt, mark, markKind, extra, okDisabled, okWhy, env, footWhere, lead, single, cancel, choices, choicesLabel, keep, details, detailsOpen, onCancel, focus, link, stay, note, wrapTitle, sections }) {
+function confirmBox({ title, lines, ok, onOk, opener, alt, mark, markKind, extra, okDisabled, okWhy, env, footWhere, lead, single, cancel, choices, choicesLabel, keep, details, detailsOpen, onCancel, focus, link, stay, note, wrapTitle, sections, tail, armMs, dblGuard }) {
   cfSupersede();
   delOkBusy(false);
   const mk = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
   // wrapTitle:標題是要回答的問題(解除綁定框),長的換行不截成「…」(同配對確認框)
-  $("del-title").textContent = title; $("del-title").classList.toggle("cf-wrap", !!wrapTitle);
+  // title 屬性是呼叫端開框後自己設的全文 tooltip:共用框先清掉,不留上一個框的(QA 0158 P2-3)
+  $("del-title").textContent = title; $("del-title").removeAttribute("title"); $("del-title").classList.toggle("cf-wrap", !!wrapTitle);
   $("del-cancel").textContent = cancel || t("del.cancel");
   const body = $("del-body"); body.className = "del-body lines" + (choices ? " has-choices" : ""); body.textContent = "";
   if (lead) body.appendChild(lead);
@@ -3182,6 +3184,7 @@ function confirmBox({ title, lines, ok, onOk, opener, alt, mark, markKind, extra
       const d = mk("span", "cf-opt-d", c.disabled && c.why ? c.why : c.desc);
       if (c.disabled && c.why) { d.id = "cf-why-" + c.id; r.setAttribute("aria-describedby", d.id); }
       row.append(r, mk("span", "cf-opt-t", c.title), d);
+      if (c.list && !c.disabled) row.appendChild(mk("span", "cf-opt-l", c.list));   // 這一條會下的單:另起一行、主墨,按下前唯一要核對的東西(啟動下單框的補齊)
       if (c.warn && !c.disabled) row.appendChild(mk("span", "cf-opt-w", c.warn));
       r.addEventListener("change", () => { if (!r.checked || !delCtx) return; delCtx.onOk = c.onOk; $("del-ok").textContent = c.ok; $("del-ok").disabled = false; });
       fs.appendChild(row);
@@ -3190,6 +3193,8 @@ function confirmBox({ title, lines, ok, onOk, opener, alt, mark, markKind, extra
   }
   if (extra) body.appendChild(extra);
   if (keep && keep.length) { const ul = mk("ul", "cf-keep"); keep.forEach((x) => ul.appendChild(mk("li", "", x))); body.appendChild(ul); }
+  // tail:框底(說明一行之前)一句主墨的話——啟動下單框按下時單變了「看過再按一次」。焦點停在取消、節點是帶著字插進去的:role=alert 才保證念得到(同網頁 cf-changed,稽核 0158 R4)
+  if (tail) { const p = mk("p", "cf-tail", tail); p.setAttribute("role", "alert"); p.setAttribute("aria-live", "assertive"); p.setAttribute("aria-atomic", "true"); body.appendChild(p); }
   const groups = (host, list) => list.forEach((g) => {
     const box = mk("div"); if (g.label) box.appendChild(mk("span", "lbl", g.label));
     if (g.items) { const ul = mk("ul"); g.items.forEach((x) => { const li = mk("li", "", typeof x === "string" ? x : null); if (typeof x !== "string") li.appendChild(x); ul.appendChild(li); }); box.appendChild(ul); } else box.appendChild(mk("p", "", g.text));
@@ -3227,12 +3232,13 @@ function confirmBox({ title, lines, ok, onOk, opener, alt, mark, markKind, extra
   if (alt && alt.disabled && alt.why) $("del-alt").setAttribute("aria-describedby", alt.why); else $("del-alt").removeAttribute("aria-describedby");
   $("del-modal").classList.toggle("has-alt", !!alt);
   $("del-modal").classList.toggle("has-choices", !!choices);
-  delCtx = { custom: true, stay, onOk: choices ? (pre ? pre.onOk : null) : onOk, onAlt: alt && alt.onOk, altStay: !!(alt && alt.stay), onLink: link && link.onClick, linkStay: !!(link && link.stay), opener, onCancel };
+  // armMs:開框(重畫)後這麼久內主鈕的點擊不算;dblGuard:雙擊的第二下(e.detail > 1)一律不算——啟動下單框「單變了」重畫用(稽核 0158 M1,同網頁 armAt)
+  delCtx = { custom: true, armAt: armMs ? Date.now() + armMs : 0, dblGuard: !!dblGuard, stay, onOk: choices ? (pre ? pre.onOk : null) : onOk, onAlt: alt && alt.onOk, altStay: !!(alt && alt.stay), onLink: link && link.onClick, linkStay: !!(link && link.stay), opener, onCancel };
   $("view-ws").inert = true; $("set-scrim").inert = true; $("lai-scrim").inert = true;   // 疊在「用你自己的 AI」上面時(回合中按〔使用〕):底下那層也鎖
   // single:只有一顆鈕(「知道了」那種:沒有要取消的事)。焦點給它;Esc / 框外 / ✕ 照舊關
   $("del-cancel").hidden = !!single;
   const sc = $("del-scrim"); sc.hidden = false;
-  requestAnimationFrame(() => sc.classList.add("open"));
+  requestAnimationFrame(() => { if (!sc.hidden) sc.classList.add("open"); });   // 背景視窗的 rAF 會被節流到關框之後才跑:關掉的框不再掛 open(QA 0158 P2-3)
   const fx = focus && $(focus);
   if (fx) { fx.focus(); if (typeof fx.select === "function") fx.select(); }
   else if (single) $("del-ok").focus(); else $("del-cancel").focus();
@@ -3253,7 +3259,7 @@ function delClose(deleted) {
   if (c && c.onCancel && !c.acted) c.onCancel();   // 取消 / ✕ / Esc / 框外 / 被程式收掉都算沒按主鈕
   // 下一個用這個框的人(刪對話)不該看到上一個的第二顆鈕、也不該看到上一個的「雲端」記號
   $("del-alt").hidden = true; $("del-alt").disabled = false; $("del-alt").removeAttribute("aria-describedby"); $("del-link").hidden = true; $("del-mark").hidden = true; $("del-modal").classList.remove("has-alt", "has-choices"); $("del-ok").disabled = false; $("del-ok").removeAttribute("aria-describedby");
-  $("del-env").hidden = true; $("del-where").hidden = true; $("del-modal").querySelector(".modal-head").classList.remove("cloud"); $("del-cancel").hidden = false; $("del-cancel").textContent = t("del.cancel");
+  $("del-title").removeAttribute("title"); $("del-env").hidden = true; $("del-where").hidden = true; $("del-modal").querySelector(".modal-head").classList.remove("cloud"); $("del-cancel").hidden = false; $("del-cancel").textContent = t("del.cancel");
   if (deleted) $("cs-search").focus();
   else if (c && c.opener && c.opener.isConnected) c.opener.focus();
   if (typeof phAskMaybe === "function") setTimeout(phAskMaybe, 0);   // 等著的配對確認框:這個框關了才跳
@@ -3270,7 +3276,9 @@ $("del-alt").addEventListener("click", () => {
 });
 // link.stay:按了不關框(改價 v3 方案框框腳的〔用錢包付〕要留在框裡鎖住扣款,同 alt.stay)
 $("del-link").addEventListener("click", () => { const go = delCtx && delCtx.onLink; if (delCtx && delCtx.linkStay) { if (go) go(); return; } delClose(false); if (go) go(); });
-$("del-ok").addEventListener("click", async () => {
+$("del-ok").addEventListener("click", async (e) => {
+  if ($("del-ok").disabled) return;   // 停用中的鈕(啟動框單變了那一態)程式觸發的 click 也不算
+  if (delCtx && ((delCtx.dblGuard && e && e.detail > 1) || (delCtx.armAt && Date.now() < delCtx.armAt))) return;
   if (delCtx && delCtx.custom) { const go = delCtx.onOk; if (!go) return; if (delCtx.stay) { go(); return; } delCtx.acted = true; delClose(false); go(); return; }   // 沒選選項(choices):鈕本來就停用,這裡再守一次
   const m = delCtx && delCtx.m; if (!m) return;
   if (!(await window.blave.deleteSession(m.id))) { delClose(false); const w = csWhy(); w.textContent = t("cs.delFail"); w.hidden = false; return; }   // 沒刪成(回覆中那條 / 寫不進):不能無聲關框
@@ -3341,7 +3349,8 @@ $("chat-scroll").addEventListener("wheel", (e) => { if (e.deltaY < 0 && $("chat-
 $("chat-scroll").addEventListener("keydown", (e) => { if ((e.key === "ArrowUp" || e.key === "PageUp" || e.key === "Home") && $("chat-scroll").scrollTop > 0) chatStick = false; });
 function scrollChat(force) {
   if (force === true) chatStick = true;
-  if (tabBg()) return;   // 背景分頁的事件:捲動容器是眼前那條的
+  // chattabs.js 在 app.js 之後才載,ResizeObserver 可能先觸發(QA 0158 P2-1);那時只有一條、不是背景
+  if (typeof tabBg === "function" && tabBg()) return;   // 背景分頁的事件:捲動容器是眼前那條的
   if (chatStick) { const box = $("chat-scroll"); box.scrollTop = box.scrollHeight; chatTop = box.scrollTop; }
 }
 // 內容晚長高(結果卡的圖載完)、欄被壓矮(建議托盤長出來)都沒有 scroll 事件:黏著就補捲到底。停在 scrollTop 0 時
@@ -3363,10 +3372,19 @@ const CARD_TAG = /<blave-card:([a-z-]+)\/>/g;
    runtime 沒走到 finalize 的回合(出錯、被殺)草稿會原樣升格——這裡再剝一次,同 runtime _SUGGEST_BLOCK_RE / _SUGGEST_OPEN_TAIL_RE */
 const SUG_BLOCK = /[ \t]*<suggest>[\s\S]*?<\/suggest>[ \t]*/g;
 const SUG_OPEN_TAIL = /[ \t]*<suggest>(?:(?!<\/suggest>)[\s\S])*$/;
+/* 工具呼叫樣式的建議句(`<invoke name="suggest">…</invoke>`):runtime extract_suggestions 修好之前存下的歷史裡還有原文
+   (0.1.57 驗收 S4)。同 runtime _SUGGEST_INVOKE_RE / _SUGGEST_INVOKE_TAIL_RE:先收成 <suggest> 空區塊再走上面那條剝;
+   沒閉合的只在真的是尾段時剝,後面還有正文就整段不動。只在定稿(live=false)做,串流中不動 */
+const SUG_INVOKE = /(?:<function_calls>\s*)?<invoke\s+name=["']?suggest["']?\s*>(?:(?!<invoke\b|<\/invoke>)[\s\S])*<\/invoke>(?:\s*<\/function_calls>)?/g;
+const SUG_INVOKE_TAIL = /(?:<function_calls>\s*)?<invoke\s+name=["']?suggest["']?\s*>(?:\s*<parameter\b[^>]*>[^<\n]*<\/parameter>)*\s*(?:<parameter\b[^>]*>[^<\n]*)?(?:<\/?\w*)?\s*$/;
 /* 「等你回覆」標記 <await/>(references/turn-events.md,三種寫法):runtime finalize 剝掉、done 帶 awaiting(主行程存);
    串流中的 delta 與沒走到 finalize 的回合在這裡再剝一次,半截的(`<awa`)比照 `<sug` 先藏 */
 const AWAIT_TAG = /[ \t]*<await\s*\/?>(?:<\/await>)?[ \t]*/g;
-const LIVE_TAIL_TAGS = ["<suggest>", "<await/>", "<await />", "</await>", "<form"];
+const LIVE_TAIL_TAGS = ["<suggest>", "<await/>", "<await />", "</await>", "<form", "<answers"];
+/* 答案鈕 <answers> 區塊(renderer/answers.js):runtime finalize 剝掉、另送 answers chunk;沒走到 finalize 的回合在這裡再剝。
+   同 runtime _ANSWERS_BLOCK_RE / _ANSWERS_OPEN_TAIL_RE(tests/check_web_desktop_parity.js 比網頁那份) */
+const ANS_BLOCK = /[ \t]*<answers(?:\s+default="\d")?\s*>[\s\S]*?<\/answers>[ \t]*/g;
+const ANS_OPEN_TAIL = /[ \t]*<answers\b(?:(?!<\/answers>)[\s\S])*$/;
 /* 澄清表單標記 <form id="…" …/>(renderer/form.js):runtime finalize 剝掉、另送 form chunk。開、關、成對、隔行都吃(同 runtime _FORM_STRIP_RE 的 </?);
    串流中帶屬性的長半截(`<form id="txf_backtest" prod="m`)超過 LIVE_TAIL_TAGS 那條的前綴判斷,另用 FORM_OPEN_TAIL 藏 */
 const FORM_TAG = /[ \t]*<\/?form\b[^<>]*>[ \t]*/g;
@@ -3377,7 +3395,9 @@ const FORM_OPEN_TAIL = /[ \t]*<form\b[^<>]*$/;
 function aiParts(raw, live) {
   const cards = [];
   let text = String(raw).replace(CARD_TAG, (_m, name) => { cards.push(name); return ""; });
+  if (!live && text.indexOf("<invoke") >= 0) text = text.replace(SUG_INVOKE, "<suggest>\n</suggest>").replace(SUG_INVOKE_TAIL, "<suggest>\n</suggest>");
   if (text.indexOf("<suggest>") >= 0) text = text.replace(SUG_BLOCK, "").replace(SUG_OPEN_TAIL, "").replace(/\s+$/, "");
+  if (text.indexOf("<answers") >= 0) text = text.replace(ANS_BLOCK, "").replace(ANS_OPEN_TAIL, "").replace(/\s+$/, "");
   if (text.indexOf("<await") >= 0) text = text.replace(AWAIT_TAG, "").replace(/\s+$/, "");
   if (text.indexOf("<form") >= 0 || text.indexOf("</form") >= 0) text = text.replace(FORM_TAG, "").replace(/\s+$/, "");
   if (live) {
@@ -3417,7 +3437,7 @@ function chatUrls(el) {
    剝完是空的回 "",空摘錄的字由主行程依型別補。純函式(tests/check_shell_reply_snippet.js) */
 const RS_MAX = 60;
 function replySnippet(raw) {
-  let s = String(raw == null ? "" : raw).replace(/\r\n?/g, "\n").replace(CARD_TAG, "").replace(SUG_BLOCK, " ").replace(SUG_OPEN_TAIL, "").replace(AWAIT_TAG, " ").replace(FORM_TAG, " ");
+  let s = String(raw == null ? "" : raw).replace(/\r\n?/g, "\n").replace(CARD_TAG, "").replace(SUG_BLOCK, " ").replace(SUG_OPEN_TAIL, "").replace(ANS_BLOCK, " ").replace(ANS_OPEN_TAIL, "").replace(AWAIT_TAG, " ").replace(FORM_TAG, " ");
   const keep = [];
   let fence = null;
   for (const line of s.split("\n")) {
@@ -4119,7 +4139,7 @@ async function sendDraft() {
   const msg = $("ta").value.trim();
   const attachments = attachedFiles;   // 純附件(沒打字)也可以送,同雲端
   if ((!msg && !attachments.length) || running) return;
-  if (typeof sugSnap === "function") sugSnap(msg); if (typeof formSnap === "function") formSnap(msg);   // 清空之前先記這句用沒用建議、澄清表單(renderer/suggest.js、form.js;跑起來才結算)
+  if (typeof sugSnap === "function") sugSnap(msg); if (typeof formSnap === "function") formSnap(msg); if (typeof ansSnap === "function") ansSnap(msg);   // 清空之前先記這句用沒用建議、澄清表單、答案鈕(renderer/suggest.js、form.js、answers.js;跑起來才結算)
   $("ta").value = ""; autosize();
   // chip 由 submitMessage 在送出去的那一刻清(安裝失敗後按「重試」送出的也走那裡);沒送出去的路(busy / 版本閘 / 引擎起不來)把句子還原到輸入框、檔也留著,不靜默消失
   await submitMessage(msg, { typed: true, attachments });
@@ -4129,6 +4149,7 @@ async function sendDraft() {
 function turnFresh(bubble) {
   liveBubble = null; faultShown = false; turnLimit = false; turnChanged = false; pendingErr = []; turnAiBubbles = []; turnFaultEl = null;
   turnModel = MP.model; turnGotReply = false; turnErrored = false; turnFaulted = false; turnCap = false; turnCards = []; turnDataCode = null; turnBubble = bubble; turnHadTool = false;
+  if (!bubble && typeof ansSettle === "function") ansSettle(null);   // 畫面外開跑的一輪(手機、別的裝置):答案鈕收掉(renderer/answers.js)
 }
 /* 真的送出一句話。回傳這一輪有沒有跑起來(「再送一次」要知道)。不碰輸入框的字;這一句帶的檔送出去了就把 chip 清掉。 */
 async function submitMessage(msg, opts) {   // opts.handoff:「送上雲端 / 拉回」確認框送的那句才有(handoff.js);重送(lastUserText)不帶
@@ -4167,7 +4188,7 @@ async function submitMessage(msg, opts) {   // opts.handoff:「送上雲端 / �
   if (typeof verBusy === "function") verBusy();   // 開跑那次重畫時這一輪的紀錄還沒建:還原鎖照看著的那支再判一次
   if (!csTitle) { csTitle = msg || attachments[0].name; csRenderHead(); csRemember(); if (CS.loaded) CS.loaded.title = csTitle; tabsSave(); tabsPaint(); }   // 分頁記憶:送出第一句就記(馬上結束 app 重開也還在)   // 純附件開頭的對話:清單上用檔名當標題(純文字,不放圖示)
   liveBubble = null; faultShown = false; turnLimit = false; turnChanged = false; pendingErr = []; turnAiBubbles = []; turnFaultEl = null;
-  const unlock = () => { if (typeof sugUnsend === "function") sugUnsend(); running = false; turnStopping = false; turnUiSync(); if (typeof formUnsend === "function") formUnsend(); };
+  const unlock = () => { if (typeof sugUnsend === "function") sugUnsend(); running = false; turnStopping = false; turnUiSync(); if (typeof formUnsend === "function") formUnsend(); if (typeof ansUnsend === "function") ansUnsend(); };
   // 送出那一刻的分頁:下面每一個 await 之後都換回它再動(用戶可能在等引擎、讀附件、等主行程回覆的時候切到別的分頁)
   const T = CS.loaded, inT = (fn) => withTab(T, fn);
   const fail = (e) => inT(() => {
@@ -4220,6 +4241,7 @@ async function submitMessage(msg, opts) {   // opts.handoff:「送上雲端 / �
     return inT(() => {
       // main.js 的回覆:started / queued(對著雲端主機、那台的名額滿了)/ busy,以及最低版本閘擋下的 blocked(沒有 spawn、沒有花 AI)
       if ((r.started || r.queued) && typeof formSettle === "function") formSettle(msg);   // 澄清表單:真的送出去才整張收掉,送不出去留著(renderer/form.js)
+      if ((r.started || r.queued) && typeof ansSettle === "function") ansSettle(msg);   // 答案鈕:同上,任何入口送出都收掉(renderer/answers.js)
       if ((r.started || r.queued) && typeof sugSettle === "function") sugSettle(msg);   // 用了建議 / 沒用建議,回合真的送出去才算(renderer/suggest.js)
       // 送出去了才清 chip(還掛著同一個檔才清:送出途中換掛的不動)。放在這裡不放 sendDraft:安裝失敗後按「重試」送出的那句不經 sendDraft,chip 留著的話下一句會再帶一次同一個檔
       if ((r.started || r.queued) && attachments.length) { if (T === CS.cur && attachedFiles === attachments) setAttachments([]); else if (T.composer.files === attachments) T.composer.files = []; }
@@ -4580,6 +4602,10 @@ const acctUrl = () => "https://blave.org/agent/" + LANG + "/usage?from=desktop#t
 const cryptoTopupUrl = () => "https://blave.org/agent/" + LANG + "/usage?from=desktop&pay=crypto#topup";
 // 方案頁(web /agent/<lang>/usage#plan;api 通知連結也指這裡):重新付款、換卡、取消、升級、月繳↔年繳都在那邊
 const planPayUrl = () => "https://blave.org/agent/" + LANG + "/usage?from=desktop#plan";
+/* 用加密貨幣轉帳買方案:網頁的買方案頁(/agent/<lang>)帶 pay=crypto 一進來就是加密付款(launch.html payMethod,同網頁授權頁 data-dt-crypto="plan")。
+   o.agent:只買 Agent 方案(888 那個框)要帶 plan=agent,不帶的話網頁 v3 會連雲端主機一起報價;加購主機那條不帶。cycle 是這一單的繳別。
+   planPayUrl 那條帶 from=desktop 會被換成精簡綁卡頁,不能拿來開加密;儲值錢包用 cryptoTopupUrl */
+const planCryptoUrl = (o) => "https://blave.org/agent/" + LANG + "?pay=crypto" + (o && o.agent ? "&plan=agent" : "") + "&cycle=" + (o && o.cycle === "annual" ? "annual" : "monthly");
 const usageUrl = () => "https://blave.org/agent/" + LANG + "/usage?from=desktop";
 // 網站定價頁的 API 卡(api ERR007 的 next_steps.api_plan 同一處):#api 讓手機直接落在 API 卡而不是排第二的 Pro;from=desktop 給定價頁事件分來源
 const apiPlanUrl = () => "https://blave.org/landing/" + LANG + "/pricing?from=desktop#api";
@@ -5039,7 +5065,7 @@ function planVars() {
    其餘一律 Starter,跟旁邊的開通價同一階:方案結束列還在,他的 tier 可能是 Premium,配 Starter 價就對不上 */
 function planSpec(own) {
   const tier = (own && acct && acct.plan && acct.plan.tier) || "linux_starter", x = ((pub && pub.tiers) || []).find((r) => r.tier === tier);
-  return x && x.vcpu && x.ram_gb ? { label: x.label, vcpu: x.vcpu, ram: x.ram_gb } : null;
+  return x && x.vcpu && x.ram_gb ? { tier, label: x.label, vcpu: x.vcpu, ram: x.ram_gb } : null;
 }
 // 啟動鈕按不按得下去:方案制只要有月價(時價是 null);切換前照舊要月價與時價都有(確認框兩個都講)
 // v3 的開通鈕開付款框、價在框裡讀報價,不必等這一格有數字
@@ -5053,8 +5079,8 @@ const planEnded = () => !!(acct && acct.plan && acct.plan.cancel_at_period_end &
 // 試用中(方案制、試用結束日在未來)/ 試用已取消:api 把 trial_cancel_at_end 與 plan.cancel_at_period_end 一起寫、一起清,兩個都看是為了舊 api
 const planTrialOn = (v) => planMo() && v.n > 0;
 const planTrialCx = (v) => planTrialOn(v) && !!(acct && (acct.trial_cancel_at_end === true || (acct.plan && acct.plan.cancel_at_period_end)));
-// 方案階名:api 給 label(Linux Starter);舊 api 沒給就從 tier 拼(linux_starter → Linux Starter),不印空括號
-const planTierLabel = () => { const pl = (acct && acct.plan) || {}; return pl.label || String(pl.tier || "").split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "); };
+// 方案階名:對外一律「Linux 基本」這組(pricing §2.2;p3.tier.*);認不得的 tier 才用 api 的 label(Linux Starter),再沒有就從 tier 拼(linux_starter → Linux Starter),不印空括號
+const planTierLabel = () => { const pl = (acct && acct.plan) || {}; if (typeof P3_HOST !== "undefined" && P3_HOST.indexOf(pl.tier) >= 0) return p3Tier(pl.tier); return pl.label || String(pl.tier || "").split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "); };
 /* 停機的原因(方案頁與雲端下單頁同一套):fail 扣款失敗 / ended 取消後到期 / self 方案有效、用戶自己停的 /
    hourly 切換前、或切換後還沒建方案列的 legacy 機器(舊制:餘額低於門檻停機) */
 function planStopKind() {
@@ -5152,10 +5178,10 @@ function planPaint() {
     if (hasToken) {
       const n = balNow(), row = el("div", "plan-bal"), val = el("span", "v" + (n ? "" : " na"), n ? n + " TWD" : "—");
       if (!n) { val.title = t("plan.balNa"); val.setAttribute("aria-label", t("plan.balNa")); }
-      row.append(el("span", "l", t("plan.bal")), val); id.append(row);
+      row.append(typeof p3Live === "function" && p3Live() ? p3BalLabel() : el("span", "l", t("plan.bal")), val); id.append(row);
     }
     // 餘額列正下方:自動儲值短句(錢包的事,餘額列是它最近的家;account_status 沒有自動儲值開關旗標,金額有就出)。沒卡的人不出:沒有卡可刷,綁卡那格的底列會講
-    // 改價 v3:本期 AI 額度、超額與「AI 超額時自動儲值」那句(不再講怎麼關,Wei 11-17)
+    // 改價 v3:本期 AI 額度與超額;自動儲值收進餘額標籤的 tooltip(p3BalLabel)
     if (!(typeof p3PlanRows === "function" && p3PlanRows(id)) && hasToken && v.a && v.top && !acctNoCard(acct)) id.append(el("p", "plan-fine", t("plan.topupShort", { a: v.a, b: v.top })));
     sc.append(id); }
   const ext = (u) => () => window.blave.openExternal(u);
@@ -5173,12 +5199,18 @@ function planPaint() {
   const tOn = planTrialOn(v), tCx = planTrialCx(v), pl = (acct && acct.plan) || {};
   // 試用結束扣的是下一期的金額與週期(next_cycle / next_charge_twd):試用中改成年繳的人不能印 Starter 月價＋每 30 天
   const tv = { ...v, p: v.x || v.p, pd: (pl.next_cycle || pl.cycle) === "annual" ? v.yd : v.pd };
-  const trialLead = () => (mo ? t(tv.pd ? "pv.d.trial.m" : "pv.d.trial.mNoNum", tv) : t(pvK("pv.d.trial"), v));
+  // 已取消的方案制試用不扣第一期:扣款那句不能出(QA 0158 P1-2);結束日在狀態列、不收第一期在鈕上方那行
+  const trialLead = () => (mo ? (trialCx ? "" : t(tv.pd ? "pv.d.trial.m" : "pv.d.trial.mNoNum", tv)) : t(pvK("pv.d.trial"), v));
   /* 有主機的試用戶(spec desktop-trial-with-machine §3–4):主機格照舊是主機格,試用加在狀態列與鈕上方那行;鈕不增加,第一顆(安靜)換成
      取消／恢復試用(與〔前往網頁管理〕去同一頁)。到期不會扣的人(no_auto_payment、內部帳號)與沒卡又付不出的人(none)沒有「取消」可做 → null,維持原鈕 */
   const trialBtn = () => (tCx ? btn("btn-quiet", t("plan.trialResume"), () => { trackFeature("trial_resume_web"); window.blave.openExternal(planPayUrl()); })
     : pl.no_auto_payment || pl.next_charge_source === "free" || pl.next_charge_source === "none" ? null
     : btn("btn-quiet", t("plan.trialCancel"), () => { trackFeature("trial_cancel_web"); window.blave.openExternal(planPayUrl()); }));
+  /* v3 試用格(spec host-card-relayout D1;Wei 11-20):頭是方案名＋試用徽章＋扣款那一列(p3TrialHead),鈕上方最多兩行(續扣、開主機會結束試用),
+     〔到網站取消／恢復試用〕緊接在倒數徽章後面,鈕列只剩〔開雲端主機〕。到期不會扣的人(trialBtn 為 null)沒有扣款列與續扣句 */
+  const t3 = view === "trial" && typeof p3TrialV3 === "function" && p3TrialV3() ? trialBtn() : null;
+  if (t3) t3.dataset.k = "trial:head";   // 重畫後焦點還得回來(planPaint 底下照 dataset.k 找)
+  const t3Charge = !!t3 && !tCx, t3pd = (pl.next_cycle || pl.cycle) === "annual" ? v.yd : v.pd;
   const V = {
     out:      { h: offerH, lead: mo ? "" : hasNum ? offerLead() : t(pvK("pv.d.noPrice")), list: mo ? offerList() : null, rule: hasNum && pvPriced(pvK("pv.f.out"), v) ? t(pvK("pv.f.out"), v) : "",
                 wait: planLoginBusy ? t("pv.w.waiting") : t(mo && cur !== "blave" ? "pv.w.out.cli" : "pv.w.out"),
@@ -5192,7 +5224,10 @@ function planPaint() {
     noTrial:  { h: pvK("pv.h.billed") === "pv.h.billed" ? "pv.h.billed" : "pv.h.plan", lead: !mo || pvPriced("pv.d.noTrial.m", v) ? t(pvK("pv.d.noTrial"), v) : "", rule: pvCardFoot("noTrial", v), wait: (typeof p3Live === "function" && p3Live()) ? "" : t(pvK("pv.w.noTrial")), acts: [btn("btn-fill", t("plan.addCard"), () => bindGo("bind_set"))] },
     /* 試用中:取消／恢復試用在網站用量頁(電腦版沒有寫入端點,外開)。已取消(api trial_cancel_at_end):狀態講哪天結束;
        方案制講到期不收第一期,切換前講到期不轉成方案、之後照目前的計費——兩種時期各自是真話 */
-    trial:    trialCx ? { h: "pv.h.ready", lead: trialLead(), rule: t(mo ? "pv.f.trialCancelled.m" : "pv.f.trialCancelled", v),
+    trial:    typeof p3TrialV3 === "function" && p3TrialV3() ? { head: p3TrialHead(v, tCx, t3Charge, t3), say: t("p3.a.title") + " · " + v.c,
+                          rules: (t3Charge ? [t3pd ? t("p3.f.renew", { pd: t3pd }) : t("p3.f.renewNoNum")] : []).concat(t("p3.f.trialConvertNoNum")),
+                          acts: [btn("btn-out", t("p3.h.title"), cloudWebGo)] }
+            : trialCx ? { h: "pv.h.ready", lead: trialLead(), rule: t(mo ? "pv.f.trialCancelled.m" : "pv.f.trialCancelled", v),
                           acts: [btn("btn-quiet", t("plan.trialResume"), () => { trackFeature("trial_resume_web"); window.blave.openExternal(planPayUrl()); }), mo ? btn("btn-out", t((typeof p3Live === "function" && p3Live()) ? "p3.h.title" : "plan.cloudWeb"), cloudWebGo) : btn("btn-out", t("plan.start"), planAsk, !planPriceOk(v))] }
                       : { h: "pv.h.ready", lead: trialLead(), rule: t((typeof p3TrialV3 === "function" && p3TrialV3()) ? "p3.f.trial" : mo ? "pv.f.trial.m" : "pv.f.trial", v),
                           acts: [btn("btn-quiet", t("plan.trialCancel"), () => { trackFeature("trial_cancel_web"); window.blave.openExternal(planPayUrl()); }), mo ? btn("btn-out", t((typeof p3Live === "function" && p3Live()) ? "p3.h.title" : "plan.cloudWeb"), cloudWebGo) : btn("btn-out", t("plan.start"), planAsk, !planPriceOk(v))] },
@@ -5236,15 +5271,16 @@ function planPaint() {
                      acts: [btn("btn-quiet", t("plan.manageStopped"), ext(planWebUrl())), btn("btn-fill", t("plan.addCredit"), () => bindGo("topup_set"))] },
   }[view];
 
-  if (view !== planLastView) { if (planLastView && !$("set-plan").hidden) srSay(t(V.h, v)); planLastView = view; }
-  const S = planStateOf(view, v);
+  if (view !== planLastView) { if (planLastView && !$("set-plan").hidden) srSay(V.say || t(V.h, v)); planLastView = view; }
+  const S = V.head ? null : planStateOf(view, v);   // 有自己的頭(v3 試用格)的,狀態在徽章裡
   if (S) { const stEl = el("span", "plan-st " + S[0]); stEl.append(el("span", "dot"), el("span", null, S[1])); sc.append(stEl); }
-  sc.append(el("h6", null, t(V.h, v)));   // modal 內的標題用 h6(canon Type › 標題用法):跟框標題同級、不超過它
+  if (V.head) sc.append(...V.head); else sc.append(el("h6", null, t(V.h, v)));   // modal 內的標題用 h6(canon Type › 標題用法):跟框標題同級、不超過它
   if (V.lead) sc.append(el("p", "plan-lead", V.lead));
   if (V.list) { const ul = el("ul", "plan-list"); V.list.forEach((x) => ul.append(el("li", null, x))); sc.append(ul); }
   // 底列:錯誤(有才出)→ 鈕上方那行(這顆鈕會帶來的錢)→ 鈕左小字 + 鈕
   if (err) { const e = el("p", "plan-err" + (err.calm ? " is-calm" : "")); e.setAttribute("role", "status"); e.append(el("span", "fault-mark"), el("span", null, t(err.key))); foot.append(e); }
   if (V.rule) foot.append(el("p", "plan-rule", V.rule));
+  (V.rules || []).forEach((x) => foot.append(el("p", "plan-rule", x)));
   const act = el("div", "plan-act");
   if (V.wait) act.append(el("span", "wait", V.wait));
   let acts = V.acts;
@@ -5768,6 +5804,8 @@ function turnEventIn(c) {
     if (typeof sugChunk === "function") sugChunk(c);   // 建議下一步:先收著,回合結束才長出(renderer/suggest.js)
   } else if (c.type === "form") {
     if (typeof formChunk === "function") formChunk(c);   // 澄清表單:先收著,回合結束才畫(renderer/form.js)
+  } else if (c.type === "answers") {
+    if (typeof ansChunk === "function") ansChunk(c);   // 答案鈕:先收著,回合結束才畫(renderer/answers.js)
   } else if (c.type === "handoff") {
     if (typeof hoChunk === "function") hoChunk(c);   // 搬策略動作卡:先收著,回合結束才畫(renderer/handoff.js)
   } else if (c.type === "tool_prep") {
@@ -5883,6 +5921,8 @@ function turnEndPost(r, pre, d) {
     const attBack = !lastUserAttachments.length || !files.length || files === lastUserAttachments;
     if (attBack && !turnGotReply && !turnHadTool && turnBubble && turnBubble.parentNode) turnBubble.remove();
     if (typeof sugUndo === "function") sugUndo(lastUserText, !turnGotReply && !turnHadTool);   // 點托盤直接送出的那句被撤回(renderer/suggest.js)
+    if (typeof formUndo === "function") formUndo(lastUserText, !turnGotReply && !turnHadTool);   // 表單主鈕直接送出的那句被撤回(renderer/form.js)
+    if (typeof ansUndo === "function") ansUndo(lastUserText, !turnGotReply && !turnHadTool);   // 答案鈕送出的那句被撤回(renderer/answers.js)
     stopRestore(lastUserText, lastUserAttachments);
   }
   // 碰過雲端的回合:雲端那支的報告背景重抓(rpCloudSelect force = 先畫手上那份、抓到不同才換)——不然雲端掃完 scan 永遠不會出現在分頁上
@@ -5891,6 +5931,7 @@ function turnEndPost(r, pre, d) {
   mpTurnEnd();
   if (typeof sugTurnEnd === "function") sugTurnEnd(!stopped && !faulted);   // 建議灰字停一拍才畫,出錯與停止都不畫(renderer/suggest.js)
   if (typeof formTurnEnd === "function") formTurnEnd(!stopped && !faulted);   // 澄清表單畫在這一輪最後一則回覆下面,出錯與停止都不畫(renderer/form.js)
+  if (typeof ansTurnEnd === "function") ansTurnEnd(!stopped && !faulted);   // 答案鈕,同表單的時機與落點(renderer/answers.js)
   if (typeof hoCardTurnEnd === "function") hoCardTurnEnd(!stopped && !faulted);   // 搬策略動作卡,同表單卡的時機(renderer/handoff.js)
   if (rt) resTurnEnd(rt, cloudTurn);   // 最後一步:回覆泡泡已定稿(paintAi 會清空泡泡)、轉出卡已掛,結果卡才決定掛在哪一則
   chatSwitchFlush();   // 回合中切過視角:那一行排在這一輪之後(結果卡的落點已經在上一行定了)

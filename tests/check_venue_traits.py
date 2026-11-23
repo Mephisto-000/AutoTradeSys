@@ -43,9 +43,10 @@ TABLES = {"lib/venue_traits.py", "runtime/venue_traits.py"}
 OWN = {
     "capital": {"lib/order_capital.py", "lib/account_capital.py", "lib/capital_worker.py",
                 "lib/capital_vault.py", "lib/capital_quote.py", "runtime/capital_connect.py", "runtime/capital_local.py"},
-    # AutoTradeSys fork: its TW-stock libs, plus upstream's (unused here) futures relay
+    # AutoTradeSys fork: its TW-stock libs, plus upstream's (unused here) futures relay and service
     "sinopac": {"lib/order_sinopac.py", "lib/account_sinopac.py", "lib/sinopac_session.py",
-                "lib/sinopac_data.py", "lib/sinopac_futures_account.py", "lib/sinopac_worker.py"},
+                "lib/sinopac_data.py", "lib/sinopac_futures_account.py", "lib/sinopac_worker.py",
+                "runtime/sinopac_service.py", "runtime/sinopac_local.py"},
     "president": {"lib/order_president.py", "lib/account_president.py", "lib/president_worker.py",
                   "lib/president_vault.py"},
 }

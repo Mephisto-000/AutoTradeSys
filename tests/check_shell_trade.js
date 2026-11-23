@@ -1385,7 +1385,7 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
     const head = fnS("trPaintHead");
     ok("A′ / B / B0 與帳戶對不上的原因行升正文墨色,用原因句本身定位(前面有「串接失敗 · 」也照升)", /const inkReason = state === "halted" && \(trRestartKind\(hr\) \|\| \(trHaltStopsAll\(hr\.halt\) && !\(trHaltFreeze\(hr\) && trHaltByUser\(hr\.halt\)\)\) \|\| trAcctAsk\(hr\) \|\| trHaltUnexplained\(hr\.halt\)\.length\) \? trHaltReasonText\(hr, TR\.acctDone\) : state === "noaccount" && trNoAccountStopped\(hr\) \? t\("tr\.cloud\.restartNoAccountZ"\) : "";/.test(head)
       && /const inkAt = inkReason \? full\.indexOf\(inkReason\) : -1;/.test(head) && !/full === text && !trFailedIds/.test(head.slice(head.indexOf("const inkReason"))));
-    ok("A′ 事件列:halt 列與 UI 補的 HALT 列都依 source 取重開那句說明", /note = d\.source === "hang_watch" \? t\("tr\.ov\.evHaltHangNote"\) : trHaltUnconfirmedSym\(d\) != null \? trHaltUnconfirmedNote\(d\) : trHaltStopsAll\(d\) \|\| trHaltFreeze\(r\) \? t\("tr\.ov\.evRestartStoppedNote"\) : closes \? null : t\("tr\.ov\.evHaltNote"\);/.test(src)
+    ok("A′ 事件列:halt 列與 UI 補的 HALT 列都依 source 取重開那句說明", /note = d\.source === "hang_watch" \? t\("tr\.ov\.evHaltHangNote"\) : trHaltUnconfirmedSym\(d\) != null \? trHaltUnconfirmedNote\(d\) : closes \? null : trHaltStopsAll\(d\) \|\| trHaltFreeze\(r\) \? t\("tr\.ov\.evRestartStoppedNote"\) : t\("tr\.ov\.evHaltNote"\);/.test(src)
       && /trHaltStopsAll\(halt\) \? t\("tr\.ov\.evRestartStoppedNote"\) : t\("tr\.ov\.evHaltNote"\)/.test(src)); }
   { // audit 2-1(B0):沒有交易所 + 重開停止
     const B0 = (o) => ({ alive: true, report: { venues: {}, halt: {}, reconciler: { alive: false, stopped: { reason: "machine_restart", at: 1, ...o } } } });
@@ -1461,10 +1461,15 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
     // Wei 0928 第 3 點:兩顆鈕變成兩個選項——重算中「補齊部位」那個選項停用、原因句掛在它裡面;行為測試在 check_shell_start_box.js
     ok("recomputed 啟動框:「補齊部位」選項停用＋原因句;「等新訊號」照常;按下去再查一次;只有一種啟動方式的舊機照舊 okDisabled",
       /const recomputing = trRecomputing\(r\), rkS = trRestartKind\(r\);/.test(start)
-      && /disabled: recomputing, why: t\("tr\.cloud\.recomputing"\), ok: t\("tr\.startCatchUp"\), onOk: catchUp \},/.test(start)
-      && /const catchUp = \(\) => \{ if \(!trRecomputing\(trReport\(\)\)\) go\("resume"\); \};/.test(start)
-      && /desc: t\("tr\.opt\.waitDesc"\), warn: stranded \? t\("tr\.opt\.waitStranded", \{ n: stranded \}\) : null,\n\s*ok: t\("tr\.startWait"\), onOk: \(\) => go\("resume_wait"\) \},/.test(start)
-      && /ok: t\("tr\.startCatchUp"\), okDisabled: recomputing, okWhy: recomputing \? t\("tr\.cloud\.recomputing"\) : null, onOk: catchUp,/.test(start));
+      // 0.1.58 R1:停用條件多了「還沒讀到帳」,原因句重算中優先
+      && /const catchOff = recomputing \|\| !plan0;/.test(start)
+      && /const catchWhy = recomputing \? t\("tr\.cloud\.recomputing"\) : !read \? t\("tr\.opt\.catchNeedRead"\) : t\("tr\.opt\.catchNeedSignal"\);/.test(start)
+      && /disabled: catchOff, why: catchWhy, ok: t\("tr\.startCatchUp"\), onOk: \(\) => catchUp\("catch"\) \},/.test(start)
+      // 0.1.58:按下去再查一次,重算中或單變了就不送、框留著重畫(行為在 check_shell_start_box.js)
+      && /if \(trRecomputing\(r2\) \|\| !p2 \|\| !trCatchSame\(p2, plan0\)\) \{ trackFeature\("start_catch_chg"\); trAskStart\(opener, true, true, pre\); return; \}/.test(start)
+      && /desc: t\("tr\.opt\.waitDesc"\), warn: stranded \? t\("tr\.opt\.waitStranded", \{ n: stranded \}\) : null,\n\s*ok: t\("tr\.startWait"\), onOk: \(\) => \{ shut\(\); go\("resume_wait", "start:wait:" \+ pre\); \} \},/.test(start)
+      && /\.concat\(catchOff \? \[catchWhy\] : \[\]\)\.concat\(\[t\("tr\.startWarn1"\)\]\)/.test(start)
+      && /ok: t\("tr\.startCatchUp"\), okDisabled: catchOff, okWhy: catchOff \? catchWhy : null, onOk: \(\) => catchUp\("single"\),/.test(start));
     const po = (l) => fs.readFileSync(path.join(__dirname, "..", "shell", "i18n", l + ".po"), "utf8");
     ok("recomputed 文字(zh / en)", /msgid "tr\.cloud\.recomputing"\nmsgstr "策略正在用開機後的資料重算，算完才能補齊部位。算完後關掉這個框再開一次。"/.test(po("zh"))
       && /msgid "tr\.cloud\.recomputing"\nmsgstr "Strategies are recomputing on post-restart data\. Catch up becomes available when they finish; close this box and open it again then\."/.test(po("en"))); }
@@ -1509,7 +1514,7 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
     // 淨值快照(確認框倍數跟表上一致)隨確認框不再列合計與淨值倍數退場(0.1.27,canon 確認 modal):倍數在自動下單 › 部位的合計列
     ok("確認框不再算淨值倍數:trShownEquity／TR.eqShown 退場", !/trShownEquity|eqShown/.test(src) && /const zt = trZoneSum\(am, eq\)/.test(src)); }
   { // 0.0.3 實機:按下啟動之後,啟動前的失敗不再講成現在式
-    ok("按下啟動記時間(表底紅字只給這之後的失敗)", /const go = \(cmd\) => \{ TR\.startAt = Date\.now\(\); return trRunStart\(cmd\); \};/.test(fnS("trAskStart")));
+    ok("按下啟動記時間(表底紅字只給這之後的失敗)", /const go = \(cmd, how\) => \{ TR\.startAt = Date\.now\(\); return trRunStart\(cmd, how\); \};/.test(fnS("trAskStart")));
     const po = (l) => fs.readFileSync(path.join(__dirname, "..", "shell", "i18n", l + ".po"), "utf8");
     ok("本機重開的啟動框那一句(zh / en):講 Blave 關著時訊號沒有更新,不講「暫停期間照常更新」", /msgid "tr\.opt\.catchStale"\nmsgstr "Blave 關著時訊號沒更新，/.test(po("zh")) && /msgid "tr\.opt\.catchStale"\nmsgstr "Signals didn’t update while Blave was closed/.test(po("en"))
       && /msgid "po\.orderFailedLast"\nmsgstr "上次下單失敗：\{err\}"/.test(po("zh")) && !/msgid "tr\.orderFailedLastWhy"/.test(po("zh"))); }   // 0.1.24:列下面那句不帶標的(同網頁)
@@ -1645,7 +1650,7 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
         && !relAuto({ halted: true, freeze: false, holds_all: false, source: "web" })); }
     ok("§8 接線:主鈕 disabled 帶 zv.off、aria-describedby 指原因行、title 不讓「連不上」蓋掉原因;原因行與解除暫停鈕每次畫", /b\.disabled = flying \|\| zv\.off \|\| \(!busy && !usable\);/.test(head)
       && /if \(zv\.off \|\| zv\.book\) b\.setAttribute\("aria-describedby", zg\.desc\);/.test(head) && /b\.title = zv\.off \? "" :/.test(head) && /else trPaintNoAmt\(pend \|\| zv\.reason, zv\.book \? \{ n: trBookQty\(zv\.book\) \} : null\);\n\s*trPaintGoRel\(zv\.release, zv\.noStart, zv\.close\);/.test(head)
-      && /if \(trZView\(envHeadState\(TR\.st, Date\.now\(\)\), r\)\.off\) return;/.test(fnS("trAskStart")));
+      && /const zv0 = trZView\(envHeadState\(TR\.st, Date\.now\(\)\), r\);\n\s*if \(zv0\.off\) \{/.test(fnS("trAskStart")) && /\n    return;\n  \}/.test(fnS("trAskStart")));
     ok("§8 / §13-1 解除暫停鈕:B0 實心、其餘描邊;插在主鈕左邊(主鈕守住最右);在途「解除中…」停用、通道不通也停用;停用時焦點先交給標題、放開再還回來;原因行的「部位」是切分頁的連結",
       /u\.classList\.toggle\("btn-fill", !!solid\); u\.classList\.toggle\("btn-out", !solid\);/.test(gorel) && /\$\("tr-act"\)\.insertBefore\(u, \$\("tr-go"\)\)/.test(gorel)
       && /u\.textContent = rel \? t\("tr\.releasing"\) : close \? t\("tr\.releaseClose"\) : t\("tr\.release"\);/.test(gorel) && /const off = !!TR\.pending \|\| !up;/.test(gorel)
@@ -1696,7 +1701,7 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
       ok("V2b 陷阱(行為):Z 的每一種狀態狀態句都會換行" + (noWrap.length ? ":" + noWrap.map((x) => x[0]).join() : ""), noWrap.length === 0); }
     // 陷阱:狀態句預設 nowrap + 省略號,跨滿寬之後少了 .wrap 會被截成一行**而且看起來很正常**——藏掉的是「部位現在沒有人在管」
     ok("V2b 陷阱:Z 的每一種狀態都掛 .wrap(running + Z、尚未啟動那兩種以前沒有)", /trNoAmounts\(trReport\(\)\) \|\| \(state === "noaccount" && trNoAccountStopped\(trReport\(\)\)\)\);/.test(src)
-      && /\.main-head-desc \{[^}]*white-space: nowrap; \}/.test(css2) && /\.main-head-desc\.wrap \{ white-space: normal; overflow: visible; \}/.test(css2)); }
+      && /\.main-head-desc \{[^}]*white-space: nowrap; \}/.test(css2) && /\.main-head-desc\.wrap \{ white-space: normal; overflow: visible; max-width: 44em; \}/.test(css2)); }
     ok("§8 原因行樣式:--ink-3 12px", /\.main-head \.tr-noamt \{ margin: var\(--space-4\) 0 0; font-size: 12px; line-height: 1\.5; color: var\(--ink-3\); \}/.test(css)); }
   { // 稽核 S-1:模擬帳戶送出後直接當成已連接(不進「連接中…」等待態)
     const paint = fnS("trPaint"), skel = fnS("trPaintSkel"), cx = src.slice(src.indexOf("async function cxConnectCloud("), src.indexOf("\nfunction ", src.indexOf("async function cxConnectCloud(")));
@@ -1830,6 +1835,7 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
       // 群益開通清單右側的短結果(renderer/capital.js capRow 的 .cap-r):列的狀態,不掛在任何控件上
       const STATUS_ONLY = ["tr.loading", "cn.detecting", "cx.ip.loading", "tr.cloud.hdConnecting", "cap.s.setupRun", "cap.pfx.importing", "cap.s.readRun", "cap.s.querying",
         "pres.s.setupRun", "pres.s.orderRun", "pres.s.probeRun", "pres.s.workerRun",   // 統一清單列右側(renderer/president.js 同 capRow)
+        "sp.s.setupRun", "sp.s.loginRun", "sp.s.simRun", "sp.s.simWait", "sp.s.workerRun",   // 永豐清單列右側(renderer/sinopac.js 同 capRow)
         "tr.presBooting",    // 標題下狀態行:統一下單程式剛起、第一筆帳戶回報還沒回來(trPresBooting),不掛在任何控件上
         "tr.typecPending"];  // 投資組合還沒有權重時表格格子裡的字(機器在算第一輪,Wei 10-15 改「計算中…」),不掛在任何控件上
       const prog = Object.keys(S2.zh).filter((k) => /中…$/.test(S2.zh[k]) && STATUS_ONLY.indexOf(k) < 0);
@@ -2338,6 +2344,14 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
           "ValueError: US_VENUE: 「grid」的下單標的 NVDAUSDT 在 OKX 沒有對應的股票永續——請改綁有這檔的交易所,或取消勾選後再儲存",
           "ValueError: US_VENUE: 「grid」的下單標的 NVDAUSDT 在 Gate.io 是加密幣、不是股票永續——請改綁有這檔股票永續的交易所,或取消勾選後再儲存"].map((e) => se(e, "save", env));
         ok(`被拒(${env}):US_SYMBOL → tr.usSymbol.rejected、US_VENUE → tr.usVenue.rejected,帶顯示名`, J(us) === J(Array(3).fill('tr.usSymbol.rejected {"name":"grid","more":""}').concat(Array(2).fill('tr.usVenue.rejected {"name":"grid","more":""}'))), J(us));
+        // 綁的加密交易所沒有下單標的(runtime _venue_symbol_refusal 原句,1.1.168):名字換顯示名、標的與交易所填進在地句,合約／現貨各一句;超過五檔列五檔再接「等 N 檔」(同網頁);原句形狀對不上照原文那句
+        const vsym = ["ValueError: VENUE_SYMBOL: 「grid」的下單標的 XAUUSDT 在 OKX 沒有可下單的合約。請 agent 改成 OKX 上有的標的，或取消勾選後再儲存。",
+          "ValueError: VENUE_SYMBOL: 「grid」的下單標的 A、B 在 Gate.io 沒有可下單的現貨。請 agent 改成 Gate.io 上有的標的，或取消勾選後再儲存。",
+          "ValueError: VENUE_SYMBOL: 「grid」的下單標的 A、B、C、D、E 等 7 檔 在 Bybit 沒有可下單的合約。請 agent 改成 Bybit 上有的標的，或取消勾選後再儲存。",
+          "ValueError: VENUE_SYMBOL: 「grid」換了說法"].map((e) => se(e, "save", env));
+        ok(`被拒(${env}):VENUE_SYMBOL → 合約 tr.venueSymbol.rejected／現貨 tr.venueSymbol.rejectedSpot,帶顯示名、標的、交易所;超過五檔列五檔再接 tr.venueSymbol.more(全部幾檔、沒列的幾檔);對不上形狀走一般那句`,
+          J(vsym) === J(['tr.venueSymbol.rejected {"name":"grid","symbol":"XAUUSDT","venue":"OKX"}', 'tr.venueSymbol.rejectedSpot {"name":"grid","symbol":"Awf.listSepB","venue":"Gate.io"}',
+            'tr.venueSymbol.rejected {"name":"grid","symbol":"Awf.listSepBwf.listSepCwf.listSepDwf.listSepEtr.venueSymbol.more {\\"total\\":7,\\"more\\":2}","venue":"Bybit"}', gen + ' {"err":"「grid」換了說法"}']), J(vsym));
         // 稽核 r4 P2:好幾支被點名 → 最多列三支、其餘「等 N 支」;台股綁到加密交易所 → 講到台股
         const many = se("RuntimeError: NEEDS_ROUTING: 「a」、「b」、「c」、「d」、「e」 還沒有對應的交易所——請先到策略組合存一次下單設定,再啟動下單", "save", env);
         const tw = se("ValueError: MARKET_VENUE: 「grid」是台股策略,binance 是加密貨幣交易所、下不了——請改綁台灣期貨商,或取消勾選後再儲存", "save", env);
@@ -2355,10 +2369,15 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
         ok(`被拒(${env}):五支點名 → 列前三支 + 「和另外 2 支」;台股策略綁加密 → tr.marketVenue.crypto 帶市場名(台股)`,
           many === 'tr.needsRouting.rejected {"name":"atr.rejNameSepbtr.rejNameSepc","more":"tr.rejMore {\\"n\\":2}"}' && tw === 'tr.marketVenue.crypto {"name":"grid","more":"","market":"tr.mktName.twStock"}', J([many, tw])); } }
     { const S = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "strings.js"), "utf8");
-      ok("tr.notTxf.rejected／tr.pick.txf／txfKeep 不再寫死「統一期貨」:帶 {venue};兩語都有 MARKET_VENUE 那句;群益在地名「群益期貨／Capital Futures」(跟選單同一個 cap.venue);美股 US_SYMBOL／US_VENUE 兩句同網頁原文",
+      ok("tr.notTxf.rejected／tr.pick.txf／txfKeep 不再寫死「統一期貨」:帶 {venue};兩語都有 MARKET_VENUE 那句;群益在地名「群益期貨／Capital Futures」(跟選單同一個 cap.venue);美股 US_SYMBOL／US_VENUE 兩句同網頁原文;VENUE_SYMBOL 合約／現貨兩句與「等 N 檔」兩語同網頁原文",
         /"tr\.notTxf\.rejected": "[^"]*\{venue\}只能下台指期。到「選擇策略」取消勾選後再儲存。"/.test(S) && /"tr\.pick\.txf": "\{venue\}只能下台指期/.test(S) && !/"tr\.(notTxf\.rejected|pick\.txf|pick\.txfKeep)": "[^"]*統一期貨/.test(S)
         && S.includes('"tr.usSymbol.rejected": "「{name}」{more}用的是美股訊號：只能用 Type A 單一標的策略下單，SYMBOL 要寫成該檔的股票永續（例如 NVDA → NVDAUSDT）。改好後再儲存，或到「選擇策略」取消勾選。"')
         && S.includes('"tr.usVenue.rejected": "“{name}”{more}: this exchange doesn’t list its symbol as a stock perpetual. Connect an exchange that lists that stock perpetual, or uncheck it in Pick Strategies, then save."')
+        && S.includes('"tr.venueSymbol.rejected": "「{name}」的下單標的 {symbol} 在 {venue} 沒有可下單的合約。請 agent 改成 {venue} 有的標的，或到「選擇策略」取消勾選後再儲存。"')
+        && S.includes('"tr.venueSymbol.rejectedSpot": "「{name}」的下單標的 {symbol} 在 {venue} 沒有可下單的現貨。請 agent 改成 {venue} 有的標的，或到「選擇策略」取消勾選後再儲存。"')
+        && S.includes('"tr.venueSymbol.rejected": "“{name}”: {venue} has no tradable contract for {symbol}. Ask the agent to switch to a symbol {venue} lists, or uncheck it in Pick Strategies, then save."')
+        && S.includes('"tr.venueSymbol.rejectedSpot": "“{name}”: {venue} has no spot market for {symbol}. Ask the agent to switch to a symbol {venue} lists, or uncheck it in Pick Strategies, then save."')
+        && S.includes('"tr.venueSymbol.more": " 等 {total} 檔"') && S.includes('"tr.venueSymbol.more": " and {more} more"')
         && S.includes('"cap.venue": "群益期貨"') && S.includes('"cap.venue": "Capital Futures"') && !S.includes("tr.venueCapitalFull") && /"tr\.marketVenue\.rejected": "[^"]*\{president\}或\{capital\}/.test(S)); }
     // 列(psRow):原因句 = 勾選框的 aria-describedby
     { const mk = (tag) => ({ tag, id: "", className: "", kids: [], text: "", attrs: {}, dataset: {}, setAttribute(k, v) { this.attrs[k] = String(v); }, appendChild(c) { this.kids.push(c); return c; }, append(...c) { c.forEach((x) => this.kids.push(x)); }, get textContent() { return this.text + this.kids.map((k) => k.textContent).join(""); }, set textContent(v) { this.text = v; } });
@@ -2499,8 +2518,8 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
           ctx.document.createElement = mk0; }
         ctx.trEquity = () => null; }
     }
-    ok("接線:連接框「台灣期貨」那組磚雲端只列群益、這台電腦(Windows)列群益本機(CAPL_LOCAL_ON)與統一(PRES_LOCAL_ON)、永豐金(fork,任何系統);cx.cap.local* 已刪;交易所磚不預選、點了就進那一家;框頂沒有事實列(權限句在步驟 1、金鑰去向是欄位下那句提示泡;「不經過 AI」那行 Wei 10-21 拿掉)",
-      /if \(env !== "local"\) return \[\[CAPITAL, "cap\.venue"\]\];/.test(src) && /group\("tw", "cap\.group\.tw", tw\.map\(/.test(src) && !/go\.hidden = !cloud && CXF\.venue === CAPITAL;/.test(src)
+    ok("接線:連接框「台灣期貨」那組磚雲端列群益(永豐旗標開才多列永豐;0.1.58 隨附、旗標關著)、這台電腦(Windows)列群益本機(CAPL_LOCAL_ON)與統一(PRES_LOCAL_ON)、永豐金現股(AutoTradeSys fork,這台電腦任何系統,cxTiles 另加);cx.cap.local* 已刪;交易所磚不預選、點了就進那一家;框頂沒有事實列(權限句在步驟 1、金鑰去向是欄位下那句提示泡;「不經過 AI」那行 Wei 10-21 拿掉)",
+      /if \(env !== "local"\) return \[\[CAPITAL, "cap\.venue"\], sp\]\.filter\(Boolean\);/.test(src) && /const sp = SINOPAC_LOCAL_ON \? \["sinopac", "sp\.venue"\] : null;/.test(src) && /group\("tw", "cap\.group\.tw", tw\.map\(/.test(src) && !/go\.hidden = !cloud && CXF\.venue === CAPITAL;/.test(src)
       && !/cx\.cap\.local/.test(src) && !/cx\.cap\.local/.test(fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "strings.js"), "utf8"))
       && /b\.addEventListener\("click", \(\) => cxPick\(L, id\)\);/.test(src)
       && !/cx\.acct\.meta/.test(src + fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "strings.js"), "utf8"))
@@ -2678,7 +2697,15 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
         ok("暫停並關閉部位那一列不帶 evHaltNote 說明;一般暫停、只掛了暫停照帶", !/evHaltNote/.test(rc[0]) && !/evHaltNote/.test(rn[0]) && /evHaltNote/.test(rp[0]) && /evHaltNote/.test(rh[0]), J([rc, rn, rp, rh]));
         // 稽核 B-3:HALT 的 closing(runtime 判完才寫)優先於 reason——只掛了暫停(halted_only／群益手動)寫已暫停
         const rf = evRows([], { halted: true, at: new Date((now - 600) * 1000).toISOString(), source: "web", reason: "close all positions", closing: false });
-        ok("現在的 HALT:closing false(沒開始平倉)即使 reason 是 close all positions 也寫已暫停下單", rf.length === 1 && !/evHaltClose/.test(rf[0]) && /tr\.ov\.evHalt/.test(rf[0]), J(rf)); }
+        ok("現在的 HALT:closing false(沒開始平倉)即使 reason 是 close all positions 也寫已暫停下單", rf.length === 1 && !/evHaltClose/.test(rf[0]) && /tr\.ov\.evHalt/.test(rf[0]), J(rf));
+        // QA 0158 P1-1:凍結(0.1.27)或 holds_all 的暫停並關閉部位,平倉單正在送,事件列不得再寫「什麼單都不送」;沒平倉的凍結暫停照寫
+        const iso = (x) => new Date(x * 1000).toISOString();
+        const fc = evRows([{ ts: now - 60, type: "halt_close", closing: true }], { halted: true, freeze: true, at: iso(now - 60), source: "web", reason: "close all positions", closing: true });
+        const fa = evRows([], { halted: true, holds_all: true, at: iso(now - 600), source: "web", reason: "close all positions", closing: true });
+        const fp = evRows([{ ts: now - 60, type: "halt" }], { halted: true, freeze: true, at: iso(now - 60), source: "web", reason: "user request", closing: false });
+        ok("凍結／holds_all 下的暫停並關閉部位:寫 evHaltClose、不帶 evRestartStoppedNote;凍結的一般暫停照帶",
+          fc.length === 1 && /evHaltClose/.test(fc[0]) && !/evRestartStoppedNote/.test(fc[0]) && fa.length === 1 && /evHaltClose/.test(fa[0]) && !/evRestartStoppedNote/.test(fa[0])
+          && fp.length === 1 && /evRestartStoppedNote/.test(fp[0]), J([fc, fa, fp])); }
       ok("§1.4 N 照連著的交易所算;0 筆整行不出(事件也空時只剩 label + 空態句)",
         !!paintEv({ orders: [{ ...CAP, ts: now - 8 * 86400 }] }).some((n) => n.className === "pf-acts ev-fills")
         && !paintEv({ orders: [{ ...CAP, exchange: "paper" }], venues: { president: { credentials: true, pair: true, order: true, account: true } } }).some((n) => n.className === "pf-acts ev-fills")

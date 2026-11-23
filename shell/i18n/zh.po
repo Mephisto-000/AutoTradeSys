@@ -12,13 +12,13 @@ msgid "cn.blave.desc"
 msgstr "登入就能用，按用量計費"
 
 # 連結畫面本機沒有能用的 CLI(沒裝、裝了沒登入、還在偵測)時的大標(mockup 01 B 版);不看登入、不看額度有無。
-# 副標 cn.blave.descFree 直接講登入就有的額度數字(api public_tiers.free_ai_credit),拿不到數字退 descFreeNoNum;不寫「夠跑幾輪」。
+# 副標 cn.blave.descFree 講登入就送 AI 額度、不寫數字(Wei 11-20);api public_tiers.free_ai_credit 沒給就退 descFreeNoNum;不寫「夠跑幾輪」。
 # 這筆額度只能用 DeepSeek V4 Pro(0.1.33,選單上其他型號鎖住、旁邊講怎麼解開),所以字不提型號
 msgid "cn.h.free"
 msgstr "先用 Blave AI 開始"
 
 msgid "cn.blave.descFree"
-msgstr "登入就有 {q} TWD 額度，用完才綁卡"
+msgstr "登入就送 AI 額度，用完才綁卡"
 
 # 拿不到額度數字(離線、api 沒回、停發)時的退路句
 msgid "cn.blave.descFreeNoNum"
@@ -27,7 +27,7 @@ msgstr "登入就能用，用完才綁卡"
 # 設定 › 模型接入 的 Blave AI 那一列,固定一行(12px;右欄是「登入並切換」那顆鈕時 zh ≤ 316px、en ≤ 274px),句尾不加句號。沒登入且拿得到額度數字時用這句;
 # 事實同 cn.blave.descFree:額度在電腦版登入換 token 那一刻發(api account/agent_free_credit.py),綁卡前就有
 msgid "cn.blave.descSet"
-msgstr "登入就有 {q} TWD 額度，用完才綁卡"
+msgstr "登入就送 AI 額度，用完才綁卡"
 
 # 已登入、或拿不到贈額數字時(離線、api 沒回):只講怎麼收錢
 msgid "cn.blave.descSetNoNum"
@@ -712,7 +712,7 @@ msgid "bt.tip.bandNarrow"
 msgstr "隨機投組的範圍太窄，只畫中位數。"
 
 msgid "bt.monthly"
-msgstr "月報酬"
+msgstr "月報酬（%）"
 
 msgid "bt.year"
 msgstr "全年"
@@ -826,7 +826,7 @@ msgid "bt.mcptDistTitle"
 msgstr "MCPT · 隨機打亂 {n} 次的 Sharpe 分佈，p = {p}"
 
 msgid "bt.mcptDistActual"
-msgstr "實際 Sharpe {v}"
+msgstr "實際 Sharpe {v}（部位按波動調整）"
 
 msgid "bt.mcptDistUnit"
 msgstr "次"
@@ -1133,7 +1133,7 @@ msgid "lai.install"
 msgstr "怎麼安裝"
 
 msgid "acct.sub"
-msgstr "首次綁卡，{t} 天內有 {q} TWD 的 AI 額度，電腦版也拿得到 Blave 的資料。"
+msgstr "首次綁卡，{t} 天內有 AI 額度，電腦版也拿得到 Blave 的資料。"
 
 msgid "acct.ready"
 msgstr "可以開始了。"
@@ -1310,7 +1310,7 @@ msgid "pv.offer.li.server"
 msgstr "雲端主機：策略全天候照排程執行、自動下單，關掉電腦也照跑"
 
 msgid "pv.offer.li.ai"
-msgstr "加送 {q} TWD 的 Blave AI 額度"
+msgstr "加送 Blave AI 額度"
 
 msgid "pv.h.plan"
 msgstr "策略上線的雲端主機，含 Blave 的資料"
@@ -1334,7 +1334,7 @@ msgid "pv.d.offer.cli"
 msgstr "AI 照用你的 {name}。想讓策略全天候自動執行，這 {t} 天開雲端主機也免主機費。"
 
 msgid "pv.d.offer.blave"
-msgstr "另有 {q} TWD 的 AI 額度。想讓策略全天候自動執行，這 {t} 天開雲端主機也免主機費。"
+msgstr "另有 AI 額度。想讓策略全天候自動執行，這 {t} 天開雲端主機也免主機費。"
 
 msgid "pv.d.noTrial"
 msgstr "這個帳號沒有首次綁卡的試用。綁卡並儲值後就拿得到資料，按有用到的整點小時計費，不必開主機。"
@@ -1590,7 +1590,7 @@ msgid "cx.connect"
 msgstr "連接帳戶"
 
 msgid "cx.connecting"
-msgstr "串接中…"
+msgstr "連接中…"
 
 msgid "cx.connected"
 msgstr "已連接"
@@ -3173,9 +3173,6 @@ msgstr "含 Blave 行情與籌碼資料。"
 
 msgid "env.open.more"
 msgstr "其他方案與價格"
-
-msgid "env.open.spec"
-msgstr "{label} · {vcpu} vCPU · {ram} GB"
 
 msgid "env.open.price"
 msgstr "{p} TWD／{n} 天"
@@ -7535,7 +7532,7 @@ msgid "ver.frozenRerunFailed"
 msgstr "灰掉的分頁沒有資料，回測重跑完才有。"
 
 msgid "ver.rsErrGone"
-msgstr "主機上已經沒有 {v}（只保留最近 20 版），這一版只能看、不能還原。"
+msgstr "主機上已經沒有 {v}（只保留最近 30 版），這一版只能看、不能還原。"
 
 msgid "ver.rsErr"
 msgstr "沒能還原到 {v}。稍後再試，或在對話裡請 agent 看看。"
@@ -7978,6 +7975,9 @@ msgstr "可以回測的資料"
 msgid "wd.mk.crypto"
 msgstr "加密"
 
+msgid "wd.mk.us"
+msgstr "美股"
+
 msgid "wd.mk.tw"
 msgstr "台股"
 
@@ -8107,6 +8107,19 @@ msgstr "2025-09 起"
 
 msgid "wd.r.fr.an"
 msgstr "資金費率"
+
+# 0.1.59 美股日 K(lib/data.py fetch_usstock_price;免費欄,沒有 Blave 付費美股資料:Wei 11-20 已裁第 4 條)。不寫供應商名稱;起始年沒有單一值
+msgid "wd.r.usd.nm"
+msgstr "美股個股日線（已還原分割與股息）"
+
+msgid "wd.r.usd.fq"
+msgstr "日"
+
+msgid "wd.r.usd.sy"
+msgstr "依個股上市日起"
+
+msgid "wd.r.usd.an"
+msgstr "美股個股日線"
 
 msgid "wd.r.twd.nm"
 msgstr "個股日線（原始與還原）"
@@ -8774,7 +8787,7 @@ msgid "tr.cloud.stoppedPlan2NoNum"
 msgstr "一直沒付款會刪除主機，策略、資料與金鑰一併清除。"
 
 msgid "cf.m.body1"
-msgstr "方案（Linux Starter）含 Blave 資料，電腦版馬上就能用。不會開雲端主機，之後到網站開一台 Linux Starter 不另收費。"
+msgstr "方案（Linux 基本）含 Blave 資料，電腦版馬上就能用。不會開雲端主機，之後到網站開一台 Linux 基本主機不另收費。"
 
 msgid "cf.m.body2"
 msgstr "第一期現在付。錢包夠就扣錢包，不夠就整筆刷卡。"
@@ -9745,6 +9758,17 @@ msgstr "「{name}」{more}用的是美股訊號：只能用 Type A 單一標的�
 msgid "tr.usVenue.rejected"
 msgstr "「{name}」{more}的下單標的在這家交易所沒有對應的股票永續。改綁有這檔股票永續的交易所，或到「選擇策略」取消勾選後再儲存。"
 
+# runtime _venue_symbol_refusal(VENUE_SYMBOL):綁的加密交易所沒有這支的下單標的,合約／現貨照原句分兩句。{venue} 是交易所品牌名(runtime 原句的那個),{symbol} 用 wf.listSep 接好(同網頁 workspace_pf_rej_venue_symbol／_spot)
+msgid "tr.venueSymbol.rejected"
+msgstr "「{name}」的下單標的 {symbol} 在 {venue} 沒有可下單的合約。請 agent 改成 {venue} 有的標的，或到「選擇策略」取消勾選後再儲存。"
+
+msgid "tr.venueSymbol.rejectedSpot"
+msgstr "「{name}」的下單標的 {symbol} 在 {venue} 沒有可下單的現貨。請 agent 改成 {venue} 有的標的，或到「選擇策略」取消勾選後再儲存。"
+
+# 超過五檔:列出的五檔後面接這段。{total} = 全部幾檔(zh),{more} = 沒列出的幾檔(en)(同網頁 workspace_pf_rej_venue_symbol_more)
+msgid "tr.venueSymbol.more"
+msgstr " 等 {total} 檔"
+
 msgid "tr.mktName.txf"
 msgstr "台指期"
 
@@ -9815,6 +9839,10 @@ msgstr "改配置"
 
 msgid "mg.why.tbMethod"
 msgstr "〔方法〕"
+
+# 優化工具列右側常駐的〔重算權重〕(mg.why.rerun)前面那段:這一組權重上次算好的時間,{t} = 月/日 時:分(同網頁 workspace_mg_last_run)
+msgid "mg.lastRun"
+msgstr "上次計算 {t}"
 
 msgid "mg.why.rerun"
 msgstr "重算權重"
@@ -11032,8 +11060,25 @@ msgstr "分 K 要 Blave 資料，要先登入"
 msgid "form.use"
 msgstr "用這些設定"
 
-msgid "form.self"
-msgstr "我自己打"
+# 策略類型選「其他，自己描述」時,組出的句子以冒號結尾(半句):主鈕換這個字,按了只填進輸入框、不送
+msgid "form.fill"
+msgstr "填進輸入框"
+
+# 聊天欄答案鈕那一組的可及名稱(role=group)
+msgid "ans.group"
+msgstr "回答"
+
+# 答案鈕畫出來時讀屏念一次;{s} 是各鈕字,zh 用頓號、en 用逗號接
+msgid "ans.say"
+msgstr "可以按鈕回答：{s}"
+
+# 預選那一顆的讀屏說明(aria-describedby 指到的 .sr-only 節點;鈕名仍是鈕字)
+msgid "ans.defMark"
+msgstr "建議"
+
+# ans.say 裡 agent 建議、畫面預選的那一顆;{s} 是鈕字
+msgid "ans.def"
+msgstr "{s}（建議）"
 
 # 表單畫出來那一刻讀屏念一次(只在眼前分頁)
 msgid "form.say"
@@ -11459,10 +11504,10 @@ msgid "p3.tick.ai"
 msgstr "AI 額度"
 
 msgid "p3.tick.aiPeriod"
-msgstr "每期 {n} TWD"
+msgstr "每期都有"
 
 msgid "p3.tick.aiTrial"
-msgstr "試用期 {q} TWD，之後每期 {n} TWD"
+msgstr "試用期就有，之後每期都有"
 
 msgid "p3.tick.pro"
 msgstr "資料工作室 Pro"
@@ -11721,14 +11766,8 @@ msgstr "最近一支：{name}"
 msgid "p3.c.see"
 msgstr "看我的策略"
 
-msgid "p3.c.trialH"
-msgstr "{q} TWD AI 額度，加上 Blave 資料"
-
 msgid "p3.c.trialHNoNum"
 msgstr "AI 額度，加上 Blave 資料"
-
-msgid "p3.c.planH"
-msgstr "每期 {n} TWD AI 額度，加上 Blave 資料"
 
 msgid "p3.c.planHNoNum"
 msgstr "每期 AI 額度，加上 Blave 資料"
@@ -11740,7 +11779,7 @@ msgid "p3.c.running"
 msgstr "策略照常在跑。"
 
 msgid "p3.low"
-msgstr "AI 額度剩不到 {n} TWD。"
+msgstr "AI 額度快用完了。"
 
 msgid "p3.low.then"
 msgstr "用完從錢包扣，低於 {lo} TWD 自動儲值 {a} TWD。"
@@ -11752,7 +11791,7 @@ msgid "p3.up"
 msgstr "AI 額度用完了，這一輪改從錢包扣。"
 
 msgid "p3.up.next"
-msgstr "{at} 再給 {n} TWD。"
+msgstr "{at} 重置。"
 
 msgid "p3.topped"
 msgstr "已自動儲值 {a} TWD（卡號末四碼 {l}）。"
@@ -11762,9 +11801,6 @@ msgstr "已自動儲值 {a} TWD。"
 
 msgid "p3.set.ai"
 msgstr "AI 額度"
-
-msgid "p3.set.aiV"
-msgstr "{n} TWD ／ {g}"
 
 msgid "p3.set.over"
 msgstr "本期已超額 {o} TWD，從錢包扣。"
@@ -11782,7 +11818,7 @@ msgid "p3.s.hostYear"
 msgstr "{tier}主機，付到年底（剩 {n} 天）"
 
 msgid "p3.lowReset"
-msgstr "AI 額度剩不到 {n} TWD，{at} 重置。"
+msgstr "AI 額度快用完了，{at} 重置。"
 
 msgid "p3.w.reopenOk"
 msgstr "開新付款頁，{p} TWD"
@@ -11856,6 +11892,21 @@ msgstr "今天刷綁定的卡。"
 msgid "p3.w.walletNoNum"
 msgstr "刷了錢，方案沒開成，錢存進錢包。"
 
+msgid "p3.w.trialCardUsed"
+msgstr "這張卡用過試用，這次沒開始試用。{v} TWD 已存進錢包。"
+
+msgid "p3.w.trialCardUsedNoNum"
+msgstr "這張卡用過試用，這次沒開始試用。驗證金已存進錢包。"
+
+msgid "p3.w.trialNoElig"
+msgstr "這個帳號不符合試用資格。{v} TWD 已存進錢包。"
+
+msgid "p3.w.trialNoEligNoNum"
+msgstr "這個帳號不符合試用資格。驗證金已存進錢包。"
+
+msgid "p3.a.oncePerCard"
+msgstr "每個帳號、每張卡都只能試用一次。"
+
 msgid "pv.f.noTrial.v3"
 msgstr "綁卡就付第一期 {p} TWD，之後每 {pd} 天續扣。"
 
@@ -11865,8 +11916,310 @@ msgstr "綁卡就付第一期 {p} TWD，之後按期續扣。"
 msgid "priv.c.feat.10"
 msgstr "開方案或主機的框時，記從哪開、選了哪一階與結果類別"
 
+msgid "priv.c.feat.11"
+msgstr "自動調整策略時，記額度類別、為何停下與輪數，不含績效"
+
+# 0.1.59 答案鈕(answer_shown／answer_sent／answer_missed／answer_undo):只記幾顆、第幾顆
+msgid "priv.c.feat.12"
+msgstr "答案鈕出現幾顆、按了第幾顆或改自己打，不含選項文字"
+
+# 0.1.59 海外(lib_mkt／lib_use_mkt／wd_mkt):只記市場代號,不記策略 id 或名稱。隱私政策附錄那句由 Wei 定稿
+msgid "priv.c.feat.13"
+msgstr "策略庫與資料清單切到哪個市場、裝的策略屬哪個市場"
+
 msgid "p3.f.trialConvert"
 msgstr "開雲端主機會結束試用，今天付第一期：{tier}合計 {p} TWD。"
 
 msgid "p3.f.trialConvertNoNum"
 msgstr "開雲端主機會結束試用，當天付第一期。"
+
+# 永豐期貨連接框(renderer/sinopac.js;spec sinopac-connect-2026-11-17 §5,0.1.58 隨附、旗標關著)
+msgid "sp.venue"
+msgstr "永豐期貨"
+
+msgid "sp.title"
+msgstr "連接永豐期貨"
+
+msgid "sp.keyPage"
+msgstr "到永豐建金鑰"
+
+msgid "sp.perm"
+msgstr "勾期貨帳戶和四個權限，不設 IP。"
+
+msgid "sp.pfx"
+msgstr "憑證檔"
+
+msgid "sp.pfxPick"
+msgstr "選憑證檔"
+
+msgid "sp.pfxHint"
+msgstr "建金鑰那一頁下載的 .pfx。"
+
+msgid "sp.pfxPicked"
+msgstr "已選 .pfx 檔"
+
+msgid "sp.pfxOther"
+msgstr "換一個"
+
+msgid "sp.id"
+msgstr "身分證字號"
+
+msgid "sp.idHint"
+msgstr "也當憑證密碼用。"
+
+msgid "sp.pwOther"
+msgstr "我的憑證密碼不是身分證字號"
+
+msgid "sp.caPw"
+msgstr "憑證密碼"
+
+msgid "sp.caPwHint"
+msgstr "改過憑證密碼才要填。"
+
+msgid "sp.store"
+msgstr "以上只存在這台電腦。"
+
+msgid "sp.storeTip"
+msgstr "加密存放，不放在 agent 的設定檔。"
+
+msgid "sp.err.idFmt"
+msgstr "身分證字號格式不對。"
+
+msgid "sp.err.pfxFile"
+msgstr "這不是憑證檔。選 .pfx 結尾的那個。"
+
+msgid "sp.err.pfxOpen"
+msgstr "用這組身分證字號打不開憑證。"
+
+msgid "sp.err.caPw"
+msgstr "憑證密碼不對。"
+
+msgid "sp.err.pfxExp"
+msgstr "這張憑證已在 {date} 到期。到永豐重新下載。"
+
+msgid "sp.err.noSeal"
+msgstr "這台電腦的加密儲存現在不能用，重開 Blave 再試一次。"
+
+msgid "sp.err.rebound"
+msgstr "這台電腦存的永豐資料對不上，重填一次再按「連接帳戶」。"
+
+msgid "sp.s.setup"
+msgstr "安裝永豐元件"
+
+msgid "sp.s.setupRun"
+msgstr "安裝中…"
+
+msgid "sp.s.setupFail"
+msgstr "永豐元件沒裝好。"
+
+msgid "sp.s.login"
+msgstr "登入永豐"
+
+msgid "sp.s.loginRun"
+msgstr "登入中…"
+
+msgid "sp.s.loginDone"
+msgstr "期貨帳戶"
+
+msgid "sp.s.sim"
+msgstr "模擬測試"
+
+msgid "sp.s.simRun"
+msgstr "送出中…"
+
+msgid "sp.s.simWait"
+msgstr "審核中…"
+
+msgid "sp.s.simDone"
+msgstr "已通過"
+
+msgid "sp.s.worker"
+msgstr "連上永豐"
+
+msgid "sp.s.workerRun"
+msgstr "連線中…"
+
+msgid "sp.s.workerFail"
+msgstr "沒有讀到永豐帳戶。再試一次。"
+
+msgid "sp.confirm"
+msgstr "確認登入"
+
+msgid "sp.err.key"
+msgstr "永豐說金鑰不對。"
+
+msgid "sp.fixKey"
+msgstr "改金鑰"
+
+msgid "sp.err.noFut"
+msgstr "這把金鑰沒有勾期貨帳戶。"
+
+msgid "sp.err.cert"
+msgstr "永豐不接受這張憑證，可能不是這個帳戶的。"
+
+msgid "sp.fixCert"
+msgstr "換憑證"
+
+msgid "sp.err.full"
+msgstr "永豐的連線數滿了，{time} 後可以再試。"
+
+msgid "sp.err.fullHint"
+msgstr "先關掉其他用永豐 API 的程式。"
+
+msgid "sp.err.net"
+msgstr "連不到永豐，或永豐正在維護。"
+
+msgid "sp.err.clock"
+msgstr "這台電腦的時間不準，永豐不收。"
+
+msgid "sp.err.clockHint"
+msgstr "打開系統的自動設定時間。"
+
+msgid "sp.err.unknown"
+msgstr "永豐拒絕了登入，沒有說原因。"
+
+msgid "sp.err.notSigned"
+msgstr "永豐說帳戶還沒簽署或在審核中。"
+
+msgid "sp.err.version"
+msgstr "永豐元件版本不對。"
+
+msgid "sp.sim.do"
+msgstr "永豐規定先簽期貨 API 聲明書，再送一筆模擬單審核。"
+
+msgid "sp.sim.hint"
+msgstr "模擬單不動到錢，審核約 5 分鐘。"
+
+msgid "sp.signPage"
+msgstr "到永豐簽署"
+
+msgid "sp.sim.go"
+msgstr "簽好了，送模擬單"
+
+msgid "sp.sim.closed"
+msgstr "永豐只在週一到五 08:00–20:00 收模擬單，下一次是 {when}。"
+
+msgid "sp.sim.wait"
+msgstr "永豐審核約 5 分鐘，關掉這個框也會繼續。"
+
+msgid "sp.sim.notYet"
+msgstr "永豐還沒通過審核。"
+
+msgid "sp.sim.notYetHint"
+msgstr "最常見是聲明書沒簽，或簽在送單之後。"
+
+msgid "sp.sim.rej"
+msgstr "模擬單被永豐退回。"
+
+msgid "sp.sim.again"
+msgstr "再送一次"
+
+msgid "sp.sim.twIp"
+msgstr "這個時段永豐只收台灣網路，週一到五 18:00 前再試。"
+
+msgid "sp.done.lead"
+msgstr "已連接永豐期貨"
+
+msgid "sp.done.n1"
+msgstr "結束 Blave 或關機就不再下單。部位留在永豐，不會自動平倉。"
+
+msgid "sp.st.stopped"
+msgstr "登入已停止"
+
+msgid "sp.st.retry"
+msgstr "重試登入中"
+
+msgid "sp.relogin"
+msgstr "重新登入"
+
+msgid "sp.head.stopped"
+msgstr "永豐登入已停止，新單與平倉都送不出去。"
+
+msgid "sp.head.retry"
+msgstr "連不到永豐，{time} 自動再試。新單與平倉先停。"
+
+msgid "sp.ub.x0"
+msgstr "永豐的金鑰、憑證檔和身分證字號會一起刪掉。"
+
+msgid "sp.ev.stopped"
+msgstr "永豐登入已停止"
+
+msgid "sp.ev.stoppedNote"
+msgstr "{reason}。新單與平倉都送不出去，到自動下單按「重新登入」。"
+
+msgid "sp.ev.unreachMin"
+msgstr "永豐已經 {n} 分鐘連不上"
+
+msgid "sp.ev.unreachHour"
+msgstr "永豐已經 {n} 小時連不上"
+
+msgid "sp.ev.unreachNote"
+msgstr "這段時間永豐策略不下單，也不平倉。Blave 會一直重試。"
+
+msgid "sp.ev.recovered"
+msgstr "永豐登入已恢復"
+
+msgid "sp.permCloud"
+msgstr "勾期貨帳戶和四個權限。"
+
+msgid "sp.storeCloud"
+msgstr "以上只存在你的雲端主機。"
+
+msgid "sp.storeTipCloud"
+msgstr "在這台電腦加密後才送出，不放在 agent 的設定檔。"
+
+msgid "sp.sim.closedCloud"
+msgstr "雲端主機只能在週一到五 08:00–18:00 送模擬單，下一次是 {when}。"
+
+msgid "sp.head.stoppedHalted"
+msgstr "永豐登入已停止，新單與平倉都送不出去，要重新登入。"
+
+msgid "sp.ev.unreachNoteLong"
+msgstr "這段時間永豐策略不下單，也不平倉。要處理部位就直接到永豐下單。"
+
+msgid "up.btn"
+msgstr "更新"
+
+msgid "tr.opt.catchNone"
+msgstr "現在沒有要補的單。"
+
+msgid "tr.opt.catchChanged"
+msgstr "要下的單變了，看過再按一次。"
+
+msgid "tr.opt.catchWillMore"
+msgstr "{side}{sym} {n}"
+
+msgid "tr.opt.catchNeedRead"
+msgstr "讀到帳戶後才能補齊。"
+
+msgid "tr.opt.catchNeedSignal"
+msgstr "策略算完訊號後才能補齊。"
+
+msgid "p3.set.used"
+msgstr "已用 {p}%"
+
+msgid "p3.set.reset"
+msgstr "{at} 重置。"
+
+# 設定 › 帳號與方案,v3 試用格(spec host-card-relayout D1、Wei 11-20):標題下一列左標右值「試用結束扣第一期｜MM/DD · 金額」;金額讀 api(next_charge_twd,沒有才退報價);金額讀不到右邊只放日期
+msgid "p3.set.firstL"
+msgstr "試用結束扣第一期"
+
+msgid "p3.set.firstV"
+msgstr "{d} · {p} TWD"
+
+# 試用格鈕上方兩行的第一行(第二行是 p3.f.trialConvertNoNum);{pd} 跟著下一期的週期(年繳 365)
+msgid "p3.f.renew"
+msgstr "之後每 {pd} 天自動續扣。錢包夠就扣錢包，不夠就整筆刷卡。"
+
+msgid "p3.f.renewNoNum"
+msgstr "之後每期自動續扣。錢包夠就扣錢包，不夠就整筆刷卡。"
+
+# 「Blave 餘額」標籤的 tooltip(收掉原本餘額下面那句「AI 超額時自動儲值」)。第一句與網頁 bc_plan_wallet_fact 逐字相同(tests/check_web_desktop_parity.js)
+msgid "p3.set.balTip"
+msgstr "錢包用來付 Blave AI，也用來付方案費。"
+
+# 第二句:有卡、沒關自動儲值、門檻讀得到才接在後面;{lo} {a} 讀公開價目 ai_credit
+msgid "p3.set.topupTip"
+msgstr "錢包低於 {lo} TWD 時，刷綁定的卡補 {a} TWD。"
+

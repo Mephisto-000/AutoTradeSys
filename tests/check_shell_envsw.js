@@ -337,7 +337,7 @@ const okc = (state, extra = {}) => ({ code: "OK", machine: { state }, strategies
   // 寫進雲端的確認框要標明目的地(規格 §5:刻意講三次);本機不給那兩個參數,框逐位元組不變
   { const app2 = fs.readFileSync(path.join(R, "app.js"), "utf8"), html2 = fs.readFileSync(path.join(R, "index.html"), "utf8");
     ok("confirmBox 有 env / footWhere / lead 三個選用參數,DOM 兩個槽在,關框時一起收掉",
-      /function confirmBox\(\{ title, lines, ok, onOk, opener, alt, mark, markKind, extra, okDisabled, okWhy, env, footWhere, lead, single, cancel, choices, choicesLabel, keep, details, detailsOpen, onCancel, focus, link, stay, note, wrapTitle, sections \}\)/.test(app2)
+      /function confirmBox\(\{ title, lines, ok, onOk, opener, alt, mark, markKind, extra, okDisabled, okWhy, env, footWhere, lead, single, cancel, choices, choicesLabel, keep, details, detailsOpen, onCancel, focus, link, stay, note, wrapTitle, sections, tail, armMs, dblGuard \}\)/.test(app2)
       && /<span class="envm" id="del-env" hidden><\/span>/.test(html2) && /<span class="del-where" id="del-where" hidden><\/span>/.test(html2)
       && /\$\("del-env"\)\.hidden = true; \$\("del-where"\)\.hidden = true; \$\("del-modal"\)\.querySelector\("\.modal-head"\)\.classList\.remove\("cloud"\); \$\("del-cancel"\)\.hidden = false;/.test(app2.slice(app2.indexOf("function delClose"))));
     ok("雲端的框:灰標題列 + 「雲端」記號 + 錢記號 + 鈕上方的目的地那一行;暫停與啟動都經過同一支",
@@ -345,6 +345,16 @@ const okc = (state, extra = {}) => ({ code: "OK", machine: { state }, strategies
       && /t\("tr\.cloud\.footWhere", \{ where: t\("env\.cloud"\), money: envMoneyText\(money\), venue: trVenueLabel\(id, true\) \}\)/.test(fn("trCloudBox"))
       && /confirmBox\(trCloudBox\(\{/.test(fn("trAskStop")) && /confirmBox\(trCloudBox\(Object\.assign\(\{/.test(fn("trAskStart"))
       && /if \(TR\.env !== "cloud"\) return o;/.test(fn("trCloudBox"))); }
+  { // QA 0158 P2-3:共用確認框的 title(呼叫端開框後設的全文 tooltip)開框、關框都清掉;rAF 晚到(背景視窗節流)不替已關的框掛 open
+    const app3 = fs.readFileSync(path.join(R, "app.js"), "utf8"), ns3 = fs.readFileSync(path.join(R, "newstrategy.js"), "utf8");
+    const body = (src, name) => { const i = src.indexOf("function " + name + "("), j = src.indexOf("\n}\n", i); return i < 0 ? "" : src.slice(i, j); };
+    const line = body(app3, "confirmBox").split("\n").find((l) => /\$\("del-title"\)\.textContent = title;/.test(l)) || "";
+    const tt = { attrs: { title: "安裝「Supertrend」？" }, textContent: "", classList: { toggle() {} }, removeAttribute(k) { delete this.attrs[k]; } };
+    new Function("$", "title", "wrapTitle", line)(() => tt, "暫停下單", false);
+    ok("confirmBox 換標題時清掉上一個框的 title 屬性", tt.textContent === "暫停下單" && !("title" in tt.attrs), JSON.stringify(tt.attrs));
+    const clr = /\$\("del-title"\)\.removeAttribute\("title"\)/, guard = /requestAnimationFrame\(\(\) => \{ if \(!sc\.hidden\) sc\.classList\.add\("open"\); \}\)/;
+    ok("刪對話框開框、delClose 關框也清 title;del／ns 兩個 scrim 的 rAF 先看還開著才加 open",
+      clr.test(body(app3, "delConfirm")) && clr.test(body(app3, "delClose")) && guard.test(body(app3, "delConfirm")) && guard.test(body(app3, "confirmBox")) && guard.test(body(ns3, "nsOpen"))); }
 
   // ── 3. 雲端那一邊是哪一種 ──
   ok("還沒問到 = loading", envCloudKind(null) === "loading" && envCloudKind({ cloud: {} }) === "loading");

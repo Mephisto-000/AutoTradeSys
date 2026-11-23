@@ -57,6 +57,9 @@ import exec_style
 import president_connect
 import capital_local
 import hang_watch
+import sinopac_connect
+import sinopac_local
+import sinopac_service
 import telegram_pairing
 import refresh_capacity
 import save_routing
@@ -1247,6 +1250,10 @@ def _cmd_credentials(args):
     # platform keys
     if writing & _CRED_KEEP_IDS:
         raise ValueError("platform credentials are not writable here")
+    # 永豐: its values never travel in this command — only the connect flow's store (sinopac_service.store)
+    # writes its sentinels, in every mode; any other sinopac_* line (chat bind, web plain values) is refused
+    if any(k.casefold().startswith("sinopac_") for k in env):
+        sinopac_service.bind_gate(env)
     # DATA_* ids are invisible to every venue check (_venue_cred_ids), so a
     # custom exchange the web slugs to DATA_MARKET would bind without eviction,
     # never reach the manifest, never schedule — all silently. Refuse loudly;
@@ -1267,6 +1274,8 @@ def _cmd_credentials(args):
             elif vid == "CAPITAL":
                 # same reason as 統一: an account read is a login; only the app's bind step writes it
                 capital_local.local_bind_gate(env)
+            elif vid == "SINOPAC":
+                pass  # sinopac_service.bind_gate above: an account read is a login there too
             else:
                 _local_real_key_gate(vid, env)  # raises = nothing written
     # cloud box (and so the web connect flow): no venue call before the write —
@@ -1364,6 +1373,12 @@ def _cmd_credentials(args):
                 president_connect.drop_vault()
             except Exception as e:
                 _log(f"president vault drop failed: {type(e).__name__}")
+        if venue_traits.SINOPAC in evicted_ids:  # its sentinels are gone: the vault and certificate go too
+            try:
+                sinopac_local.drop_local(None)
+                sinopac_service.drop(workspace=WORKSPACE)
+            except Exception as e:
+                _log(f"sinopac vault drop failed: {type(e).__name__}")
         cpath = os.path.join(WORKSPACE, "manager", "portfolio_config.json")
         try:
             cfg = atomic_file.load_json(cpath)
@@ -3984,6 +3999,108 @@ def _us_signal_refusal(name, venue):
     return None
 
 
+# lib/portfolio._MARKET_RE / strategy_market: the reconciler's spot-or-swap, off the source
+_MARKET_CONST_RE = re.compile(r'^\s*MARKET\s*=\s*["\']([a-z]+)["\']', re.M)
+# lib/stock_perps renames Binance stock perps on these; with Binance unreadable their lib falls
+# back to the plain name, which they do not list — a refusal there would be a false one
+_STOCK_RENAMING_VENUES = ("bybit", "bingx", "bitget")
+# one budget for the whole save, every newly funded strategy together: the desktop waits 20 s and
+# the web 18 s for the ack, and the refusal reaches the user only through it
+_VENUE_SYMBOL_BUDGET_S = 5
+_VENUE_SYMBOL_SHOWN = 5
+
+
+def _venue_symbols(name):
+    """(symbols, 'swap' | 'spot') the strategy orders, read off disk: a Type C's latest weight
+    keys (state.json, else backtest_state.json), every key — a 0 weight today is a later entry
+    — or a Type A's SYMBOL. Dashless upper, as the reconciler orders them (lib/portfolio).
+    ((), None) = nothing to judge."""
+    src = _strategy_source(name)
+    if src is None:
+        return (), None
+    m = _MARKET_CONST_RE.search(src)
+    market = m.group(1) if m else "swap"
+    if not _strategy_is_portfolio(name):
+        sym = (_strategy_futures_symbol(name) or "").replace("-", "")
+        return ((sym,), market) if sym else ((), None)
+    for fname in ("state.json", "backtest_state.json"):
+        try:
+            doc = atomic_file.load_json(os.path.join(WORKSPACE, "strategies", name, fname), encoding="utf-8")
+        except (OSError, ValueError):
+            continue
+        w = doc.get("weights") if isinstance(doc, dict) else None
+        if isinstance(w, dict) and w:
+            keys = {str(s).strip().replace("-", "").upper() for s in w}
+            return sorted(keys - {""}), market
+    return (), None
+
+
+def _venue_symbol_refusal(name, venue, deadline):
+    """A newly funded strategy whose symbols the bound crypto exchange does not list — the
+    refusal sentence, or None. Only the lib's own [order_reject:symbol_unavailable] refuses;
+    paper, no route, no symbols yet, a list that cannot be read, Binance unreadable on a
+    renaming venue, or the save's shared deadline (time.monotonic()) passing are not judged (the
+    tick's instrument checks and backoff still stand). No other name is suggested: XAUT and XAU
+    are different instruments."""
+    if not venue or venue == "paper" or not venue_traits.get(venue, "perp"):
+        return None
+    syms, market = _venue_symbols(name)
+    if not syms or market not in ("swap", "spot") or time.monotonic() >= deadline:
+        return None
+    import importlib
+
+    def prepare():
+        lib = importlib.import_module(f"lib.order_{venue}")
+        rules = getattr(lib, "get_contract_rules" if market == "swap" else "get_spot_rules", None)
+        perps = importlib.import_module("lib.stock_perps") \
+            if market == "swap" and venue in _STOCK_RENAMING_VENUES else None
+        return rules, perps, importlib.import_module("lib.venue_wiring").read_env()
+    try:
+        rules, perps, env = _in_workspace(prepare)
+    except Exception as e:
+        _log(f"amounts: {name} on {venue} not judged ({type(e).__name__}: {str(e)[:120]})")
+        return None
+    if rules is None:
+        return None
+    found = {"bad": [], "done": False}
+
+    def lookups():
+        # network only: the cwd stays the bridge's (_in_workspace is not thread-safe)
+        try:
+            if perps is not None and perps.binance_rows() is None:
+                _log(f"amounts: {name} on {venue} not judged (Binance list unreadable)")
+                return
+            for sym in syms:
+                if time.monotonic() >= deadline:
+                    return
+                try:
+                    rules(env, sym)
+                except Exception as e:
+                    if "[order_reject:symbol_unavailable]" in str(e):
+                        found["bad"].append(sym)
+                    else:
+                        _log(f"amounts: {sym} on {venue} not judged ({type(e).__name__}: {str(e)[:120]})")
+            found["done"] = True
+        except Exception as e:
+            _log(f"amounts: {name} on {venue} not judged ({type(e).__name__}: {str(e)[:120]})")
+
+    worker = threading.Thread(target=lookups, name=f"venue-symbol-{name}", daemon=True)
+    worker.start()
+    worker.join(max(0.0, deadline - time.monotonic()))
+    if not found["done"]:
+        if worker.is_alive():
+            _log(f"amounts: {name} on {venue} not judged (time budget)")
+        return None
+    bad = list(found["bad"])
+    if not bad:
+        return None
+    label = _VENUE_NAMES.get(venue, venue)
+    shown = "、".join(bad[:_VENUE_SYMBOL_SHOWN]) + (f" 等 {len(bad)} 檔" if len(bad) > _VENUE_SYMBOL_SHOWN else "")
+    what = "現貨" if market == "spot" else "合約"
+    return (f"VENUE_SYMBOL: 「{name}」的下單標的 {shown} 在 {label} 沒有可下單的{what}。"
+            f"請 agent 改成 {label} 上有的標的，或取消勾選後再儲存。")
+
+
 def _strategy_market_of(name):
     """strategy_reporter.strategy_market of the strategy's file (folder or single-file layout),
     None when unreadable or not decidable."""
@@ -4424,6 +4541,13 @@ def _cmd_amounts(args):
         why = _us_signal_refusal(k, cfg["exchanges"].get(k))
         if why:
             raise ValueError(why)
+    # only on unfunded→funded: a venue delisting a running member must not lock its config out of
+    # the save button (the tick's instrument_gate and backoff handle that one)
+    listing_deadline = time.monotonic() + _VENUE_SYMBOL_BUDGET_S
+    for k in sorted(newly_funded):
+        why = _venue_symbol_refusal(k, cfg["exchanges"].get(k), listing_deadline)
+        if why:
+            raise ValueError(why)
     prev_contracts = _saved_contracts(cfg)
     contracts = _contracts_for_save(args, clean, prev_amounts, cfg)
     if not isinstance(cfg.get("asset_specs"), dict):
@@ -4838,6 +4962,11 @@ def _cmd_credentials_remove(args):
         capital_local.drop_local(names)
     except Exception as e:
         _log(f"capital local drop failed: {type(e).__name__}")
+    try:
+        sinopac_local.drop_local(names)
+        sinopac_service.drop(names, workspace=WORKSPACE)
+    except Exception as e:
+        _log(f"sinopac vault drop failed: {type(e).__name__}")
     # P1-2: unbind must shrink the bind manifest too, or an agent hand-writing
     # the SAME venue's keys back into .env after the unbind would still be in
     # the allowed list and route again without any UI bind.
@@ -5755,11 +5884,31 @@ def _record_manual_close_row(symbols):
     if not isinstance(rows, list):
         atomic_file.replace_retry(path, path + ".corrupt")
         rows = []
-    rows.append({"kind": "manual_close_required", "symbols": symbols, "reason": "identity",
-                 "ts": datetime.utcnow().isoformat(), "symbol": "*", "exchange": venue_traits.CAPITAL,
-                 "error": "close-all: 群益部位未平倉(此身分無法登入群益 API),請在群益下單軟體手動平倉"})
+    row = {"kind": "manual_close_required", "symbols": symbols, "reason": "identity",
+           "ts": datetime.utcnow().isoformat(), "symbol": "*", "exchange": venue_traits.CAPITAL,
+           "error": "close-all: 群益部位未平倉(此身分無法登入群益 API),請在群益下單軟體手動平倉"}
+    rows.append(row)
+    # the workspace's two budgets, so rejection rows never cost a parked or close-all row its place.
+    # Looked up on the module as it is on disk now (_ws_portfolio re-reads a lib/portfolio.py an
+    # update replaced under this process), at call time.
+    def _keep_fn():
+        import importlib
+        mod = _ws_portfolio()
+        fn = getattr(mod, "_keep_order_error_rows", None)
+        if fn is None:   # imported before an update without _ws_portfolio seeing it: read the file once more
+            fn = getattr(importlib.reload(mod), "_keep_order_error_rows", None)
+        return fn
+
+    try:
+        keep = _in_workspace(_keep_fn)
+    except Exception:
+        keep = None
+    try:
+        rows = keep(rows, row) if keep else rows[-5:]   # a workspace from before them keeps its newest 5
+    except Exception:
+        rows = rows[-5:]
     with atomic_file.replacing(path) as f:  # rows came from a file the agent can write
-        json.dump(rows[-5:], f, indent=2)
+        json.dump(rows, f, indent=2)
 
 
 def _cmd_close_all(args):
@@ -8708,6 +8857,15 @@ HANDLERS["president_local"] = lambda args: president_connect.local_dispatch(
 # 群益 on the desktop app (runtime/capital_local.py): same shape as president_local
 HANDLERS["capital_local"] = lambda args: capital_local.local_dispatch(
     args, Deferred, lambda: _push(_ON_PROGRESS, "capital local"))
+# 永豐 on the desktop app (runtime/sinopac_local.py): the credential handover (bind, secrets)
+HANDLERS["sinopac_local"] = lambda args: sinopac_local.local_dispatch(
+    args, Deferred, lambda: _push(_ON_PROGRESS, "sinopac local"))
+# 永豐期貨 cloud connect (runtime/sinopac_connect.py): same shape as 統一's
+HANDLERS.update({
+    name: (lambda args, _n=name: sinopac_connect.dispatch(
+        _n, args, Deferred, lambda: _push(_ON_PROGRESS, "sinopac connect"), _local_mode()))
+    for name in sinopac_connect.COMMANDS
+})
 
 
 def dispatch(command):
