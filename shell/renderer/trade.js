@@ -2,6 +2,8 @@
 //   (2026-11-07) the unbind dialog (upstream 0.1.45 close-then-unbind) marks SinoPac's simulation environment 模擬 too.
 //   (2026-11-18) upstream's tile-based connect dialog: a SinoPac tile under 台股 on this computer (Mac included), its
 //   permission line and simulation note in steps 1–2, and the passphrase field guarded (SinoPac is not in CX_VENUES).
+//   (2026-11-24) upstream 0.1.58's SinoPac futures dialog sits behind SINOPAC_LOCAL_ON (off): cxConnect, cxKeysBlank
+//   and the unbind dialog's sp.ub.x0 line only take that path with the flag on; the stock tile keeps venue-connect.
 // Original work: Copyright 2025-2026 WuChi Technology Company Limited
 // Licensed under the Apache License, Version 2.0
 /* 自動下單頁、連接交易所的框、頂列切換器與狀態句(模擬交易版)。
@@ -5517,7 +5519,7 @@ function trUnbind(opener) {
   const r = trReport() || {}, k = trUbKind(r, id), venue = trUbVenue(id);
   const keep = { ok: t("tr.ub.keepGo"), onOk: () => trUbKeep(S, id) };
   if (k.kind === "paper" || k.kind === "x0") {
-    const lines = k.kind === "paper" ? [t("tr.unbindWarnPaper")] : [t(cloud ? "tr.ub.x0Cloud" : "tr.ub.x0")].concat(id === "president" ? [t("tr.ub.x0Pres")] : id === "sinopac" ? [t("sp.ub.x0")] : []);
+    const lines = k.kind === "paper" ? [t("tr.unbindWarnPaper")] : [t(cloud ? "tr.ub.x0Cloud" : "tr.ub.x0")].concat(id === "president" ? [t("tr.ub.x0Pres")] : id === "sinopac" && typeof SINOPAC_LOCAL_ON !== "undefined" && SINOPAC_LOCAL_ON ? [t("sp.ub.x0")] : []);   // 期貨那句講刪憑證檔:fork 現股不刪(憑證是用戶自己的檔)
     confirmBox(trUbMark({ title: t("tr.unbind"), lines, ok: t("tr.unbind"), opener, onOk: () => trUbKeep(S, id) }));
     return;
   }
@@ -6730,7 +6732,8 @@ function cxIpSlot(cloud, cip) {
 }
 // 真實帳戶、這一家要的金鑰還沒填滿:主鈕停用,Enter 也不送
 function cxKeysBlank(venue) {
-  if (venue === PAPER || venue === CAPITAL || venue === "president" || venue === "sinopac") return false;
+  // sinopac:上游期貨框自己管欄位(旗標開);AutoTradeSys fork 的現股照一般交易所要 API Key + Secret Key
+  if (venue === PAPER || venue === CAPITAL || venue === "president" || (venue === "sinopac" && typeof SINOPAC_LOCAL_ON !== "undefined" && SINOPAC_LOCAL_ON)) return false;
   return !CXF.apiKey.trim() || !CXF.secret.trim() || !!(CX_VENUES[venue] && CX_VENUES[venue].pass && !CXF.passphrase.trim());
 }
 // 這台電腦開通中的那一家(統一／群益,沒有別家綁著、對帳器也沒在跑:trSetupOnly);沒有 → null
@@ -6961,7 +6964,8 @@ async function cxConnect() {
     return;
   }
   if (CXF.venue === "president") { if (CXF.env === "local" && ENV.cur === "local" && !$("cx-scrim").hidden) return presPrimary(); return; }
-  if (CXF.venue === "sinopac") { if (SINOPAC_LOCAL_ON && CXF.env === ENV.cur && !$("cx-scrim").hidden) return spPrimary(); return; }
+  // 上游的永豐期貨框(旗標開才有);旗標關時 sinopac 是 AutoTradeSys fork 的現股,走下面一般交易所那條(cxConnectVenue)
+  if (CXF.venue === "sinopac" && SINOPAC_LOCAL_ON) { if (CXF.env === ENV.cur && !$("cx-scrim").hidden) return spPrimary(); return; }
   if (!CXF.kc && cxKeysBlank(CXF.venue)) return;
   if (CXF.env === "cloud") { if (!TR_BAGS.cloud.cx.busy && !$("cx-scrim").hidden && ENV.cur === "cloud") return cxConnectCloud(); return; }
   const L = TR_BAGS.local;
