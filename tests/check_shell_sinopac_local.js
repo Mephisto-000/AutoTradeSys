@@ -1,3 +1,5 @@
+// Modified by Mephisto-000 on 2026-11-24: ⓪ and ⑤ follow the AutoTradeSys fork — its SinoPac stock venue (same id)
+//   keeps its unbind names, TWD and label outside the flag; SINOPAC_ENV carries two more fork lines.
 // 永豐本機開通的主行程這一側(shell/sinopac_local.js)+ daemon.js 的 sinopac_local 那道閘 + 旗標。不起 Electron、不連網、不碰永豐。
 //   0. 旗標(兩個視角同一個):main.js 與 trade.js 的 SINOPAC_LOCAL_ON 同值;關著時 IPC 只註冊解除連接,磚、解除名單、幣別都不列永豐
 //   1. 封裝:跟 runtime/sinopac_local.open_sealed 同一組 info／AAD／格式;換一把 secret 打不開;密文裡找不到明文
@@ -24,9 +26,15 @@ let red = 0; const ok = (n, c, got) => { console.log((c ? "PASS  " : "FAIL  ") +
     ok("0 sinopac-* IPC 除了解除連接都在旗標裡註冊", all.length === 9 && all.filter((n) => n !== "sinopac-unbind").every((n) => inside.includes('handle("' + n + '"'))
       && !inside.includes('handle("sinopac-unbind"'), all);
     ok("0 補交輪詢也看旗標", /if \(SINOPAC_LOCAL_ON\) \{ const tm = setInterval\(\(\) => startStep\("sinopac", spSync\), 5000\)/.test(mainSrc)); }
-  ok("0 旗標關:磚、解除名單、幣別、顯示名都只在旗標開時列永豐",
-    tradeSrc.includes('const sp = SINOPAC_LOCAL_ON ? ["sinopac", "sp.venue"] : null;') && tradeSrc.includes("if (id === \"sinopac\" && SINOPAC_LOCAL_ON) return [\"sinopac_api_key\"")
-    && tradeSrc.includes("SINOPAC_LOCAL_ON ? { sinopac: \"TWD\" } : {}") && tradeSrc.includes('if (id === "sinopac" && SINOPAC_LOCAL_ON) return t("sp.venue");')
+  // AutoTradeSys fork:旗標管的是上游的永豐期貨;fork 的永豐金現股(同一個 id)的解除名單、幣別 TWD、顯示名 sino.venue 不看旗標,
+  //   期貨的磚、開通框、送出鈕、空欄判斷、解除框那句刪憑證檔才看旗標
+  ok("0 旗標關:期貨的磚、開通框都只在旗標開時列永豐(fork 現股的解除名單、幣別、顯示名照列)",
+    tradeSrc.includes('const sp = SINOPAC_LOCAL_ON ? ["sinopac", "sp.venue"] : null;')
+    && tradeSrc.includes('if (id === "sinopac") return ["SINOPAC_API_KEY", "SINOPAC_SECRET_KEY"')
+    && tradeSrc.includes('const TR_VENUE_CCY_OTHER = { paper: "USDT", capital: "TWD", president: "TWD", sinopac: "TWD" };') && tradeSrc.includes('if (id === "sinopac") return t("sino.venue");')
+    && tradeSrc.includes('if (CXF.venue === "sinopac" && SINOPAC_LOCAL_ON) { if (CXF.env === ENV.cur && !$("cx-scrim").hidden) return spPrimary(); return; }')
+    && tradeSrc.includes('(venue === "sinopac" && typeof SINOPAC_LOCAL_ON !== "undefined" && SINOPAC_LOCAL_ON)) return false;')
+    && tradeSrc.includes('id === "sinopac" && typeof SINOPAC_LOCAL_ON !== "undefined" && SINOPAC_LOCAL_ON ? [t("sp.ub.x0")] : []')
     && /function trSpWip\(r, id\) \{ return id === "sinopac" && SINOPAC_LOCAL_ON && /.test(tradeSrc) && /function trSpLoginHeld\(r, id\) \{ return id === "sinopac" && SINOPAC_LOCAL_ON && /.test(tradeSrc)
     && /function trSpRetryAt\(r, id\) \{ return id === "sinopac" && SINOPAC_LOCAL_ON && /.test(tradeSrc) && tradeSrc.includes('if (CXF.venue === "sinopac" && SINOPAC_LOCAL_ON) {'));
   ok("0 打包清單有 sinopac_local.js、index.html 載入 sinopac.js", /"sinopac_local\.js"/.test(fs.readFileSync(path.join(SHELL, "electron-builder.config.js"), "utf8"))
@@ -135,10 +143,12 @@ let red = 0; const ok = (n, c, got) => { console.log((c ? "PASS  " : "FAIL  ") +
       && D.argsOk("sinopac_local", { op, expect: "not base64!" }, true) === false)
     && D.argsOk("sinopac_local", { op: "bind" }, true) === false && D.argsOk("sinopac_local", { op: "probe", x: 1 }, true) === false
     && D.argsOk("sinopac_local", { op: "nope" }, true) === false && D.argsOk("sinopac_local", { op: "bind", sealed: "not base64!" }, true) === false);
-  ok("5 解除連接:機器寫的五行都拿得掉", D.argsOk("credentials_remove", { env: D.SINOPAC_ENV.map((k) => k.toLowerCase()) }) === true && D.SINOPAC_ENV.length === 5);
+  // AutoTradeSys fork:SINOPAC_ENV 多 fork 終端機工具寫的實盤開關、綁定時間兩行(七行)
+  ok("5 解除連接:機器寫的五行(加 fork 的兩行)都拿得掉", D.argsOk("credentials_remove", { env: D.SINOPAC_ENV.map((k) => k.toLowerCase()) }) === true && D.SINOPAC_ENV.length === 7);
   const svc = fs.readFileSync(path.join(RT, "sinopac_service.py"), "utf8"), be = /def bound_env[\s\S]*?return \{([\s\S]*?)\}\n/.exec(svc);
   const names = be ? [...be[1].matchAll(/"(sinopac_[a-z_]+)"/g)].map((m) => m[1].toUpperCase()).sort() : [];
-  ok("5 SINOPAC_ENV = runtime sinopac_service.bound_env 寫的那幾行", JSON.stringify(names) === JSON.stringify(D.SINOPAC_ENV.slice().sort()), names);
+  ok("5 SINOPAC_ENV = runtime sinopac_service.bound_env 寫的那幾行 + fork 的 SINOPAC_LIVE、SINOPAC_BOUND_TS", names.length === 5
+    && JSON.stringify(names.concat(["SINOPAC_BOUND_TS", "SINOPAC_LIVE"]).sort()) === JSON.stringify(D.SINOPAC_ENV.slice().sort()), names);
   // 6. 雲端
   { const CS = require("../shell/cloud_sinopac");
     const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });

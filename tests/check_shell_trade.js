@@ -2525,7 +2525,7 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
       && !/cx\.acct\.meta/.test(src + fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "strings.js"), "utf8"))
       && !/t\("cx\.fact\.perm"\)|cx-facts/.test(src) && /t\(cxPermKey\(venue\)\)/.test(src) && !/cx\.fact\.ai/.test(src)
       // AutoTradeSys fork:這台電腦的「台股」組最後多一塊永豐金(Mac 也列);步驟 1 的權限句是永豐版(cx.fact.sino),步驟 2 講先接模擬
-      && /const sino = CXF\.env === "local" \? \[\["sinopac", t\("sino\.venue"\)\]\] : \[\];/.test(src)
+      && /const sino = CXF\.env === "local" && !\(tw \|\| \[\]\)\.some\(\(\[id\]\) => id === "sinopac"\) \? \[\["sinopac", t\("sino\.venue"\)\]\] : \[\];/.test(src)
       && /const perm = venue === "sinopac" \? t\("cx\.fact\.sino"\) : t\(cxPermKey\(venue\)\);/.test(src)
       && /if \(venue === "sinopac"\) b2\.appendChild\(trEl\("p", "cx-hint", t\("cx\.note\.sinopac"\)\)\);/.test(src));
     ok("接線:選擇策略框沒有 #ps-next、psOpen 不送 pick_gate_lock、外殼不讀 market_gate",

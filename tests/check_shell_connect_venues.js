@@ -6,6 +6,7 @@
 // 金鑰全是 not-a-real-*。跑法:node tests/check_shell_connect_venues.js(找不到 shell/node_modules 的 Electron,③ 就 SKIP)
 // AutoTradeSys fork 2026-10-26:永豐金(sinopac)走同一條 venue-connect,只列在這台電腦的「台股」組(cloudcmd localOnly;雲端拒收),
 //   解除綁定連終端機工具寫的五行(憑證、身分證、實盤開關、綁定時間)一起拿掉
+//   (2026-11-24) 上游 0.1.58 的 daemon.js SINOPAC_ENV 是期貨的五行:fork 合成一份七行(加實盤開關、綁定時間)
 const path = require("path"), fs = require("fs");
 const SHELL = path.join(__dirname, "..", "shell");
 const GATE = require("./_electron_gate");
@@ -39,8 +40,8 @@ if (!process.versions.electron) (async () => {
   ok("① renderer 那條路(沒有 trusted)→ 這七家一律不收", ["okx", "bingx", "gateio", "bybit", "stockcoin", "bitget", "sinopac"].every((v) => argsOk("credentials", { env: set(v) }) === false && argsOk("credentials", { env: set(v) }, "true") === false));
   ok("① 解除綁定:七家的名字(含 OKX_PASSPHRASE、BITGET_PASSPHRASE)都拿得掉", ["okx", "bingx", "gateio", "bybit", "stockcoin", "bitget", "sinopac"].every((v) => argsOk("credentials_remove", { env: CC.venueEnvNames(v) }) === true));
   const SINO_EXTRA = require(path.join(SHELL, "daemon.js")).SINOPAC_ENV;
-  ok("① 永豐(AutoTradeSys fork):終端機工具寫的五行(憑證、身分證、實盤開關、綁定時間)解除綁定也拿得掉;別的名字不行",
-    J(SINO_EXTRA) === J(["SINOPAC_CA_PATH", "SINOPAC_CA_PASSWD", "SINOPAC_PERSON_ID", "SINOPAC_LIVE", "SINOPAC_BOUND_TS"])
+  ok("① 永豐(AutoTradeSys fork):daemon.js SINOPAC_ENV = 上游期貨的五行 + 終端機工具的實盤開關、綁定時間,解除綁定都拿得掉;別的名字不行",
+    J(SINO_EXTRA) === J(["SINOPAC_API_KEY", "SINOPAC_SECRET_KEY", "SINOPAC_CA_PASSWD", "SINOPAC_PERSON_ID", "SINOPAC_CA_PATH", "SINOPAC_LIVE", "SINOPAC_BOUND_TS"])
     && argsOk("credentials_remove", { env: CC.venueEnvNames("sinopac").concat(SINO_EXTRA) }) === true && argsOk("credentials_remove", { env: ["SINOPAC_FOO"] }) === false
     && argsOk("credentials", { env: { ...set("sinopac"), SINOPAC_LIVE: "true" } }, true) === false);
   ok("① Binance 照舊:一整對才收", argsOk("credentials", { env: { BINANCE_API_KEY: "A".repeat(64), BINANCE_SECRET_KEY: "b".repeat(64) } }, true) === true
@@ -87,8 +88,8 @@ if (!process.versions.electron) (async () => {
   eval(cut("trEnvNames")); eval(cut("trVenueLabel"));
   ok("② trEnvNames 與主行程 cloudcmd.venueEnvNames 同一組(解除綁定送的就是機器寫的)", ["binance", "okx", "bingx", "gateio", "bybit", "stockcoin", "bitget"].every((v) => J(trEnvNames(v)) === J(CC.venueEnvNames(v)))
     && J(trEnvNames("paper")) === J(["PAPER_API_KEY", "PAPER_SECRET_KEY", "PAPER_BOUND_TS"]));
-  ok("② 永豐(AutoTradeSys fork):trEnvNames = 主行程的那一對 + daemon.js SINOPAC_ENV(終端機工具寫的五行),每一個 daemon 都放行拿掉",
-    J(trEnvNames("sinopac")) === J(CC.venueEnvNames("sinopac").concat(SINO_EXTRA)) && trEnvNames("sinopac").every((n) => argsOk("credentials_remove", { env: [n] }) === true));
+  ok("② 永豐(AutoTradeSys fork):trEnvNames = 主行程的那一對 + daemon.js SINOPAC_ENV(同一組七行,主行程 sinopacUnbind 送的就是這些),每一個 daemon 都放行拿掉",
+    J(trEnvNames("sinopac").slice().sort()) === J([...new Set(CC.venueEnvNames("sinopac").concat(SINO_EXTRA))].sort()) && trEnvNames("sinopac").every((n) => argsOk("credentials_remove", { env: [n] }) === true));
   ok("② 名字表與主行程那份同一組交易所(永豐是 localOnly,不在加密貨幣那張表)", J(Object.keys(CX_VENUES).sort()) === J(Object.keys(CC.CONNECT_VENUES).filter((v) => !CC.localOnly(v)).sort()) && CX_VENUES.okx.pass === true && !CX_VENUES.bybit.pass
     && !("sinopac" in CX_VENUES) && CC.CONNECT_VENUES.sinopac.env === "SINOPAC" && !CC.CONNECT_VENUES.sinopac.pass);
   ok("② 提領不再檢查(Wei 2026-10-15):沒有任何一家帶 noWdCheck,renderer 也不再提 cx.note.wdUnchecked", Object.keys(CX_VENUES).every((v) => !("noWdCheck" in CX_VENUES[v])) && !/noWdCheck|wdUnchecked|WITHDRAW_ENABLED/.test(src));
