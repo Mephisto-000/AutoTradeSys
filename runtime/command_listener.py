@@ -1,4 +1,7 @@
 # Modified by Mephisto-000 on 2026-10-26: _LOCAL_KEY_CHECKS gains SINOPAC (永豐金 spot venue bound from the desktop app).
+#   (2026-11-24) _fork_sinopac_stock_bind: upstream 0.1.58 sends every sinopac_* credentials line through its futures
+#   connect flow's bind_gate; the desktop app's SinoPac stock bind (the plain key pair) skips it and keeps
+#   _local_real_key_gate.
 # Original work: Copyright 2025-2026 WuChi Technology Company Limited
 # Licensed under the Apache License, Version 2.0
 """Command listener: deterministic web → machine operations, no LLM turn.
@@ -341,6 +344,22 @@ def _env_flags():
         if sep and k and not k.startswith("#") and not _cred_match(k):
             out[k.upper()] = v.strip()
     return out
+
+
+def _fork_sinopac_stock_bind(env):
+    """AutoTradeSys fork: the desktop app's SinoPac (永豐金) stock bind — venue-connect's plain
+    SINOPAC_API_KEY + SINOPAC_SECRET_KEY pair, nothing else, no `vault:` value, on this computer, and
+    not a write sinopac_service.store() staged for upstream's futures connect flow. That bind skips
+    sinopac_service.bind_gate (upstream 0.1.58: every sinopac_* line is its connect flow's) and gets
+    _local_real_key_gate (lib/account_sinopac reads the simulation account) like before. The chat bind
+    never reaches here (lib/venue.py refuses TW brokers) and the cloud keeps upstream's refusal."""
+    if not _local_mode() or sinopac_service._PENDING.get("env"):
+        return False
+    names = {str(k).casefold() for k in env}
+    if names != {"sinopac_api_key", "sinopac_secret_key"}:
+        return False
+    return all(isinstance(v, str) and v.strip() and not v.strip().startswith(sinopac_service.PW_PREFIX)
+               for v in env.values())
 
 
 def _local_real_key_gate(venue_id, env):
@@ -1252,7 +1271,8 @@ def _cmd_credentials(args):
         raise ValueError("platform credentials are not writable here")
     # 永豐: its values never travel in this command — only the connect flow's store (sinopac_service.store)
     # writes its sentinels, in every mode; any other sinopac_* line (chat bind, web plain values) is refused
-    if any(k.casefold().startswith("sinopac_") for k in env):
+    fork_sinopac = _fork_sinopac_stock_bind(env)
+    if any(k.casefold().startswith("sinopac_") for k in env) and not fork_sinopac:
         sinopac_service.bind_gate(env)
     # DATA_* ids are invisible to every venue check (_venue_cred_ids), so a
     # custom exchange the web slugs to DATA_MARKET would bind without eviction,
@@ -1274,7 +1294,7 @@ def _cmd_credentials(args):
             elif vid == "CAPITAL":
                 # same reason as 統一: an account read is a login; only the app's bind step writes it
                 capital_local.local_bind_gate(env)
-            elif vid == "SINOPAC":
+            elif vid == "SINOPAC" and not fork_sinopac:
                 pass  # sinopac_service.bind_gate above: an account read is a login there too
             else:
                 _local_real_key_gate(vid, env)  # raises = nothing written
