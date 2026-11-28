@@ -70,6 +70,7 @@ import tick_gate
 import turn_slots
 import venue_traits
 import strategy_transfer
+import ws_update
 
 try:
     import fcntl
@@ -4382,6 +4383,20 @@ def _retire_prejoin_signals(joining):
             _log(f"prejoin: bar_wait record of {name} not removed ({type(e).__name__})")
 
 
+def _sinopac_trades():
+    """永豐 is a real TW futures route here: its futures gate open and bound through the connect
+    flow (sinopac_service.bound: the vault sentinels; the rule its worker starts by). The odd-lot
+    era left plain sinopac_* keys on some machines: they route but never trade (dormant), and their
+    saves must not be refused. Not venue_traits.dormant: its marker is written by the worker's first
+    start, after the connect flow's first save."""
+    if "futures" not in venue_traits.verified_modes(venue_traits.SINOPAC):
+        return False
+    try:
+        return sinopac_service.bound(WORKSPACE) is True
+    except Exception:
+        return False
+
+
 def _cmd_amounts(args):
     """策略下單金額 — the 下單設定 page's save button.
 
@@ -4520,24 +4535,23 @@ def _cmd_amounts(args):
     cfg["exchanges"] = {
         n: (old.get(n) or default_venue) for n in clean
     }
-    # 統一期貨 trades TW index futures only: a member routed there whose SYMBOL is
-    # anything else (BTCUSDT…) is refused at save time, by name, instead of
-    # blowing up in the reconciler's first round. Symbol unreadable = not
-    # judged (same fail-open as the Type C check); the picker locks these too.
-    # 統一 / 群益 trade TW index futures only (TXF / MXF / TMF): a member routed there whose
+    # 統一 / 群益 / 永豐 trade TW index futures only (TXF / MXF / TMF): a member routed there whose
     # SYMBOL is anything else (BTCUSDT…), or a portfolio (Type C, no symbol to judge), is
     # refused at save time, by name, instead of blowing up in the reconciler's first round.
-    # 統一 keeps its old code NOT_TXF (the pages already say it in a sentence); 群益 and the
+    # 統一 and 永豐 say NOT_TXF (the pages already say it in a sentence); 群益 and the
     # reverse direction — a TW futures / stock strategy routed to a crypto venue — are
     # MARKET_VENUE. Paper takes any market (its own rules). Symbol / market unreadable = not
     # judged (same fail-open as the Type C check); the picker locks these too.
+    tw_brokers = {venue_traits.PRESIDENT: "統一期貨", venue_traits.CAPITAL: "群益期貨"}
+    if _sinopac_trades():
+        tw_brokers[venue_traits.SINOPAC] = "永豐期貨"
     for k in clean:
         venue = cfg["exchanges"].get(k)
         if not venue or venue == "paper":
             continue
-        if venue in (venue_traits.PRESIDENT, venue_traits.CAPITAL):
-            code = "NOT_TXF" if venue == venue_traits.PRESIDENT else "MARKET_VENUE"
-            label = "統一期貨" if venue == venue_traits.PRESIDENT else "群益期貨"
+        if venue in tw_brokers:
+            code = "MARKET_VENUE" if venue == venue_traits.CAPITAL else "NOT_TXF"
+            label = tw_brokers[venue]
             if _strategy_is_portfolio(k):
                 raise ValueError(
                     f"{code}: 「{k}」是投資組合(Type C)策略,{label}只能下台指期(TXF／MXF／TMF)單一合約"
@@ -8825,6 +8839,13 @@ def _cmd_telegram_reset(args):
     return telegram_pairing.reset(gen)
 
 
+def _cmd_workspace_update(args, cmd_id):
+    """更新雲端主機(runtime/ws_update.py):驗證、單飛、ack 前寫 applying、起獨立子行程;結果走報告的
+    workspace_update。子行程結束時推一次報告,不必等 2 分鐘的 timer。"""
+    return ws_update.start(args, WORKSPACE, _local_mode(), cmd_id, _pid_cmdline_or_none, _child_kw,
+                           lambda: _push(_ON_PROGRESS, "workspace update"))
+
+
 HANDLERS = {
     "halt": _cmd_halt,
     "resume": _cmd_resume,
@@ -8857,6 +8878,7 @@ HANDLERS = {
     "stats_refresh": _cmd_stats_refresh,
     "strategy_import": _cmd_strategy_import,
     "strategy_export": lambda args: _cmd_strategy_export(args, None),
+    "workspace_update": lambda args: _cmd_workspace_update(args, None),
 }
 # 群益 cloud connect (runtime/capital_connect.py): long steps come back as Deferred
 HANDLERS.update({
@@ -8902,6 +8924,11 @@ def dispatch(command):
     # for its unbind-halt (audit H2: outside it, that halt was inert — either
     # a swallowed ImportError or a HALT file in the wrong cwd); credentials for
     # the same reason (its rebind-eviction halt).
+    # 雲端主機正在更新(按鈕那條的 job,或對話那條的 apply 拿著鎖):換檔途中不啟動下單。帶 strategies 的
+    # resume 也擋;暫停、平倉、停機暫停不擋(spec cloud-workspace-update-command-0160 §2.8-3)
+    if cmd in ("resume", "resume_wait", "restart_reconciler") and not _local_mode() \
+            and ws_update.running(WORKSPACE, _pid_cmdline_or_none):
+        raise RuntimeError(ws_update.ERR_UPDATE_RUNNING)
     if cmd in ("resume", "resume_wait") and args.get("strategies") is None:
         m = _read_unbind_marker()
         if m and not m.get("held"):
@@ -8913,6 +8940,8 @@ def dispatch(command):
         result = _in_workspace(fn, args)
     elif cmd == "strategy_export":  # the staging slot is keyed by this command's id
         result = _cmd_strategy_export(args, command.get("id"))
+    elif cmd == "workspace_update":
+        result = _cmd_workspace_update(args, command.get("id"))
     else:
         result = fn(args)
     # a start held for an unanswered account question changed nothing: the
@@ -9009,6 +9038,10 @@ def run(on_applied=None, on_progress=None):
     _resume_restore_watch()
     _resume_transfer_watch()
     _resume_perf_refresh()
+    try:
+        ws_update.resume_watch(WORKSPACE, _pid_cmdline_or_none, lambda: _push(_ON_PROGRESS, "workspace update"))
+    except Exception as e:
+        _log(f"workspace update resume failed: {type(e).__name__}: {e}")
 
     # Type A/C strategy scheduling — its own daemon thread, independent of the
     # poll loop below (see the "Type A/C in-process scheduler" section).

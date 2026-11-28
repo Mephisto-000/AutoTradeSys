@@ -1,14 +1,14 @@
 """永豐 worker lifecycle: the cloud shim (runtime/sinopac_service.py) and the desktop supervisor
 (runtime/sinopac_local.py) — real child processes running a stand-in worker, no shioaji, no login.
 
-  1. wanted(): the futures gate shut → never, whatever .env says; open → the four connect-flow
+  1. wanted(): the shipped gate is open; shut → never, whatever .env says; open → the four connect-flow
      sentinels under the worker's exact names (plain values, as a 零股 bind left them, never),
      no STOP record. The shim exits 0 without exec'ing when not wanted.
   2. desktop, gate shut: ticks never start anything.
   3. desktop, gate open: the child gets SJ_LOG_PATH = the null device and STOP_ON_EOF; an unbind
      closes its stdin and it leaves on its own (no kill); one that ignores the close is killed only
      past STOP_GRACE_S.
-  4. respawn: RESPAWN_S after an exit, UNVERIFIED_RESPAWN_S after UNVERIFIED_EXIT; none while STOP.
+  4. respawn: RESPAWN_S after an exit (SESSION_LOST_EXIT included), UNVERIFIED_RESPAWN_S after UNVERIFIED_EXIT; none while STOP.
   5. daemon shutdown asks and waits briefly, never kills; the next start's reap waits for a worker
      still logging out and kills one still there past the grace.
   6. the real worker leaves on stdin EOF when STOP_ON_EOF is set (gate shut: it exits at once, so
@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import types
 
@@ -134,12 +135,12 @@ def wait_exit(p, s=5.0):
 
 real_modes = svc.venue_traits.verified_modes
 gate = {"open": False}
-svc.venue_traits.verified_modes = lambda v: ("futures",) if gate["open"] and v == "sinopac" else real_modes(v)
+svc.venue_traits.verified_modes = lambda v: (("futures",) if gate["open"] else ()) if v == "sinopac" else real_modes(v)
 
 # ── 1. wanted() ──
 bind()
-check(svc.wanted(WS)[0] is False and "futures" not in real_modes("sinopac"),
-      "1 the shipped gate is shut: not wanted even when bound")
+check(real_modes("sinopac") == ("futures",), "1 the shipped gate is open")
+check(svc.wanted(WS)[0] is False, "1 gate shut: not wanted even when bound")
 gate["open"] = True
 check(svc.wanted(WS) == (True, None), "1 gate open + bound through the connect flow + finished + no STOP → wanted")
 bind(wanted=False)
@@ -162,14 +163,23 @@ bind()
 open(STOP, "w").close()
 check(svc.wanted(WS)[0] is False, "1 not wanted: a STOP record (the user has to confirm a login)")
 os.remove(STOP)
-# the shim as systemd runs it (its own process, the shipped gate): exits 0 without exec'ing — a
-# stand-in that exits 7 would show
+# the shim as systemd runs it (its own process, the shipped gate open; the connect flow not
+# finished): exits 0 without exec'ing — a stand-in that exits 7 would show
 mode("exit:7")
 gate["open"] = False
+bind(wanted=False)
 r = subprocess.run([sys.executable, os.path.join(ROOT, "runtime", "sinopac_service.py")], capture_output=True,
                    timeout=30, env=dict(os.environ, BLAVE_AGENT_WORKSPACE=WS))
 check(r.returncode == 0 and not lines(), "1 shim: not wanted → exit 0, worker never started",
       (r.returncode, lines(), r.stderr.decode()[-200:]))
+check(b"not started" in r.stdout, "1 shim: a bound machine's reason is logged", r.stdout[-200:])
+os.remove(ENV)
+r = subprocess.run([sys.executable, os.path.join(ROOT, "runtime", "sinopac_service.py")], capture_output=True,
+                   timeout=30, env=dict(os.environ, BLAVE_AGENT_WORKSPACE=WS))
+check(r.returncode == 0 and not r.stdout and not r.stderr and not lines(),
+      "1 shim: never bound (most machines, the timer every 2 minutes) → exit 0 without a log line",
+      (r.returncode, r.stdout[-200:], r.stderr[-200:]))
+bind()
 
 # ── 2. desktop, gate shut ──
 w = sl._Worker()
@@ -194,6 +204,13 @@ check(p is not None and p.poll() is None
       "3 …handed over → started; SJ_LOG_PATH = the null device, STOP_ON_EOF set, credentials as the first "
       "stdin line", lines())
 check(open(os.path.join(WS, "state", "sinopac_worker.pid")).read().strip() == str(p.pid), "3 pid file written")
+_real_W, sl._W = sl._W, w
+_info = sl.local_info()
+sl._W = _real_W
+check(_info.get("worker_running") is True and isinstance(_info.get("worker_started_at"), float)
+      and abs(_info["worker_started_at"] - time.time()) < 30 and sl.local_info().get("worker_started_at") is None,
+      "3 the status doc carries the running worker's spawn time (the app's 連接中… grace after a reopen); none when "
+      "no worker runs", _info)
 w.tick(now + 1)
 check(w.proc is p, "3 a running worker is not started twice")
 with open(ENV, "wb") as f:
@@ -230,7 +247,8 @@ check(alive_in_grace and wait_exit(p) is not None,
 
 # ── 4. respawn spacing ──
 bind()
-for rc_, gap in ((1, sl.RESPAWN_S), (5, sl.RESPAWN_S), (4, sl.UNVERIFIED_RESPAWN_S)):
+# 7 = lib/sinopac_worker.SESSION_LOST_EXIT (a session gone after a good login): restarted like a crash
+for rc_, gap in ((1, sl.RESPAWN_S), (5, sl.RESPAWN_S), (7, sl.RESPAWN_S), (4, sl.UNVERIFIED_RESPAWN_S)):
     mode(f"exit:{rc_}")
     w = sl._Worker()
     w.tick(now)
@@ -315,7 +333,8 @@ staged = []
 def _fake_credentials(args):
     svc.bind_gate(args["env"])
     staged.append(args["env"])
-    bind("".join(f"{k}={v}\n" for k, v in args["env"].items()))
+    # the real _cmd_credentials writes .env only: the finish marker stays as store() left it
+    bind("".join(f"{k}={v}\n" for k, v in args["env"].items()), wanted=os.path.exists(os.path.join(WS, svc.WANTED)))
 
 
 cl._cmd_credentials = _fake_credentials
@@ -560,7 +579,9 @@ check(refusals == {"probe takes no sealed": "BAD_ARGS", "unknown op": "BAD_ARGS"
                    "start, stale id": "SECRETS_STALE", "worker running": "WORKER_RUNNING"},
       "8 sinopac_local: shapes refused; the three login steps need `expect` and refuse a set other than the one "
       "this daemon holds (同統一 0.1.57); no confirm-login while the worker holds the login", refusals)
-# 〔改金鑰〕: bind without src keeps the stored certificate (opened again with the new bundle's password)
+# 〔改金鑰〕: bind without src keeps the stored certificate (opened again with the new bundle's password).
+# No finish marker here: the machine-side resume after a key change is section 8b
+os.remove(os.path.join(WS, svc.WANTED))
 staged.clear()
 out = sl.local_dispatch({"op": "bind", "sealed": seal(dict(BUNDLE, api_key="k2", secret_key="s2"))}, _D)
 check(out["cert"]["not_after"] and staged and staged[-1]["sinopac_api_key"] == svc.bound_env("k2", "s2", WS)["sinopac_api_key"]
@@ -572,7 +593,342 @@ check(code_of(lambda: sl.local_dispatch({"op": "probe", "expect": seal(BUNDLE)},
 d = sl.local_dispatch({"op": "probe", "expect": seal(dict(BUNDLE, api_key="k2", secret_key="s2"))}, _D)
 check(isinstance(d, _D) and sc._busy.locked(), "8 …a confirm-login with the worker down is a Deferred step")
 d.cleanup()
+
+# ── 8b. a key change on a machine that had finished connecting (Wei 11-24): the daemon itself logs in
+#        with the new set and, on a pass, starts the worker again through run_finish → WANTED → the
+#        supervisor — nothing waits for the app's box. A refused login stays there; a first connect
+#        (no WANTED) is unchanged; the app's own probe / start meanwhile are refused (one start) ──
+WANTED_P = os.path.join(WS, svc.WANTED)
+SNAP = sc._paths()["snapshot"]
+
+
+def wait_unlocked(s=40.0):
+    """Ticks the supervisor meanwhile, as the daemon's loop does (it kills a worker past STOP_GRACE_S)."""
+    t = time.time() + s
+    while sc._busy.locked() and time.time() < t:
+        w.tick(time.time())
+        time.sleep(0.1)
+    return not sc._busy.locked()
+
+
+probe_calls = []
+
+
+on_probe = []  # a hook run inside the next probe (an unbind while it logs in)
+
+
+def _fake_probe(flag, timeout, local):
+    probe_calls.append({"flag": flag, "old_worker_running": w.running()})
+    rc = _fake_run(flag, timeout, local)
+    while on_probe:
+        on_probe.pop(0)()
+    return rc
+
+
+def refusal(args):
+    try:
+        sl.local_dispatch(args, _D)
+    except sl.Refused as e:
+        return e.code
+    except ValueError as e:  # sinopac_connect.start_step's BUSY
+        return sc.cc._code(e, "?")
+    return None
+
+
+sc._run_worker = _fake_probe
+B3 = dict(BUNDLE, api_key="k3", secret_key="s3")
+# the old worker runs (the connect flow had finished with k2) and ignores the close: killed only past the
+# grace, and the new login waits for that (one login per national id)
+open(WANTED_P, "w").close()
+real_grace = sl.STOP_GRACE_S
+sl.STOP_GRACE_S = 1
+mode("deaf")
+w.check_at = 0.0
+w.tick(time.time())
+old = w.proc
+check(old is not None and old.poll() is None, "8b setup: the worker of the finished connect runs")
+with open(SNAP, "w") as f:  # the old key's account, fresh
+    json.dump({"ok": True, "equity": 1, "read_at": time.time()}, f)
+answers[:] = [None]
+out = sl.local_dispatch({"op": "bind", "sealed": seal(B3)}, _D)
+check(not os.path.exists(SNAP), "8b key change: the store drops the old key's snapshot (audit M1)")
+with open(SNAP, "w") as f:  # what the restarted worker would write (read_at after run_finish starts)
+    json.dump({"ok": True, "equity": 1, "read_at": time.time() + 120}, f)
+st = sc.read_status() or {}
+during = {"probe": refusal({"op": "probe", "expect": seal(B3)}), "start": refusal({"op": "start", "expect": seal(B3)}),
+          "bind": refusal({"op": "bind", "sealed": seal(B3)})}
+check(out["cert"]["not_after"] and st.get("busy") == sl.RESUME_STEP and sc._busy.locked(),
+      "8b key change: bind answers at once and the resume holds the one 永豐 step (busy = sinopac_local:resume)", st.get("busy"))
+# refused either way: the old worker still holds the login (WORKER_RUNNING) or the resume holds the step (BUSY)
+check(during["probe"] in ("BUSY", "WORKER_RUNNING") and during["start"] in ("BUSY", "PROBE_NOT_OK", "WORKER_RUNNING")
+      and during["bind"] == "BUSY",
+      "8b …meanwhile the app's own probe / start / another bind are refused, never a second login or start", during)
+check(wait_unlocked(), "8b …the resume finishes and releases the step")
+sl.STOP_GRACE_S = real_grace
+mode("eof")
+st = sc.read_status() or {}
+check(probe_calls and probe_calls[0]["flag"] == "--once" and probe_calls[0]["old_worker_running"] is False and old.poll() is not None,
+      "8b …its 確認登入 runs only after the old worker left (one login per national id)", probe_calls)
+check(st.get("probe", {}).get("state") == "ok" and st.get("worker", {}).get("status") == "ok" and os.path.exists(WANTED_P)
+      and svc.wanted(WS)[0] is True and not st.get("busy"),
+      "8b …login passed → run_finish: worker ok, WANTED back, wanted() true (box never opened)", st)
+n0 = len(starts())
+w.tick(time.time())  # reaps the old worker (its exit sets the respawn spacing, RESPAWN_S — inside run_finish's wait)
+w.check_at = 0.0
+w.respawn_at = 0.0
+w.tick(time.time())
+t_end = time.time() + 5
+while len(starts()) < n0 + 1 and time.time() < t_end:  # the stand-in writes its line once it runs
+    time.sleep(0.05)
+check(w.running() and len(starts()) == n0 + 1, "8b …and the supervisor starts the worker once the respawn spacing passed", starts()[n0:])
+check(refusal({"op": "start", "expect": seal(B3)}) == "WORKER_RUNNING",
+      "8b …an app's start after that is refused: the worker already holds the login (idempotent)")
+p = w.proc
+w.shutdown(wait=2)
+wait_exit(p)
+time.sleep(0.2)
+# a refused login (KEY): stays on that row, the worker not wanted
+probe_calls.clear()
+answers[:] = ["KEY"]
+open(WANTED_P, "w").close()
+B4 = dict(BUNDLE, api_key="k4", secret_key="s4")
+sl.local_dispatch({"op": "bind", "sealed": seal(B4)}, _D)
+check(wait_unlocked(), "8b refused login: the resume ends")
+st = sc.read_status() or {}
+w.check_at = 0.0
+w.respawn_at = 0.0
+n0 = len(starts())
+w.tick(time.time())
+check(st.get("probe", {}).get("status") == "failed" and st.get("probe", {}).get("state") == "key"
+      and st.get("worker", {}).get("status") == "idle" and not os.path.exists(WANTED_P) and not w.running()
+      and len(starts()) == n0 and len(probe_calls) == 1,
+      "8b …KEY: probe.state key, worker idle, no WANTED, the supervisor starts nothing",
+      (os.path.exists(WANTED_P), w.running(), len(starts()), n0, probe_calls))
+# a first connect (no WANTED): bind only, as before — the box walks setup / sign / start
+probe_calls.clear()
+answers[:] = []
+sl.local_dispatch({"op": "bind", "sealed": seal(dict(BUNDLE, api_key="k5", secret_key="s5"))}, _D)
+time.sleep(0.5)
+st = sc.read_status() or {}
+check(not sc._busy.locked() and not st.get("busy") and probe_calls == [] and st.get("probe", {}).get("status") == "idle"
+      and not os.path.exists(WANTED_P),
+      "8b first connect: no login, no start, nothing held — unchanged", (probe_calls, st))
+
+
+def rekey(n):
+    """A finished connect (WANTED), then a key change to k<n>."""
+    open(WANTED_P, "w").close()
+    probe_calls.clear()
+    sl.local_dispatch({"op": "bind", "sealed": seal(dict(BUNDLE, api_key=f"k{n}", secret_key=f"s{n}"))}, _D)
+
+
+def unbind():
+    sl.drop_local(None)
+    svc.drop(workspace=WS)
+
+
+# the old worker ignores the close and is never killed within RESUME_WAIT_S: no login beside it, the step let go
+real_wait, real_grace = sl.RESUME_WAIT_S, sl.STOP_GRACE_S
+sl.RESUME_WAIT_S, sl.STOP_GRACE_S = 1, 999
+mode("deaf")
+open(WANTED_P, "w").close()
+sl._set_secrets(dict(BUNDLE, api_key="k5", secret_key="s5"))
+w.check_at, w.respawn_at = 0.0, 0.0
+w.tick(time.time())
+stuck = w.proc
+answers[:] = [None]
+rekey(6)
+t_end = time.time() + 10
+while sc._busy.locked() and time.time() < t_end:  # no ticks: nothing kills it
+    time.sleep(0.1)
+st = sc.read_status() or {}
+check(stuck is not None and stuck.poll() is None and probe_calls == [] and not sc._busy.locked() and not st.get("busy")
+      and not os.path.exists(WANTED_P) and st.get("probe", {}).get("status") == "idle",
+      "8b the old worker still there past RESUME_WAIT_S: no login beside it, the step released, nothing wanted", (probe_calls, st))
+stuck.kill()
+stuck.wait(5)
+w.tick(time.time())
+sl.RESUME_WAIT_S, sl.STOP_GRACE_S = real_wait, real_grace
+mode("eof")
+# a login that got no answer is tried once more (no loop); a 451 after its retry_at
+real_retry, real_451 = sl.RESUME_RETRY_S, sc.LOGIN_451_WAIT_S
+sl.RESUME_RETRY_S, sc.LOGIN_451_WAIT_S = 0.3, 2
+answers[:] = ["TIMEOUT", None]
+
+
+def _new_key_snapshot():  # the restarted worker's first read (the store dropped the old key's)
+    with open(SNAP, "w") as f:
+        json.dump({"ok": True, "equity": 1, "read_at": time.time() + 120}, f)
+
+
+on_probe.append(_new_key_snapshot)
+rekey(7)
+check(wait_unlocked(), "8b TIMEOUT: the resume ends")
+st = sc.read_status() or {}
+check(len(probe_calls) == 2 and st.get("probe", {}).get("state") == "ok" and st.get("worker", {}).get("status") == "ok" and os.path.exists(WANTED_P),
+      "8b …TIMEOUT then a pass: one more login, then the worker is wanted again", (probe_calls, st))
+answers[:] = ["TOO_MANY", "TOO_MANY", None]
+t0 = time.time()
+rekey(8)
+check(wait_unlocked(), "8b 451 twice: the resume ends")
+st = sc.read_status() or {}
+check(len(probe_calls) == 2 and answers == [None] and time.time() - t0 >= 0.9 and st.get("probe", {}).get("state") == "too_many"
+      and st.get("worker", {}).get("status") == "idle" and not os.path.exists(WANTED_P),
+      "8b …451: once more after its retry_at (no loop); still 451 → stays on that row, nothing wanted", (probe_calls, answers, st))
+# an unbind while the resume logs in, or while it waits to try again: no WANTED left, the step let go at once
+def unbind_mid_login():
+    unbind()  # drop() also takes the probe file: the login's answer lands after it (a pass)
+    with open(sc._paths()["probe"], "w") as f:
+        json.dump({"ok": True, "reason": None, "read_at": time.time()}, f)
+
+
+answers[:] = [None]
+on_probe.append(unbind_mid_login)
+rekey(9)
+check(wait_unlocked(), "8b unbind mid-login: the resume ends")
+check(len(probe_calls) == 1 and (sc.read_status() or {}).get("probe", {}).get("state") == "ok" and not os.path.exists(WANTED_P)
+      and (sc.read_status() or {}).get("worker", {}).get("status") != "ok",
+      "8b …a login passed after an unbind: no run_finish, no WANTED left for the next connect", (probe_calls, sc.read_status()))
+bind("".join(f"{k}={v}\n" for k, v in svc.bound_env("k9", "s9", WS).items()), wanted=False)
+with open(svc.paths(WS)["pfx"], "wb") as f:
+    f.write(pfx_id)
+sl._set_secrets(dict(BUNDLE, api_key="k9", secret_key="s9"))
+sl.RESUME_RETRY_S, sc.LOGIN_451_WAIT_S = 30, real_451  # a full wait: only the unbind can end it early
+answers[:] = ["TIMEOUT"]
+rekey(10)
+time.sleep(0.5)
+unbind()
+t0 = time.time()
+check(wait_unlocked(5) and time.time() - t0 < 3 and len(probe_calls) == 1 and not os.path.exists(WANTED_P),
+      "8b …an unbind during the wait to try again: no second login, the lock gone within a second or two", probe_calls)
+sl.RESUME_RETRY_S, sc.LOGIN_451_WAIT_S = real_retry, real_451
+
+# ── 8c. a daemon that died mid-step leaves `busy` in the status file: the next start sweeps it (reap_orphan,
+#        before the first tick) — running sections INTERRUPTED, busy off; one that died inside run_finish with
+#        WANTED there waits for the first snapshot again instead of reading 「開通中」 over a trading worker ──
+sc._update(busy=sl.RESUME_STEP, probe={"status": "running", "at": int(time.time())})
+sc._update("probe", status="running")
+sl.reap_orphan(lambda pid: "")
+st = sc.read_status() or {}
+check(not st.get("busy") and st.get("probe", {}).get("status") == "failed" and st.get("probe", {}).get("error") == "INTERRUPTED"
+      and not sc._busy.locked(),
+      "8c restart mid-probe: busy cleared, probe INTERRUPTED, nothing held", st)
+bind("".join(f"{k}={v}\n" for k, v in svc.bound_env("k9", "s9", WS).items()), wanted=True)
+with open(svc.paths(WS)["pfx"], "wb") as f:
+    f.write(pfx_id)
+sc._update("worker", status="running")
+sc._update(busy=sl.RESUME_STEP)
+with open(SNAP, "w") as f:
+    json.dump({"ok": True, "equity": 1, "read_at": time.time() + 120}, f)
+sl.reap_orphan(lambda pid: "")
+held = sc._busy.locked() and (sc.read_status() or {}).get("busy") == sl.RESUME_STEP
+check(held and wait_unlocked(), "8c restart inside run_finish (WANTED there): the finish wait is taken up again under the step")
+st = sc.read_status() or {}
+check(st.get("worker", {}).get("status") == "ok" and not st.get("busy"),
+      "8c …and the worker reads ok once its snapshot is there (not stuck at 開通中)", st)
+sc._run_worker = _real_run
 os.environ.pop("BLAVE_AGENT_LOCAL", None)
+
+# ── 8e run_finish waits through the worker's 「登入中」／login-retry snapshots (29026 11-24: the first
+#       snapshot, written the second the worker started, is {"ok": False, "waiting": "login"} — read as
+#       WORKER_FAILED while the login then passed); only an answer settles it ──
+_real_wait, _real_poll = sc.FINISH_WAIT_S, sc.FINISH_POLL_S
+sc.FINISH_POLL_S = 0.05
+
+
+def _finish_with(writes, wait_s=3.0):
+    """run_finish(local) while a stand-in worker writes `writes` [(delay_s, snapshot), …] in order."""
+    sc.FINISH_WAIT_S = wait_s
+    if os.path.exists(SNAP):
+        os.remove(SNAP)
+
+    def writer():
+        for delay, snap in writes:
+            time.sleep(delay)
+            with open(SNAP, "w") as f:
+                json.dump(dict(snap, read_at=time.time()), f)
+    t = threading.Thread(target=writer, daemon=True)
+    t0 = time.time()
+    t.start()
+    code = code_of(lambda: sc.run_finish(True))
+    t.join()
+    return code, time.time() - t0, (sc.read_status() or {}).get("worker", {})
+
+
+_W_LOGIN = {"ok": False, "waiting": "login", "positions": [], "error": "永豐登入中"}
+_W_RETRY = {"ok": False, "waiting": "login_retry", "retry_at": time.time() + 60, "error": "timeout"}
+code, took, wk = _finish_with([(0.1, _W_LOGIN), (0.3, _W_RETRY), (0.3, {"ok": True, "equity": 1.0})])
+check(code is None and wk.get("status") == "ok" and took >= 0.6,
+      "8e 登入中, then a login retry, then a read: the finish waits them out and reads ok", (code, took, wk))
+code, took, wk = _finish_with([(0.1, _W_LOGIN), (0.2, _W_RETRY)], wait_s=1.0)
+check(code == "WORKER_FAILED" and wk.get("status") == "failed" and took >= 1.0,
+      "8e still logging in when the wait runs out: WORKER_FAILED only then (the user's 〔再試一次〕)", (code, took, wk))
+code, took, wk = _finish_with([(0.1, {"ok": False, "error": "KEY", "login_stopped": True})])
+check(code == "WORKER_FAILED" and took < 1.5,
+      "8e a login STOP settles it at once (WORKER_FAILED)", (code, took, wk))
+code, took, wk = _finish_with([(0.1, {"ok": False, "error": "read failed"})])
+check(code == "WORKER_FAILED" and took < 1.5, "8e a failed read (not waiting) settles it at once", (code, took))
+# Windows cloud: `--install`'s exit code judges its first snapshot alone (「登入中」 → 2); not read
+_real_win, _real_rq, _real_py = sc.IS_WINDOWS, sc.cc._run_quiet, sc._python
+_installs = []
+
+
+def _fake_install(argv, timeout, what, env=None):
+    _installs.append(argv[-1])
+    with open(SNAP, "w") as f:
+        json.dump(dict(_W_LOGIN, read_at=time.time()), f)
+    return types.SimpleNamespace(returncode=2, stdout=b"", stderr=b"")
+
+
+sc.IS_WINDOWS, sc.cc._run_quiet, sc._python = True, _fake_install, (lambda local: sys.executable)
+sc.FINISH_WAIT_S = 3.0
+if os.path.exists(SNAP):
+    os.remove(SNAP)
+
+
+def _ok_later():
+    time.sleep(0.4)
+    with open(SNAP, "w") as f:
+        json.dump({"ok": True, "equity": 1.0, "read_at": time.time()}, f)
+
+
+_t = threading.Thread(target=_ok_later, daemon=True)
+_t.start()
+code = code_of(lambda: sc.run_finish(False))
+_t.join()
+check(_installs == ["--install"] and code is None and (sc.read_status() or {}).get("worker", {}).get("status") == "ok",
+      "8e Windows cloud: --install exits 2 on its 「登入中」 snapshot, the finish waits on and reads ok",
+      (_installs, code, (sc.read_status() or {}).get("worker")))
+sc.IS_WINDOWS, sc.cc._run_quiet, sc._python = _real_win, _real_rq, _real_py
+sc.FINISH_WAIT_S, sc.FINISH_POLL_S = _real_wait, _real_poll
+if os.path.exists(SNAP):
+    os.remove(SNAP)
+
+# ── 8d the cloud steps check the workspace's own lib gate too (audit S4): a runtime newer than the
+#       workspace refuses before the setup and the certificate, with nothing written and no HALT ──
+gate["open"] = True
+_ws_vt = os.path.join(WS, "lib", "venue_traits.py")
+_real_vt = open(os.path.join(ROOT, "lib", "venue_traits.py"), encoding="utf-8").read()
+check(_real_vt.count('\n_SINOPAC_MODES = ("futures",)\n') == 1, "8d the shipped lib gate line is the one sinopac_connect reads")
+with open(_ws_vt, "w", encoding="utf-8") as f:
+    f.write(_real_vt.replace('_SINOPAC_MODES = ("futures",)', "_SINOPAC_MODES = ()"))
+_key_path = sc._paths()["key"]
+for _p in (_key_path, os.path.join(WS, "state", "HALT")):
+    if os.path.exists(_p):
+        os.remove(_p)
+_st_before = sc.read_status()
+_codes = [code_of(lambda c=c: sc.dispatch(c, {}, None)) for c in ("sinopac_setup", "sinopac_pfx_key", "sinopac_pfx", "sinopac_probe")]
+check(_codes == ["WORKSPACE_OLD"] * 4 and not os.path.exists(_key_path) and not os.path.exists(os.path.join(WS, "state", "HALT"))
+      and sc.read_status() == _st_before,
+      "8d workspace lib shut: setup / pfx_key / pfx / probe refused WORKSPACE_OLD, no key, no status change, no HALT", _codes)
+os.remove(_ws_vt)
+check(code_of(sc.gate) == "WORKSPACE_OLD", "8d no lib/venue_traits.py in the workspace: refused the same")
+with open(_ws_vt, "w", encoding="utf-8") as f:
+    f.write(_real_vt)
+check(sc.workspace_open() and code_of(sc.gate) is None, "8d the shipped lib in the workspace: the gate passes")
+gate["open"] = False
+check(code_of(sc.gate) == "NOT_OPEN", "8d this runtime's own gate shut: NOT_OPEN first")
+os.remove(_ws_vt)
 
 svc.venue_traits.verified_modes = real_modes
 

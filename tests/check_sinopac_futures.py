@@ -4,10 +4,10 @@
 # Licensed under the Apache License, Version 2.0
 """永豐期貨 futures path without a broker — Shioaji is faked, nothing logs in.
 
-0. Not live-verified yet (lib/venue_traits sinopac row has no verified mode):
-   the lib refuses before writing a request, the worker exits without a login
-   (daemon and --once), sinopac_futures_account refuses every read. The rest of this
-   file flips the three modules' VERIFIED on to test what runs after the gate.
+0. The shipped row verifies futures. With the three modules' VERIFIED off (an older
+   workspace): the lib refuses before writing a request, the worker exits without a login
+   (daemon and --once), account_sinopac refuses every read. The rest of this file runs
+   with VERIFIED on.
    lib/order_sinopac carries no odd-lot path and never imports shioaji.
 1. Contract pick (worker): an entry goes to the computed near month when it is
    listed, adds to the book's held month, is refused when unlisted or when the
@@ -56,7 +56,14 @@
    streak, then every 2 h, none under HALT; any credential / certificate /
    signing / unidentified failure stops with one P1. A start past the gate
    writes the durable futures-enabled marker (venue_traits bound_marker).
-6. sinopac_futures_account: missing / stale / error snapshots raise; two months of one
+5b. A session lost after a good login (29026 11-25): a token refused at once, the Solace session
+   not established for READ_RELOGIN_NOT_READY_S, any other failed read (500, 503 maintenance) for
+   READ_RELOGIN_S → a `waiting: login` snapshot with the last good rows, logout, SESSION_LOST_EXIT
+   (no STOP). Meanwhile a 503 or not-established read — and a 500 inside MAINTENANCE_TW (Taipei
+   time, any TZ) — is `waiting: session` (skipped, never a halt), any other a failed read; the outage's exchange_unreachable is the worker's, its clock carried over the
+   re-login until a read answers. A session lost inside LOGIN_STABLE_S keeps the ladder record, so the restart waits its
+   spacing; an order meanwhile is rejected with the error, nothing placed.
+6. account_sinopac: missing / stale / error snapshots raise; two months of one
    root raise; positions in lots.
 7. flatten's TW-broker names (format_qty, close_position_partial) exist.
 Also: the MKP retry (once, after a Failed MKT with no fill only), the TAIFEX
@@ -66,7 +73,7 @@ month-aware reads, and the refusing stubs.
 
 Run: cd blave-agent && .venv/bin/python tests/check_sinopac_futures.py
 """
-import json, os, sys, tempfile, threading, time, types
+import inspect, json, os, re, sys, tempfile, threading, time, types
 
 # AutoTradeSys fork: the `sinopac` venue is the TW-stock lib here; upstream's futures producer
 # (place_futures_market_order) is not in it, so this whole file is a SKIP (tests/_run_all.py)
@@ -143,6 +150,10 @@ class FuturesOrder:
 sj.FuturesOrder = FuturesOrder
 
 
+class _ShioajiValueError(ValueError):
+    pass
+
+
 class ShioajiTimeoutError(Exception):
     pass
 
@@ -211,6 +222,9 @@ class FakeApi:
                  login_raises=None, futopt=True, ca_ok=True, extra=(), infos=None, not_ready=0,
                  lag_s=0.0):
         self.calls = []
+        self.status_calls = []
+        self.status_timeouts = []
+        self.position_timeouts = []
         self.positions = list(positions)
         self.fill = fill
         self.place_raises = place_raises
@@ -253,7 +267,9 @@ class FakeApi:
                                      initial_margin=80000.0, maintenance_margin=60000.0,
                                      deposit_withdrawal=0.0)
 
-    def list_positions(self, acct):
+    def list_positions(self, acct, unit=None, timeout=None):
+        # None = not passed (the SDK's own default then applies): the lag probe must pass its cap
+        self.position_timeouts.append(timeout)
         rows = self.positions
         if self.before_fill is not None and time.time() - self.filled_at < self.lag_s:
             rows = self.before_fill
@@ -281,8 +297,12 @@ class FakeApi:
         self.trades = [t]
         return t
 
-    def update_status(self, acct, trade=None):
-        self.calls.append("update_status")
+    def update_status(self, account=None, *, trade=None, timeout=30000, cb=None):
+        # 1.7.11's signature (_core.pyi); one or the other — the 11-23 live run's error on both
+        if account is not None and trade is not None:
+            raise _ShioajiValueError("Cannot specify both account and trade")
+        self.status_calls.append((account is not None, trade is not None))
+        self.status_timeouts.append(timeout)
 
     def list_trades(self):
         return self.trades
@@ -292,7 +312,7 @@ holder = {"api": None}
 sj.Shioaji = lambda simulation=None: holder["api"]
 sys.modules["shioaji"] = sj
 
-from lib import guard, order_sinopac as osj, sinopac_futures_account as account_sinopac, sinopac_worker as w  # noqa: E402
+from lib import guard, order_sinopac as osj, account_sinopac as account_sinopac, sinopac_worker as w  # noqa: E402
 
 # the credential store, inside this test's temp dir — never <repo parent>/credentials
 w.sinopac_vault.VAULT = os.path.join(TMP, "_cred", "sinopac_vault.json")
@@ -316,6 +336,16 @@ for mod in (osj, w):
     mod.REFRESH_FLAG = os.path.join(TMP, "state", "sinopac_refresh")
 osj.WORKER_HEARTBEAT = w.HEARTBEAT_PATH = os.path.join(TMP, "state", "heartbeat", "sinopac_worker")
 w.OUT_PATH = account_sinopac._SNAPSHOT = os.path.join(TMP, "state", "sinopac_account.json")
+# the key the account lib takes as bound now (its own .env, so the worker sections' binds do not
+# move it) and the key this "worker" logged in with: every snapshot below carries it
+account_sinopac._ENV = os.path.join(TMP, "acct.env")
+_KEY_A = w.sinopac_vault.bound_env("ka", "sa")["sinopac_api_key"]
+with open(account_sinopac._ENV, "w") as f:
+    f.write(f"sinopac_api_key={_KEY_A}\n")
+w._KEY_FP = _KEY_A
+# until section 6 checks the key itself: the bound key is whatever this "worker" last logged in with
+_real_bound_key = account_sinopac._bound_key
+account_sinopac._bound_key = lambda: w._KEY_FP
 w.PROBE_PATH = os.path.join(TMP, "state", "sinopac_probe.json")
 w.STOP_PATH = os.path.join(TMP, "state", "sinopac_login_stopped.json")
 w.TAGS_PATH = os.path.join(TMP, "state", "sinopac_order_tags.json")
@@ -332,9 +362,9 @@ TPE = w.contracts.TAIPEI
 from lib import tw_clock  # noqa: E402
 real_entry_hold = tw_clock.entry_hold
 
-# ── 0. the not-yet-verified gate ─────────────────────────────────────────────
-check(not osj.FUTURES_VERIFIED and not w.VERIFIED and not account_sinopac.VERIFIED,
-      "the shipped trait row keeps all three modules shut")
+# ── 0. the shipped row, then the gate off (an older workspace) ───────────────
+check(osj.FUTURES_VERIFIED and w.VERIFIED and account_sinopac.VERIFIED,
+      "the shipped trait row opens all three modules")
 from lib import venue_traits  # noqa: E402
 check(venue_traits.has("sinopac", "snapshot_settle_wait") and vault.ORDER_SETTLE_S >= 20
       and callable(vault.last_order_at),
@@ -344,6 +374,7 @@ check("futures" not in venue_traits.verified_modes("sinopac")
       or (isinstance(_measured, (int, float)) and _measured > 0 and vault.ORDER_SETTLE_S >= 2 * _measured),
       "the gate flips only with 永豐's own fill → list_positions lag timed (audit M3): ORDER_SETTLE_S "
       "is at least twice ORDER_SETTLE_MEASURED_S", (vault.ORDER_SETTLE_S, _measured))
+osj.FUTURES_VERIFIED = w.VERIFIED = account_sinopac.VERIFIED = False
 _src = open(os.path.join(ROOT, "lib", "order_sinopac.py"), encoding="utf-8").read()
 _wsrc = open(os.path.join(ROOT, "lib", "sinopac_worker.py"), encoding="utf-8").read()
 _login_src = _wsrc[_wsrc.index("def login("):]
@@ -379,7 +410,7 @@ check(rc_daemon == rc_once == w.UNVERIFIED_EXIT and "login" not in holder["api"]
 check(not os.path.exists(w.ENABLED_PATH), "…and leaves no futures-enabled marker")
 w._write_snapshot({"ok": True, "equity": 1.0, "positions": []})
 check(raises(RuntimeError, lambda: account_sinopac.get_equity({})) is not None,
-      "sinopac_futures_account: unverified → a fresh snapshot is still not read")
+      "account_sinopac: unverified → a fresh snapshot is still not read")
 os.remove(w.OUT_PATH)
 os.remove(w.HEARTBEAT_PATH)
 osj.FUTURES_VERIFIED = w.VERIFIED = account_sinopac.VERIFIED = True
@@ -508,8 +539,20 @@ def req(intent="entry", action="buy", qty=1, tag=None, symbol="TXF", ttl=5):
 
 acct = types.SimpleNamespace(account_id="F0001")
 api = FakeApi(fill=("Filled", [(1, 23000.0), (1, 23010.0)]))
+_real_log, _logged = w._log, []
+w._log = _logged.append
 res = w.execute(api, acct, req(qty=2), simulation=True)
+w._log = _real_log
 po = [c for c in api.calls if isinstance(c, tuple)]
+_us = api.status_calls
+check(_us and all(c == (False, True) for c in _us)
+      and not any("update_status failed" in m for m in _logged),
+      "the confirm refreshes the one trade (update_status(trade=…), no account: 1.7.11 refuses both)",
+      (_us, _logged))
+check(api.status_timeouts and all(isinstance(x, int) and 1000 <= x <= w.UPDATE_STATUS_TIMEOUT_S * 1000 for x in api.status_timeouts)
+      and w.UPDATE_STATUS_TIMEOUT_S * 1000 < __import__("lib.order_sinopac").order_sinopac.WORKER_STALE_S * 1000,
+      "each update_status is capped (not the SDK's 30 s = WORKER_STALE_S): a hung call cannot age the heartbeat "
+      "into 'worker down'", api.status_timeouts)
 o = po[0][2] if po else None
 check(res["status"] == "filled" and res["fill_qty"] == 2.0 and abs(res["avg_fill_price"] - 23005.0) < 1e-9,
       "filled: qty and VWAP from deals", res)
@@ -704,7 +747,7 @@ w._write_snapshot(snap)
 check(snap["positions"] == [], "the worker's own read inside the window is empty (the lag)")
 e = raises(account_sinopac.SnapshotLag, lambda: account_sinopac.get_positions({}))
 check(e is not None and account_sinopac.classify(e) == __import__("lib.venue_errors").venue_errors.TRANSIENT,
-      "sinopac_futures_account: that empty read is SnapshotLag (TRANSIENT, skip the round), never flat", e)
+      "account_sinopac: that empty read is SnapshotLag (TRANSIENT, skip the round), never flat", e)
 real_q = account_sinopac.get_query_started_at
 account_sinopac.get_query_started_at = lambda: time.time() + 3600  # a newer file, read a second time
 e2 = raises(account_sinopac.SnapshotLag, lambda: account_sinopac.get_positions({}))
@@ -715,6 +758,70 @@ check(raises(account_sinopac.SnapshotLag, lambda: account_sinopac.bot_position_r
       "every position read refuses the unsettled snapshot")
 check(w._settled_read_at() >= vault.last_order_at() + vault.ORDER_SETTLE_S - 1e-6,
       "the daemon's re-read after a send starts ORDER_SETTLE_S after it")
+
+# Wei 11-23 + audit B2: time the real lag — after an entry's fill the worker reads every LAG_PROBE_S,
+# counted from the send (as ORDER_SETTLE_S is), past the window up to LAG_PROBE_MAX_S; closes not timed
+w.LAG_PATH = os.path.join(TMP, "state", "sinopac_settle_lag.json")
+api = FakeApi(lag_s=6.0)
+res = w.execute(api, acct, req(ttl=30), simulation=True)
+armed = dict(w._LAG_PROBE)
+check(res["status"] == "filled" and armed.get("contract") == res["symbol"] and armed.get("want_net") == 1
+      and abs(armed.get("sent_at", 0) - vault.last_order_at()) < 1e-6 and armed.get("simulation") is True,
+      "an entry's fill arms the lag probe: its contract, the net it should read, the send time, simulation", armed)
+
+
+def _run_probe(api, sent_at, appear_at, steps):
+    """Fake clock: the broker shows the fill at appear_at; returns (read times rel. to send, samples, log)."""
+    reads, logged, real_lp, real_time, real_log = [], [], api.list_positions, time.time, w._log
+    api.position_timeouts.clear()  # only this probe's reads
+    api.list_positions = lambda a, **kw: reads.append(time.time()) or real_lp(a, **kw)
+    api.filled_at, api.lag_s = appear_at - 0.5, 0.5  # shown from appear_at on
+    api.before_fill = [] if api.before_fill is None else api.before_fill
+    clock = [sent_at]
+    time.time = lambda: clock[0]
+    w._log = logged.append
+    try:
+        w._arm_lag_probe(armed["contract"], armed["want_net"], sent_at, False, now=sent_at)
+        for dt in steps:
+            clock[0] = sent_at + dt
+            w._probe_lag(api, acct)
+    finally:
+        time.time, w._log = real_time, real_log
+        api.list_positions = real_lp
+    return [round(x - sent_at, 1) for x in reads], json.load(open(w.LAG_PATH))["samples"], logged
+
+
+# the broker shows it 6 s after the send: read at 2, 4, 6 → 6 s, nothing after
+_r, _lag, _lg = _run_probe(api, 1000.0, 1006.0, (0.5, 1.9, 2.0, 3.0, 4.0, 5.9, 6.0, 8.0, 10.0))
+check(_r == [2.0, 4.0, 6.0] and _lag[-1]["lag_s"] == 6.0 and _lag[-1]["from"] == "send"
+      and _lag[-1]["want_net"] == 1 and not w._LAG_PROBE,
+      "6 s after the send is recorded as 6 s at the 6 s read — every 2 s, no wait for the window", (_r, _lag[-1]))
+check(api.position_timeouts and all(x == int(w.UPDATE_STATUS_TIMEOUT_S * 1000) for x in api.position_timeouts),
+      "the lag reads are capped like update_status (a hang must not age the heartbeat)", api.position_timeouts)
+check(len(_lg) == 1 and "6.0s" in _lg[0] and "F000" not in _lg[0] + json.dumps(_lag),
+      "one log line, no account in it or in the state file", _lg)
+# measured from the send, not from the confirm: a fill confirmed 3 s after the send that shows 6 s later = 9 s
+api = FakeApi(lag_s=6.0)
+w.execute(api, acct, req(ttl=30), simulation=True)
+_r, _lag, _ = _run_probe(api, 2000.0, 2009.0, [x * 0.5 for x in range(1, 30)])
+check(_lag[-1]["lag_s"] == 10.0 and _r[-1] == 10.0,
+      "the lag counts from the send (9 s after it, seen at the 10 s read), not from the confirm", (_r, _lag[-1]))
+# past the 20 s window it keeps reading: a 25 s lag is timed, not "not seen"
+_r, _lag, _ = _run_probe(api, 3000.0, 3025.0, [float(x) for x in range(1, 40)])
+check(_lag[-1]["lag_s"] == 26.0 and max(_r) == 26.0 and w.LAG_PROBE_MAX_S >= 2 * vault.ORDER_SETTLE_S,
+      "a lag past ORDER_SETTLE_S (25 s) is still timed; the probe reads up to LAG_PROBE_MAX_S", (_r[-3:], _lag[-1]))
+api = FakeApi(lag_s=3600)
+w._arm_lag_probe(computed_near("TXF"), 1, _real_t := time.time() - w.LAG_PROBE_MAX_S - 1, False)
+w._LAG_PROBE["next_at"] = 0
+w._probe_lag(api, acct)
+check(json.load(open(w.LAG_PATH))["samples"][-1]["lag_s"] is None and not w._LAG_PROBE,
+      "not seen inside LAG_PROBE_MAX_S: recorded as not seen (lag_s null), the probe stops")
+# closes are not timed (an early [] would read as an instant flat)
+api = FakeApi(positions=[(computed_near("TXF"), 1)])
+fresh_marker()
+w.execute(api, acct, req("reduce", "sell", ttl=30), simulation=True)
+check(not w._LAG_PROBE, "a close's fill arms no lag probe", dict(w._LAG_PROBE))
+fresh_marker()
 
 # the wait path, scaled: settle 0.4 s, broker lag 0.25 s, a request with time to spare
 saved_settle = vault.ORDER_SETTLE_S
@@ -1127,6 +1234,22 @@ probe = json.load(open(w.PROBE_PATH))
 check(rc == 2 and probe.get("reason") == "NOT_SIGNED" and not probe["ok"],
       "--once: the probe file carries the class too, so the connect page can tell 'wait for review' (audit N-B)",
       probe)
+# 11-23 live run: the bad-signature error carried the whole API key into sinopac_probe.json
+_K, _S = "TESTKEYTESTKEYTESTKEYTESTKEY000000", "TESTSECRETTESTSECRETTESTSECRET00"
+_bind_store(api_key=_K, secret=_S)
+holder["api"] = FakeApi(login_raises=type("BadRequestError", (Exception,), {})(
+    f"StatusCode: 400, Detail: key: {_K} not match signature. secret {_S}"))
+w.WORKSPACE = TMP
+rc = w.run_once()
+w.WORKSPACE = real_ws
+probe = json.load(open(w.PROBE_PATH))
+check(rc == 2 and probe.get("reason") == "KEY" and _K not in json.dumps(probe) and _S not in json.dumps(probe)
+      and "not match signature" in probe.get("error", ""),
+      "--once on a wrong secret: the probe file says KEY and carries neither the API key nor the secret "
+      "(the error class and the broker's words stay)", probe)
+if os.path.exists(w.STOP_PATH):
+    os.remove(w.STOP_PATH)
+_bind_store()
 # --sim-test (the signing review's test): an unsigned account still logs in — in SIMULATION, never
 # production, no certificate — and one TMF order goes out; the bot's last-order marker is not touched
 _sim_api = FakeApi()
@@ -1208,6 +1331,12 @@ check(_reasons == {"KEY": "KEY", "NO_FUTURES": "NO_FUTURES", "TOO_MANY": "TOO_MA
                    "KEY (clock fine)": "KEY"},
       "reason codes: KEY (AuthError family), NO_FUTURES, TOO_MANY (451, still retried), VERSION (pin / missing), "
       "CLOCK (a broker refusal while the clock is measured off > receive_window, ahead of KEY)", _reasons)
+# 11-23 live run (1.7.11, a mistyped secret): BadRequestError with the key echoed — KEY, not UNKNOWN
+BadRequestError = type("BadRequestError", (ShioajiError,), {})
+_bad_sig = BadRequestError("StatusCode: 400, Detail: key: FAKEAPIKEYFAKEAPIKEYFAKEAPIKEY00 not match signature.")
+check(w._login_reason(_bad_sig) == "KEY" and not w.retryable(_bad_sig)
+      and w._login_reason(BadRequestError("StatusCode: 400, Detail: contract not found")) == "UNKNOWN",
+      "a wrong secret (BadRequestError … not match signature, measured 11-23) → KEY, a stop; another 400 stays UNKNOWN")
 check(w.retryable(RuntimeError("451 Too Many Connections")) and not w.retryable(_sdk_err("TokenError", AuthError)),
       "…TOO_MANY stays a retry, KEY a stop")
 _retry_cases = {"TimeoutError": TimeoutError("t"), "ShioajiConnectionError": _sdk_err("ShioajiConnectionError",
@@ -1315,7 +1444,7 @@ try:
           "…while waiting, a not-ok `waiting: login_retry` snapshot (restamped), no national id", waits[:1])
     # the account lib reads that snapshot as waiting (the reconciler's ReadSkipped), not as a failed read
     real_write({"ok": False, "waiting": "login_retry", "retry_at": time.time() + 60, "error": "x"})
-    check(account_sinopac.waiting() == "login_retry", "sinopac_futures_account.waiting() names the retry")
+    check(account_sinopac.waiting() == "login_retry", "account_sinopac.waiting() names the retry")
     real_write({"ok": False, "error": "x"})
     check(account_sinopac.waiting() is None, "…and a plain failed snapshot is not waiting")
     # Wei 11-17: unanswered logins are retried for good, never a STOP; the P1 is exchange_unreachable
@@ -1604,6 +1733,359 @@ w.WORKSPACE = real_ws
 check(holder["api"].logged_out, "the daemon stopped mid-loop logs out")
 os.remove(os.path.join(TMP, ".env"))
 
+# 5b. a session lost after a good login (29026 11-24/25: 500s at 永豐's maintenance, then 503s, then
+# "Token is expired" 24 h in and SessionNotEstablished for a day — 1,157 failed reads, never a login)
+_SysMaint = type("SystemMaintenance", (ShioajiError,), {})
+_ServerErr = type("ServerError", (ShioajiError,), {})
+_ConnErr = type("ShioajiConnectionError", (ShioajiError, ConnectionError), {})
+_TOKEN = _sdk_err("TokenError", AuthError)
+_TOKEN.args = ("StatusCode: 401, Detail: Token is expired",)
+_NOT_READY = _ConnErr("margin: Shioaji error Session error SolClient send request api/v1/portfolio/margin, "
+                      "code: NotReady, SubCode(SessionNotEstablished)")
+_PARAM = _ServerErr("margin: code: 500, detail: Please check param.")
+_MAINT = _SysMaint("StatusCode: 503")
+check([w.session_lost(e) for e in (_TOKEN, RuntimeError("HTTP 401: token expired"), _NOT_READY, _PARAM, _MAINT,
+                                   TimeoutError("timed out"))] == ["token", "token", "not_ready", None, None, None],
+      "session_lost: TokenError / a 401 on the token → token, SessionNotEstablished → not_ready; 500, 503, a "
+      "timeout are not a lost session")
+check(w.relogin_due("token", 100.0, 100.0) and not w.relogin_due("not_ready", 100.0, 100.0 + w.READ_RELOGIN_NOT_READY_S - 1)
+      and w.relogin_due("not_ready", 100.0, 100.0 + w.READ_RELOGIN_NOT_READY_S)
+      and not w.relogin_due(None, 100.0, 100.0 + w.READ_RELOGIN_S - 1) and w.relogin_due(None, 100.0, 100.0 + w.READ_RELOGIN_S)
+      and w.READ_RELOGIN_S >= w.LOGIN_RETRY_LONG_S and w.READ_RELOGIN_NOT_READY_S >= 120,
+      "relogin_due: a token at once, not_ready after READ_RELOGIN_NOT_READY_S, anything else (500, 503 maintenance) "
+      "after READ_RELOGIN_S ≥ the ladder's longest wait — never a login per failed read")
+check(w.SESSION_LOST_EXIT not in (0, w.LOGIN_STOPPED_EXIT, w.UNVERIFIED_EXIT, w.NOT_BOUND_EXIT, w.STATE_EXIT)
+      and f"for code in (LOGIN_STOPPED_EXIT, UNVERIFIED_EXIT, NOT_BOUND_EXIT)" in inspect.getsource(w.install),
+      "SESSION_LOST_EXIT is non-zero and not one of NSSM's stay-down codes: every supervisor restarts it")
+
+
+# the window is Taipei time whatever the machine's zone; [05:00, 06:00) — 11-25 05:00 TW = 11-24 21:00 UTC
+_T5 = 1795554000.0  # 2026-11-24T21:00:00Z
+assert time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(_T5)) == "2026-11-24T21:00:00"
+_tz0 = os.environ.get("TZ")
+_edges = {}
+for _tz in ("UTC", "America/New_York", "Asia/Taipei"):
+    os.environ["TZ"] = _tz
+    time.tzset()
+    _edges[_tz] = [w.in_maintenance(_T5 + d) for d in (-1, 0, 3599, 3600)]
+if _tz0 is None:
+    os.environ.pop("TZ", None)
+else:
+    os.environ["TZ"] = _tz0
+time.tzset()
+check(w.MAINTENANCE_TW == ((5, 0), (6, 0)) and all(v == [False, True, True, False] for v in _edges.values()),
+      "in_maintenance: 04:59:59 no, 05:00:00 yes, 05:59:59 yes, 06:00:00 no (Taipei), the same under every TZ", _edges)
+_in, _out = _T5 + 600, _T5 + 3600 + 600
+check(w.read_waits(_PARAM, None, _in) and not w.read_waits(_PARAM, None, _out)
+      and not w.read_waits(_PARAM, None, _T5 - 1) and w.read_waits(_PARAM, None, _T5)
+      and w.read_waits(_MAINT, None, _out) and w.read_waits(_NOT_READY, "not_ready", _out)
+      and not w.read_waits(RuntimeError("code: 500 x"), None, _in) and not w.read_waits(TimeoutError("t"), None, _in),
+      "read_waits: a ServerError (500) waits inside the window only, a 503 / not established at any hour; "
+      "anything else (an unknown error, a timeout) is a counted failure even inside it")
+
+
+class _LostApi(FakeApi):
+    """margin(): the queued outcomes in turn (None = a good read), the last one for good; past
+    `cap` reads it asks the loop to stop (a worker that never leaves fails the check, not the file)."""
+
+    def __init__(self, outcomes, cap=400, **kw):
+        super().__init__(positions=[("TXFL6", 2)], **kw)
+        self.outcomes, self.reads, self.cap, self.logins, self.read_at = list(outcomes), 0, cap, 0, []
+
+    def login(self, **kw):
+        self.logins += 1
+        return super().login(**kw)
+
+    def margin(self, acct):
+        self.reads += 1
+        self.read_at.append(time.time())
+        if self.reads > self.cap:
+            w._STOP.set()
+        o = self.outcomes.pop(0) if len(self.outcomes) > 1 else self.outcomes[0]
+        if o is not None:
+            raise o
+        return super().margin(acct)
+
+
+_lknobs = ("LOGIN_RETRY_S", "LOGIN_RETRY_LONG_S", "POLL_S", "REQUEST_CHECK_S", "READ_RELOGIN_S",
+           "READ_RELOGIN_NOT_READY_S", "LOGIN_STABLE_S", "UNREACHABLE_AFTER_S")
+_lknobs += ("MAINTENANCE_TW", "LOGIN_CONFIRM_S")
+_lsaved = {k: getattr(w, k) for k in _lknobs}
+_NO_WINDOW, _ALL_DAY = ((0, 0), (0, 0)), ((0, 0), (24, 0))
+w.MAINTENANCE_TW = _NO_WINDOW  # the cases below must not depend on the hour the file runs at
+w.LOGIN_RETRY_S, w.LOGIN_RETRY_LONG_S, w.POLL_S, w.REQUEST_CHECK_S = (0.3, 0.6), 0.6, 0.02, 0.005
+w.READ_RELOGIN_S, w.READ_RELOGIN_NOT_READY_S, w.UNREACHABLE_AFTER_S = 0.4, 0.15, 3600
+w.LOGIN_CONFIRM_S = 0.05
+w.events.emit = lambda t, **p: emitted.append((t, p)) or 1
+_lost_snaps, _real_write = [], w._write_snapshot
+w._write_snapshot = lambda snap: _lost_snaps.append(dict(snap)) or _real_write(snap)
+_bind_store()
+w.WORKSPACE = TMP
+_drop(w.RETRY_PATH)
+emitted.clear()
+
+
+def _lost_serve(api):
+    holder["api"] = api
+    _lost_snaps.clear()
+    t0 = time.time()
+    try:
+        return w._serve(dict(_c)), time.time() - t0
+    finally:
+        w._STOP.clear()
+
+
+try:
+    # the token expires on a session that held LOGIN_STABLE_S: logged out, waiting, exit — and the
+    # positions of the last good read ride along, never read as positions (ok false)
+    w.LOGIN_STABLE_S = 0.0
+    _a = _LostApi([None, None, _PARAM, _TOKEN])
+    rc, _ = _lost_serve(_a)
+    last = _lost_snaps[-1] if _lost_snaps else {}
+    check(rc == w.SESSION_LOST_EXIT and _a.reads == 4 and _a.logged_out and _a.logins == 1
+          and last.get("ok") is False and last.get("waiting") == "login"
+          and [(r["productid"], r["net"]) for r in last.get("positions", [])] == [("TXFL6", 2)]
+          and not os.path.exists(w.STOP_PATH) and not [t for t, _ in emitted if t == "venue_login_blocked"],
+          "a token expired after a good login: logout, a `waiting: login` snapshot carrying the last good "
+          "read's rows, exit SESSION_LOST_EXIT — no STOP, no P1", (rc, _a.reads, last))
+    check(account_sinopac.waiting() == "login"
+          and isinstance(raises(RuntimeError, account_sinopac.position_rows), RuntimeError),
+          "…the reconciler reads that snapshot as waiting (round skipped), and a position read raises — "
+          "never an empty book")
+    rec = _rec()
+    check(rec.get("failures") == 0 and rec.get("retry_at", 1e18) <= time.time()
+          and abs((rec.get("since") or 0) - _a.read_at[2]) < 0.05,
+          "…the session had held LOGIN_STABLE_S: no ladder climb, no wait — only the outage clock (from the "
+          "first failed read) carried in the record", rec)
+    # the restart after it: one login, at once, and a session read again
+    _a = _LostApi([None], cap=2)
+    rc, _ = _lost_serve(_a)
+    check(rc == 0 and _a.logins == 1 and _a.reads >= 2,
+          "…the restarted worker logs in once and reads again", (rc, _a.logins, _a.reads))
+    _drop(w.RETRY_PATH)
+
+    def _kinds(snaps):
+        """per failed read in the window: 'session' (waiting), 'failed' (counted), the exit's 'login' left out"""
+        return [s.get("waiting") or "failed" for s in snaps if not s.get("ok") and s.get("waiting") != "login"]
+
+    # SessionNotEstablished: the Solace session's own reconnect is waited out first, every round a
+    # `waiting: session` snapshot (the reconciler skips it, never halts on it), then the exit
+    _a = _LostApi([None, _NOT_READY])
+    rc, took = _lost_serve(_a)
+    nr = _a.read_at[1:]
+    k = _kinds(_lost_snaps)
+    check(rc == w.SESSION_LOST_EXIT and len(nr) >= 2 and nr[-1] - nr[0] >= w.READ_RELOGIN_NOT_READY_S - 0.01
+          and _a.logins == 1 and k and set(k) == {"session"},
+          "SessionNotEstablished: reads go on for READ_RELOGIN_NOT_READY_S on the one session as `waiting: "
+          "session` snapshots, then the exit", (rc, len(nr), sorted(set(k))))
+    _drop(w.RETRY_PATH)
+
+    # 503 (maintenance) and 500 after a good login: the session is kept for READ_RELOGIN_S — no login
+    # per failed read — then one exit. A 503 round is `waiting` (skipped); a 500 one a failed read the
+    # reconciler counts as today
+    for name, err, want in (("503 maintenance", _MAINT, {"session"}), ("500 Please check param", _PARAM, {"failed"})):
+        _a = _LostApi([None, err])
+        rc, took = _lost_serve(_a)
+        k = _kinds(_lost_snaps)
+        check(rc == w.SESSION_LOST_EXIT and _a.logins == 1 and _a.reads >= 5
+              and _a.read_at[-1] - _a.read_at[1] >= w.READ_RELOGIN_S - 0.01 and k and set(k) == want,
+              f"{name} after a good login: one session for READ_RELOGIN_S ({_a.reads} reads, one login), "
+              f"{'waiting' if want == {'session'} else 'failed'} snapshots, then the exit", (rc, _a.logins, sorted(set(k))))
+        _drop(w.RETRY_PATH)
+    # 500 then 503 outside the maintenance window: the 500 rounds stay failed reads, the 503 ones wait
+    _a = _LostApi([None, _PARAM, _PARAM, _MAINT])
+    rc, _ = _lost_serve(_a)
+    k = _kinds(_lost_snaps)
+    check(rc == w.SESSION_LOST_EXIT and k[:2] == ["failed", "failed"] and set(k[2:]) == {"session"},
+          "500 then 503 outside MAINTENANCE_TW: the 500 rounds stay failed reads, the 503 ones turn waiting", k[:4])
+    _drop(w.RETRY_PATH)
+    # 29026's night (05:10 500s, 05:35 503s TW) inside the window: every round waits, none counted —
+    # and READ_RELOGIN_S still ends the session (the window never keeps it silent)
+    w.MAINTENANCE_TW = _ALL_DAY
+    _a = _LostApi([None, _PARAM, _PARAM, _MAINT])
+    rc, _ = _lost_serve(_a)
+    k = _kinds(_lost_snaps)
+    w.MAINTENANCE_TW = _NO_WINDOW
+    check(rc == w.SESSION_LOST_EXIT and k and set(k) == {"session"}
+          and _a.read_at[-1] - _a.read_at[1] >= w.READ_RELOGIN_S - 0.01,
+          "500 then 503 inside MAINTENANCE_TW: every round `waiting: session`, then the READ_RELOGIN_S exit", k[:4])
+    _drop(w.RETRY_PATH)
+    _real_write({"ok": False, "waiting": "session", "error": "x"})
+    check(account_sinopac.waiting() == "session"
+          and isinstance(raises(RuntimeError, account_sinopac.position_rows), RuntimeError),
+          "account_sinopac.waiting() names a `waiting: session` snapshot (the reconciler's ReadSkipped); "
+          "a position read on it raises")
+
+    # not silent: the outage's exchange_unreachable comes from this worker, on a clock that survives
+    # the re-login — a maintenance that outlasts READ_RELOGIN_S still reaches 25 / 150 min
+    emitted.clear()
+    w.UNREACHABLE_AFTER_S = 0.1
+    _a = _LostApi([None, _MAINT])
+    rc, _ = _lost_serve(_a)
+    rec, first = _rec(), list(emitted)
+    since0 = _a.read_at[1]
+    check(rc == w.SESSION_LOST_EXIT and [(t, p.get("code")) for t, p in first] == [("exchange_unreachable", "session")]
+          and first[0][1]["venue"] == "sinopac"
+          and abs((rec.get("since") or 0) - since0) < 0.05 and rec.get("announced_at"),
+          "503 past UNREACHABLE_AFTER_S on a live session: one exchange_unreachable (code session), and the "
+          "outage's start and notice go into the login record at the exit", (first, rec))
+    _b = _LostApi([_MAINT])
+    rc, _ = _lost_serve(_b)
+    rec2 = _rec()
+    check(rc == w.SESSION_LOST_EXIT and emitted == first and abs((rec2.get("since") or 0) - since0) < 0.05,
+          "…the next process logs in, reads 503 again: the same outage (no second 25-min notice), its "
+          "start kept for the 150-min one", (emitted, rec2))
+    _drop(w.RETRY_PATH)
+    _c2 = _LostApi([None, _MAINT])
+    rc, _ = _lost_serve(_c2)
+    check(abs((_rec().get("since") or 0) - _c2.read_at[1]) < 0.05,
+          "…a good read ends the outage: the next one is dated from its own first failure")
+    w.UNREACHABLE_AFTER_S = 3600
+    _drop(w.RETRY_PATH)
+    emitted.clear()
+    w.LOGIN_STABLE_S = _lsaved["LOGIN_STABLE_S"]
+
+    # a session lost soon after its login keeps the ladder record: the restart waits the spacing,
+    # not an immediate login (the national id's 1000 a day, 451)
+    _a = _LostApi([_TOKEN])
+    t_login = time.time()
+    rc, _ = _lost_serve(_a)
+    rec = _rec()
+    check(rc == w.SESSION_LOST_EXIT and rec.get("failures") == 1 and rec.get("retry_at", 0) >= t_login + w.LOGIN_RETRY_S[0] - 0.05,
+          "a token refused right after the login: the exit keeps the login record (failures 1, the first spacing)", rec)
+    check(abs((rec.get("since") or 0) - _a.read_at[0]) < 0.05 and rec.get("error") == w.SESSION_LOST_ERR,
+          "…a 401 on the very first read still dates the outage from it, and the record's error names the lost "
+          "session (not 「上一次登入沒有結果」)", rec)
+    _b = _LostApi([_TOKEN])
+    retry_at = rec.get("retry_at", 0)
+    rc, _ = _lost_serve(_b)
+    rec2 = _rec()
+    waits = [s for s in _lost_snaps if s.get("waiting") == "login_retry"]
+    check(waits and all(s["error"].startswith("永豐連線中斷") and "程序中斷" not in s["error"] for s in waits),
+          "…its waiting snapshot says the connection dropped", waits[:1])
+    check(rc == w.SESSION_LOST_EXIT and _b.logins == 1 and _b.read_at and _b.read_at[0] >= retry_at - 0.01
+          and rec2.get("failures") == 2 and waits and all(not s["ok"] for s in waits),
+          "…the restart waits for that retry_at with a `waiting` snapshot, then climbs (failures 2): a session "
+          "that dies again and again is spaced by the ladder", (rec2, len(waits)))
+    _drop(w.RETRY_PATH)
+
+    # audit M1 / S1: a login answered 500 inside the maintenance window climbs the ladder (no STOP, no
+    # P1); outside it, or any other ServerError inside it, stops as before
+    _S500 = _ServerErr("StatusCode: 500, Detail: Please check param.")
+    _S502 = _ServerErr("StatusCode: 502, Detail: bad gateway")
+    w.MAINTENANCE_TW = _ALL_DAY
+    emitted.clear()
+    holder["api"] = _FlakyApi([_S500, _S500])
+    _out = w._login_with_retry(dict(_c))
+    in_ok = (holder["api"].logins == 3 and _out is not None and not os.path.exists(w.STOP_PATH)
+             and not [t for t, _ in emitted if t == "venue_login_blocked"])
+    _drop(w.RETRY_PATH)
+    holder["api"] = _FlakyApi([_S502])
+    e502 = raises(SystemExit, lambda: w._login_with_retry(dict(_c)))
+    stop502 = os.path.exists(w.STOP_PATH)
+    _drop(w.STOP_PATH)
+    _drop(w.RETRY_PATH)
+    k502 = w.read_waits(_S502, None, time.time())
+    w.MAINTENANCE_TW = _NO_WINDOW
+    holder["api"] = _FlakyApi([_S500])
+    e500 = raises(SystemExit, lambda: w._login_with_retry(dict(_c)))
+    stop500 = os.path.exists(w.STOP_PATH)
+    _drop(w.STOP_PATH)
+    _drop(w.RETRY_PATH)
+    emitted.clear()
+    _S500c = _ServerErr("server said no")
+    _S500c.status_code = 500
+    check(in_ok, "a login answered 500 inside MAINTENANCE_TW: retried on the ladder, no STOP, no P1")
+    check(e502 is not None and e502.code == w.LOGIN_STOPPED_EXIT and stop502 and not k502,
+          "…a ServerError that is not a 500 stops the login and counts as a failed read, inside the window too")
+    check(e500 is not None and e500.code == w.LOGIN_STOPPED_EXIT and stop500,
+          "…a 500 login outside the window stops as before (STOP + P1)")
+    w.MAINTENANCE_TW = _ALL_DAY
+    check(w.maintenance_500(_S500c, time.time()) and not w.maintenance_500(RuntimeError("500"), time.time())
+          and not w.maintenance_500(_ServerErr("code 5000"), time.time()),
+          "maintenance_500: a ServerError's status_code 500 or a whole 500 in its text; never another class or 5000")
+    w.MAINTENANCE_TW = _NO_WINDOW
+
+    # audit S3: after a login nothing is published until two reads LOGIN_CONFIRM_S apart show the same
+    # positions — a one-off empty read right after a re-login never reaches the reconciler as flat
+    class _SeqApi(FakeApi):
+        def __init__(self, books, cap=60):
+            super().__init__()
+            self.books, self.n, self.cap = list(books), 0, cap
+
+        def list_positions(self, acct, unit=None, timeout=None):
+            self.n += 1
+            if self.n >= self.cap:
+                w._STOP.set()
+            self.positions = self.books.pop(0) if len(self.books) > 1 else self.books[0]
+            return super().list_positions(acct, unit, timeout)
+
+    _cs = w.LOGIN_CONFIRM_S
+    w.LOGIN_CONFIRM_S = 0.05
+    try:
+        _sq = _SeqApi([[], [("TXFL6", 2)], [("TXFL6", 2)]], cap=12)
+        _lost_serve(_sq)
+        reads = [x for x in _lost_snaps if "query_started_at" in x or x.get("waiting") == "login"][1:]
+        oks = [x for x in _lost_snaps if x.get("ok")]
+        flat_ok = [x for x in oks if not x.get("positions")]
+        first_ok = next((i for i, x in enumerate(_lost_snaps) if x.get("ok")), None)
+        check(oks and not flat_ok and all(x.get("ok") is False for x in _lost_snaps[:first_ok])
+              and _lost_snaps[first_ok - 1].get("waiting") == "login",
+              "S3: an empty first read after the login, then TXFL6 +2 twice: nothing published until two "
+              "reads LOGIN_CONFIRM_S apart agree; the empty one never goes out as ok",
+              [(x.get("ok"), x.get("waiting"), len(x.get("positions") or [])) for x in _lost_snaps[:6]])
+        _sq = _SeqApi([[("TXFL6", 2)]], cap=12)
+        _lost_serve(_sq)
+        oks = [x for x in _lost_snaps if x.get("ok")]
+        check(oks and [(r["productid"], r["net"]) for r in oks[0]["positions"]] == [("TXFL6", 2)],
+              "S3: a normal start (the same book every read) is published once the second read agrees — never "
+              "waiting for good")
+        _drop(w.RETRY_PATH)
+    finally:
+        w.LOGIN_CONFIRM_S = _cs
+    # the desktop's 「連接中」 lasts until account_reader has read the first ok snapshot: the contract
+    # wait, the confirm gap, two reads and a whole reader period. A read (read_account) is api.margin +
+    # api.list_positions, each at shioaji's default timeout=5000 ms
+    READ_CALL_S, READ_CALLS = 5, 2
+    _read_s = READ_CALLS * READ_CALL_S
+    check(inspect.getsource(w.read_account).count("api.") == READ_CALLS,
+          f"read_account makes {READ_CALLS} SDK calls (margin, list_positions) — the bound below counts that many")
+    _boot = re.search(r"const TR_SP_BOOT_MS = (\d+),", open(os.path.join(ROOT, "shell", "renderer", "trade.js"),
+                                                            encoding="utf-8").read())
+    _reader = re.search(r"^ACCOUNT_EVERY_S = (\d+)", open(os.path.join(ROOT, "runtime", "local_daemon.py"),
+                                                          encoding="utf-8").read(), re.M)
+    _reader_s = int(_reader.group(1)) if _reader else float("inf")  # the desktop daemon's account reader
+    _worst = w.CONTRACTS_WAIT_S + _lsaved["LOGIN_CONFIRM_S"] + 2 * _read_s + _reader_s
+    check(21 < _lsaved["LOGIN_CONFIRM_S"] and _boot and _worst + 15 <= int(_boot.group(1)) / 1000,
+          f"LOGIN_CONFIRM_S: past M0-b's ~21 s fill lag; contract wait + it + two reads + one account_reader "
+          f"period ({_worst:.0f} s) leaves the login itself 15 s inside the desktop's 「連接中」 grace "
+          f"TR_SP_BOOT_MS ({_boot and _boot.group(1)} ms)")
+    # the connect flow's finish waits for the worker's own ok (no reader period), from the Linux timer's
+    # 2-minute tick (blave-agent-sinopac.timer, installed outside this repo)
+    _fin = re.search(r"^FINISH_WAIT_S = (\d+)", open(os.path.join(ROOT, "runtime", "sinopac_connect.py"),
+                                                      encoding="utf-8").read(), re.M)
+    _fin_worst = 120 + w.CONTRACTS_WAIT_S + _lsaved["LOGIN_CONFIRM_S"] + 2 * _read_s
+    check(_fin and _fin_worst + 15 <= int(_fin.group(1)),
+          f"LOGIN_CONFIRM_S: timer tick + contract wait + it + two reads ({_fin_worst:.0f} s) leaves the login 15 s "
+          f"inside the connect flow's FINISH_WAIT_S ({_fin and _fin.group(1)} s)")
+    _drop(w.RETRY_PATH)
+    # orders while the session is gone: refused with the error, never sent and never silent
+    _o = _LostApi([_TOKEN])
+    resp = w.execute(_o, _o.futopt_account, req("reduce", action="sell"), simulation=True)
+    check(resp["status"] == "rejected" and "Token is expired" in resp["error"]
+          and not any(isinstance(x, tuple) and x[0] == "place_order" for x in _o.calls),
+          "an order while the token is expired: rejected with the error, nothing placed", resp)
+finally:
+    _drop(w.RETRY_PATH)
+    _drop(w.STOP_PATH)
+    w._write_snapshot = _real_write
+    w.events.emit = real_emit
+    w.WORKSPACE = real_ws
+    for k, v in _lsaved.items():
+        setattr(w, k, v)
+    w._STOP.clear()
+os.remove(os.path.join(TMP, ".env"))
+
 # shioaji's native session line goes to fd 1 with the national id: quiet_sdk masks it
 cap = os.path.join(TMP, "fd1.txt")
 sys.stdout.flush()
@@ -1624,8 +2106,33 @@ check(w.redact("order 2330 qty 1000000000 TXFK6") == "order 2330 qty 1000000000 
       "redact leaves codes and long numbers alone")
 check(w.redact("CA not activated for: a123456789 / Ab12345678") == "CA not activated for: <id> / <id>",
       "redact masks a lowercase id too (a hand-typed .env value, echoed as given; audit S1)")
+# 11-23 live run: the worker log carried the futures account in full (broker_id / account_id)
+_acct_repr = ("FutureAccount(person_id='A123456789', broker_id='F002000', account_id='1234567', signed=True, "
+              "username='王小明') {'account': {'broker_id': 'F002000', 'account_id': '1234567'}} account_id: 1234567")
+_red = w.redact(_acct_repr)
+check(not any(x in _red for x in ("F002000", "1234567", "王小明", "A123456789")) and "signed=True" in _red,
+      "redact masks the futures account (broker_id / account_id), the owner's name and the id by field name", _red)
+check(w.redact("BadRequestError: StatusCode: 400, Detail: key: FAKEAPIKEYFAKEAPIKEYFAKEAPIKEY00 not match "
+               "signature.") == "BadRequestError: StatusCode: 400, Detail: key: <redacted> not match signature."
+      and "abcDEF123456ghiJKL789012" not in w.redact("token abcDEF123456ghiJKL789012mnoPQR== x")
+      and w.redact("TXFK6 order 2330 seq 000123 /opt/blave-agent/workspace/state/sinopac_account.json")
+      == "TXFK6 order 2330 seq 000123 /opt/blave-agent/workspace/state/sinopac_account.json",
+      "redact masks an echoed API key and any secret-shaped token; codes, numbers and paths stay")
+_saved_secrets = set(w._SECRETS)
+w.remember_secrets("F002000", "9876543", "abc")
+check(w._sanitize(RuntimeError("account F0020009876543 / 9876543 abc")) == "RuntimeError: account <redacted><redacted> / <redacted> abc",
+      "this login's own values (account, keys) are masked wherever they turn up; under 6 characters they are not")
+_la = FakeApi()
+_la.accounts[1].account_id, _la.accounts[1].broker_id = "7654321", "F009000"
+holder["api"] = _la
+w.login({"sinopac_api_key": "k" * 8, "sinopac_secret_key": "s" * 8, "sinopac_ca_path": "", "sinopac_ca_passwd": "",
+         "sinopac_person_id": "", "live": False})
+check(w._sanitize(RuntimeError("acct 7654321 at F009000 key kkkkkkkk")) == "RuntimeError: acct <redacted> at <redacted> key <redacted>",
+      "login remembers the key, the secret and every returned account's number: masked in any later error")
+w._SECRETS.clear()
+w._SECRETS.update(_saved_secrets)
 
-# ── 6. sinopac_futures_account ───────────────────────────────────────────────────────
+# ── 6. account_sinopac ───────────────────────────────────────────────────────
 if os.path.exists(w.OUT_PATH):
     os.remove(w.OUT_PATH)
 check(raises(RuntimeError, lambda: account_sinopac.get_equity({})) is not None, "missing snapshot raises")
@@ -1657,6 +2164,37 @@ s = json.load(open(w.OUT_PATH))
 s.update(ok=True, read_at=time.time() - 3600)
 json.dump(s, open(w.OUT_PATH, "w"))
 check(raises(RuntimeError, lambda: account_sinopac.get_equity({})) is not None, "stale snapshot raises")
+# audit M1: a rekey leaves the old account's snapshot fresh for up to _STALE_S — never read under the new key
+account_sinopac._bound_key = _real_bound_key
+w._KEY_FP = _KEY_A
+w._write_snapshot(w.read_account(FakeApi(positions=[(computed_near("TXF"), 2)]), acct))
+check(json.load(open(w.OUT_PATH)).get("key_fp") == _KEY_A and account_sinopac.get_account_id({}).startswith("sinopac:"),
+      "the worker's snapshot carries the key it logged in with; read while that key is bound")
+_KEY_B = w.sinopac_vault.bound_env("kb", "sb")["sinopac_api_key"]
+with open(account_sinopac._ENV, "w") as f:
+    f.write(f"sinopac_api_key={_KEY_B}\n")
+check(all(raises(RuntimeError, fn) is not None for fn in (lambda: account_sinopac.get_account_id({}),
+                                                         lambda: account_sinopac.get_equity({}),
+                                                         lambda: account_sinopac.get_positions({}))),
+      "rekeyed to another account: the old key's fresh snapshot is refused (identity, equity, positions)")
+w._write_snapshot({"ok": False, "waiting": "login_retry", "retry_at": time.time() + 60})
+check(account_sinopac.waiting() is None, "…and its login-retry snapshot is not the new key's wait")
+with open(account_sinopac._ENV, "w") as f:
+    f.write("")
+w._write_snapshot(w.read_account(FakeApi(positions=[]), acct))
+check(raises(RuntimeError, lambda: account_sinopac.get_equity({})) is not None, "unbound (no sentinel): not read")
+with open(account_sinopac._ENV, "w") as f:
+    f.write(f"sinopac_api_key={_KEY_A}\n")
+s = json.load(open(w.OUT_PATH))
+s.pop("key_fp")
+json.dump(s, open(w.OUT_PATH, "w"))
+check(raises(RuntimeError, lambda: account_sinopac.get_equity({})) is not None,
+      "a snapshot without the key (a worker older than this lib) is refused")
+w._drop_snapshot()
+check(not os.path.exists(w.OUT_PATH), "_drop_snapshot removes the old account's snapshot")
+_serve_src = inspect.getsource(w._serve) + inspect.getsource(w._login_with_retry)
+check(_serve_src.count("_drop_snapshot()") == 2 and "_KEY_FP = bound_key" in _serve_src,
+      "a rebind seen in the worker (logged in, or waiting to) drops the snapshot; _serve stamps its key")
 check(account_sinopac.contract_month("TXFK6") is not None and account_sinopac.contract_month("2330") is None,
       "contract_month")
 near = computed_near("TXF")

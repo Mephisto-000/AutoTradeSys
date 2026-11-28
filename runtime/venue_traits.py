@@ -3,6 +3,8 @@
 #   (2026-11-18) upstream c1db277b turned this row into its gated-off 永豐 futures row
 #   (verified_modes (), bound_marker, cred_env); the fork keeps its TW-stock row instead.
 #   The row declares upstream's crypto gate cells as not compared (instrument_class None).
+#   (2026-11-28) upstream 0.1.61 opened its futures row (verified_modes futures, hand_wired, cred_env,
+#   bound_marker); the fork still keeps the TW-stock row and _SINOPAC_MODES = ().
 # Original work: Copyright 2025-2026 WuChi Technology Company Limited
 # Licensed under the Apache License, Version 2.0
 """Which venues break the crypto auto-wire contract, and how.
@@ -75,6 +77,11 @@ import os
 CAPITAL = "capital"
 PRESIDENT = "president"
 SINOPAC = "sinopac"
+
+# AutoTradeSys fork: upstream opened its 永豐 futures gate here (_SINOPAC_MODES = ("futures",), 0.1.61);
+# the fork keeps it shut — `sinopac` is the fork's TW-stock venue. runtime/sinopac_connect.workspace_open
+# and the tests read this line as text; the row below carries no verified_modes on purpose.
+_SINOPAC_MODES = ()
 
 TRAITS = {
     CAPITAL: {

@@ -1,8 +1,8 @@
 """SinoPac (永豐期貨) futures worker — the machine's one Shioaji login.
 
-NOT live-verified as a whole: tested with a faked SDK (tests/check_sinopac_futures.py).
-M0-b (2026-11-16, real account, 1.7.11) ran the raw calls once: a TMF market IOC buy and its
-close both Filled. Until lib/venue_traits' sinopac row lists "futures" in verified_modes this
+Tested with a faked SDK (tests/check_sinopac_futures.py). M0-b (2026-11-16, real account,
+1.7.11) ran the raw calls once; the desktop runs of 2026-11-23 placed and closed a TMF lot twice
+through this worker. While lib/venue_traits' sinopac row lacks "futures" in verified_modes this
 worker does not log in at all.
 
 M0-b, 1.7.11:
@@ -23,7 +23,7 @@ Why one process holds the login: every Shioaji client of one national id
 counts against the same 5-connection cap, and a 451 Too Many Connections can
 lock out the person's other sessions. So this worker is the only login on the
 machine — it reads margin + positions every POLL_S into
-state/sinopac_account.json (lib/sinopac_futures_account.py only reads that file) and
+state/sinopac_account.json (lib/account_sinopac.py only reads that file) and
 places the futures orders lib/order_sinopac.py hands it as request files in
 state/sinopac_orders/.
 
@@ -38,8 +38,20 @@ other failed login —
 credentials, certificate, not signed, no futures account, the SDK version, anything unidentified —
 stops the worker (exit LOGIN_STOPPED_EXIT, written to state/sinopac_login_stopped.json). Only `--once` (the user
 confirming a login) clears it. The stop is the user's P1 venue_login_blocked, sent once; it stops
-永豐 only — no HALT. A read that fails after a good login keeps the session and retries on the
-next tick — never a re-login.
+永豐 only — no HALT. A read that fails after a good login keeps the session and is retried on the
+next tick, until the session reads as gone (session_lost / relogin_due): a 401 or AuthError at once
+(29026 11-25: "TokenError: StatusCode: 401, Detail: Token is expired" 24 h after the login, after
+永豐's nightly maintenance), the Solace session not established for READ_RELOGIN_NOT_READY_S, any other
+failed read for READ_RELOGIN_S. Then the worker writes a `waiting` snapshot, logs out and exits
+SESSION_LOST_EXIT; systemd, NSSM and the desktop supervisor all restart that code, and the new
+process logs in on the ladder above — a session that died inside LOGIN_STABLE_S climbs it. Until
+then a read that clears by itself (503 maintenance, the Solace session not established, a 500 inside
+MAINTENANCE_TW) writes a
+`waiting: session` snapshot — the reconciler skips the round, never halts on it — and this worker
+sends that outage's exchange_unreachable (25, 150, then every 120 minutes), its clock carried over
+re-logins until a read answers; any other failed read is a failed snapshot the reconciler counts.
+After every login the snapshot stays `waiting: login` until two reads LOGIN_CONFIRM_S apart show the
+same positions: one empty read right after a re-login never reaches the reconciler as a manual close.
 
 Shioaji's native core prints the national id to fds 1/2 ("Session Property
 modification ok … /PYAPI/<id>/", M0-a 2026-11-15): both fds go through
@@ -146,10 +158,45 @@ CONFIRM_POLL_S = 1.0
 CONTRACTS_WAIT_S = 60.0
 CONTRACTS_POLL_S = 1.0
 SEND_MARGIN_S = 5.0  # a request waits out the settle window only when this much is left to confirm
+# One update_status call's cap. The SDK default is 30 s = lib/order_sinopac.WORKER_STALE_S, and _confirm
+# beats only between calls: one call hanging that long reads as a dead worker to the next requester.
+# 5 s keeps the heartbeat under ~6 s old and lets the confirm loop see its own deadline.
+UPDATE_STATUS_TIMEOUT_S = 5.0
+# After an entry's fill the position is read every LAG_PROBE_S, only to time when it shows, counted
+# from the send as ORDER_SETTLE_S is (state/sinopac_settle_lag.json, for
+# sinopac_vault.ORDER_SETTLE_MEASURED_S): those reads never replace the snapshot, so nothing trades
+# on them. They go on past the window up to LAG_PROBE_MAX_S = 3 × ORDER_SETTLE_S: the 11-23 bound
+# was ~21 s, so a lag just past 20 s is timed rather than recorded as "not seen", and a measured
+# value can still be checked against M3's "window ≥ twice the lag" (≤ 30 reads per fill).
+# Closes are not timed: an empty read is what M0-b's lag looked like, so "flat" would be seen early.
+LAG_PROBE_S = 2.0
+LAG_PROBE_MAX_S = 60.0
+LAG_PATH = os.path.join(STATE, "sinopac_settle_lag.json")
+LAG_KEEP = 20
+# after a good login, how long reads may fail in a row before the session counts as gone: the
+# Solace session not established READ_RELOGIN_NOT_READY_S — room for the SDK's own reconnect (its
+# docs: 50 automatic tries; how long they take is unmeasured), about three reads — anything else
+# (永豐's 500s and 503s around its daily maintenance) READ_RELOGIN_S, so a persistent failure costs
+# at most one login per half hour (= LOGIN_RETRY_LONG_S)
+READ_RELOGIN_NOT_READY_S = 120
+# after every login the account is published only once two reads this far apart show the
+# same positions: a read the reconciler sees twice (5 s apart, lib.portfolio.note_account_short) as
+# "the user closed it" must have been seen twice by the broker, not once right after a re-login
+# 30 s: past M0-b's ~21 s fill lag, and a start's login + contract wait + this stays inside the
+# desktop's 120 s 「連接中」 grace (shell trade.js TR_SP_BOOT_MS)
+LOGIN_CONFIRM_S = 30
+SESSION_LOST_ERR = "永豐連線中斷"  # the login record's error after a session-lost exit (_wait_retry's wording)
+READ_RELOGIN_S = 1800
+# 永豐's daily maintenance, Taipei time: a 500 from a read inside it is waited out like its 503s.
+# MEASURED, not published (no daily window found in SinoPac's or Shioaji's docs, 11-26): 29026's
+# 500s began 05:10 and the 503s ran from 05:35 (11-25). To be confirmed with SinoPac.
+MAINTENANCE_TW = ((5, 0), (6, 0))  # [start, end) as (hour, minute)
+LOGOUT_WAIT_S = 15.0  # the logout of a session already gone: the process ends past it anyway (os._exit)
 LOGIN_STOPPED_EXIT = 3
 UNVERIFIED_EXIT = 4
 STATE_EXIT = 5  # the futures-enabled marker or the login record not written: no login, try again later
 NOT_BOUND_EXIT = 6  # not bound through the connect flow, credentials not handed over, or unbound: no STOP
+SESSION_LOST_EXIT = 7  # the session went after a good login: restarted by every supervisor, no STOP
 STOP_ON_EOF = "BLAVE_SINOPAC_STOP_ON_EOF"
 _STOP = threading.Event()  # set by _watch_stdin; read only between requests
 VERIFIED = "futures" in venue_traits.verified_modes("sinopac")
@@ -161,10 +208,37 @@ FAILED = {"Failed", "Inactive"}
 # 身分證 (A123456789), 居留證 old (AB12345678) and new (A812345678); any case — a hand-typed
 # .env value can be lowercase and the SDK echoes it as given
 _ID_RE = re.compile(r"(?<![A-Za-z0-9])[A-Z][A-D1289]\d{8}(?![0-9])", re.IGNORECASE)
+# A value printed under its field name: the SDK's account repr and order events carry the futures
+# account (broker_id / account_id — the 11-23 live run's worker log had both in full), the owner's
+# name, and the credentials by name. Python repr, dict and `name: value` forms alike.
+_FIELD_RE = re.compile(
+    r"""(['"]?\b(?:account_id|broker_id|person_id|username|api_key|secret_key|ca_passwd|ca_path)\b['"]?\s*[:=]\s*)"""
+    r"""(['"]?)[^'",\s)}\]]+""", re.IGNORECASE)
+# 1.7.11 echoes the API key on a bad signature: "Detail: key: <API Key> not match signature."
+_KEY_RE = re.compile(r"(\bkey\s*:\s*)[^\s'\",]+", re.IGNORECASE)
+# Anything shaped like a key or secret: 24+ characters of a token alphabet with a letter and a digit
+_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9+=_-])(?=[A-Za-z0-9+_-]*\d)(?=[A-Za-z0-9+_-]*[A-Za-z])"
+                       r"[A-Za-z0-9+_-]{24,}={0,2}(?![A-Za-z0-9+=_-])")
+# This login's own values (remember_secrets), masked wherever they turn up whatever their shape
+_SECRETS = set()
+SECRET_MIN_LEN = 6
+
+
+def remember_secrets(*values):
+    for v in values:
+        v = str(v or "").strip()
+        if len(v) >= SECRET_MIN_LEN:
+            _SECRETS.add(v)
 
 
 def redact(text):
-    return _ID_RE.sub("<id>", str(text))
+    """The national ID, the futures account and the credentials out of anything the worker writes."""
+    text = _ID_RE.sub("<id>", str(text))
+    for v in sorted(tuple(_SECRETS), key=len, reverse=True):
+        text = text.replace(v, "<redacted>")
+    text = _FIELD_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}<redacted>", text)
+    text = _KEY_RE.sub(lambda m: f"{m.group(1)}<redacted>", text)
+    return _TOKEN_RE.sub("<redacted>", text)
 
 
 class quiet_sdk:
@@ -353,10 +427,15 @@ def login(c, require_signed=True):
     if version != SDK_VERSION:
         raise LoginError(f"shioaji {version or '(unknown version)'} installed — the 永豐 futures "
                          f"worker runs on {SDK_VERSION} only; nothing logged in", "VERSION")
+    remember_secrets(c["sinopac_api_key"], c["sinopac_secret_key"], c.get("sinopac_ca_passwd"),
+                     c.get("sinopac_person_id"))
     api = sj.Shioaji(simulation=not c["live"])
     try:
         accounts = api.login(api_key=c["sinopac_api_key"], secret_key=c["sinopac_secret_key"],
                              subscribe_trade=True)
+        for a in list(accounts or []) + [getattr(api, "futopt_account", None)]:
+            remember_secrets(getattr(a, "account_id", None), getattr(a, "broker_id", None),
+                             getattr(a, "username", None))
         if c["live"]:
             try:
                 ok = api.activate_ca(ca_path=c["sinopac_ca_path"], ca_passwd=c["sinopac_ca_passwd"],
@@ -391,7 +470,7 @@ def _sanitize(e):
 
 def _sdk_classes(e):
     # shioaji is imported only inside login(): its classes are matched by name. The hierarchy is
-    # 1.7.11's type stubs (_core.pyi, read 11-17); which one each failure raises is not measured
+    # 1.7.11's type stubs (_core.pyi, read 11-17); measured so far: a wrong secret (BadRequestError)
     return {k.__name__ for k in type(e).__mro__}
 
 
@@ -428,7 +507,8 @@ def retryable(e):
     # except a file the login could not read and a server certificate that did not verify
     if isinstance(e, OSError) and not isinstance(e, _OS_STOPS):
         return True
-    return "SystemMaintenance" in _sdk_classes(e) or too_many_connections(e)
+    return ("SystemMaintenance" in _sdk_classes(e) or too_many_connections(e)
+            or maintenance_500(e, time.time()))
 
 
 # login(receive_window=) at the SDK default, 30000 ms: a request stamped further off is refused
@@ -446,10 +526,11 @@ def _clock_off():
 
 def _login_reason(e):
     """The venue_login_blocked class (api notify._LOGIN_BLOCK_REASON; the connect screen reads it
-    from the probe and STOP files). TOO_MANY and TIMEOUT are retried, never a stop. KEY and CLOCK
-    are unmeasured: which exception 1.7.11 raises for a wrong key or a skewed clock was never seen —
-    KEY is the stubs' AuthError family (HTTP 401), CLOCK a refusal while this machine's clock is
-    measured off past RECEIVE_WINDOW_S (checked first: such a refusal may also come back as a 401)."""
+    from the probe and STOP files). TOO_MANY and TIMEOUT are retried, never a stop. KEY: a mistyped
+    secret raised BadRequestError "StatusCode: 400, Detail: key: <API Key> not match signature."
+    (11-23 live run, 1.7.11); the stubs' AuthError family (HTTP 401) is read as KEY too. CLOCK is
+    unmeasured: a refusal while this machine's clock is measured off past RECEIVE_WINDOW_S (checked
+    first: a skewed request may come back as the same bad signature)."""
     if isinstance(e, LoginError):
         return e.reason
     names = _sdk_classes(e)
@@ -465,9 +546,55 @@ def _login_reason(e):
         return "VERSION"  # shioaji missing or broken: the connect step reinstalls it
     if "ShioajiError" in names and _clock_off():  # the broker refused, not one of our own checks
         return "CLOCK"
-    if "AuthError" in names:
+    if "AuthError" in names or ("BadRequestError" in names and "not match signature" in str(e).lower()):
         return "KEY"
     return "UNKNOWN"
+
+
+# 29026 11-25: "ShioajiConnectionError: margin: Shioaji error Session error SolClient send request
+# api/v1/portfolio/margin, code: NotReady … SubCode(SessionNotEstablished)", every minute for a day
+_NOT_READY_RE = re.compile(r"SessionNotEstablished|\bNotReady\b")
+
+
+def session_lost(e):
+    """How a read after a good login says the session is gone: 'token' (the AuthError family —
+    TokenError is HTTP 401 — or a 401 naming the token), 'not_ready' (the Solace session down), else
+    None. 1.7.11 does not renew an expired token by itself (measured on 29026 11-25)."""
+    text = str(e)
+    if "AuthError" in _sdk_classes(e) or (re.search(r"\b401\b", text) and "token" in text.lower()):
+        return "token"
+    if _NOT_READY_RE.search(text):
+        return "not_ready"
+    return None
+
+
+def in_maintenance(now):
+    """`now` (epoch s) falls inside MAINTENANCE_TW in Taipei time, whatever this machine's zone."""
+    t = time.gmtime(now + 8 * 3600)
+    (h0, m0), (h1, m1) = MAINTENANCE_TW
+    return h0 * 60 + m0 <= t.tm_hour * 60 + t.tm_min < h1 * 60 + m1
+
+
+def maintenance_500(e, now):
+    """A ServerError that is an HTTP 500 (its status_code, or 500 in its text), inside MAINTENANCE_TW:
+    the login (retryable) and the reads (read_waits) wait it out. Any other ServerError is not."""
+    if "ServerError" not in _sdk_classes(e) or not in_maintenance(now):
+        return False
+    return getattr(e, "status_code", None) == 500 or bool(re.search(r"\b500\b", str(e)))
+
+
+def read_waits(e, kind, now):
+    """A failed read that clears by itself: 503 maintenance, the Solace session not established, or a
+    500 inside 永豐's maintenance window. Any other is a failed read the reconciler counts."""
+    return kind == "not_ready" or "SystemMaintenance" in _sdk_classes(e) or maintenance_500(e, now)
+
+
+def relogin_due(kind, fail_since, now):
+    """The read failing since fail_since (this one of `kind`, session_lost's) ends the session now."""
+    if kind == "token":
+        return True
+    wait = READ_RELOGIN_NOT_READY_S if kind == "not_ready" else READ_RELOGIN_S
+    return now - fail_since >= wait
 
 
 # ── reads ────────────────────────────────────────────────────────────────────
@@ -602,9 +729,26 @@ def mask_account(account_id):
     return "****" + a[-4:] if len(a) > 4 else ("****" if a else "")
 
 
+# .env's sinopac_api_key sentinel this process logged in with: every snapshot carries it, and
+# lib/account_sinopac refuses one whose key is not the bound one (a rekey's old account)
+_KEY_FP = None
+
+
 def _write_snapshot(snap):
     snap["read_at"] = time.time()
+    if _KEY_FP:
+        snap["key_fp"] = _KEY_FP
     _atomic_write(OUT_PATH, snap)
+
+
+def _drop_snapshot():
+    """A rebind seen: the old account's snapshot goes with this login."""
+    try:
+        os.remove(OUT_PATH)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        _log(f"old snapshot not removed ({type(e).__name__})")
 
 
 # ── orders ───────────────────────────────────────────────────────────────────
@@ -662,8 +806,11 @@ def _fills(trade):
     return max(qty, reported), avg
 
 
-def _refresh(api, acct, trade):
-    api.update_status(acct, trade=trade)
+def _refresh(api, trade, deadline=None):
+    # 1.7.11 takes the account or one trade, never both ("Cannot specify both account and trade",
+    # every fill of the 11-23 live run)
+    left = UPDATE_STATUS_TIMEOUT_S if deadline is None else deadline - time.time()
+    api.update_status(trade=trade, timeout=int(max(1.0, min(UPDATE_STATUS_TIMEOUT_S, left)) * 1000))
     oid = str(getattr(trade.order, "id", "") or "")
     for t in api.list_trades() or []:
         if oid and str(getattr(t.order, "id", "")) == oid:
@@ -805,6 +952,10 @@ def execute(api, acct, req, simulation, timeout=None):
     if qty:
         guard.audit("order_filled", contract=code, fill_qty=qty, avg_fill_price=avg,
                     price_type=price_type, **fields)
+        before = sum(int(r["net"]) for r in snap["positions"] if r["productid"] == code)
+        want = before + (qty if fields["action"] == "buy" else -qty)
+        if fields["intent"] == "entry" and want:
+            _arm_lag_probe(code, want, sinopac_vault.last_order_at() or time.time(), simulation)
     return dict(base, status="filled" if qty else "sent", fill_qty=float(qty), avg_fill_price=avg)
 
 
@@ -813,7 +964,7 @@ def _confirm(api, acct, trade, deadline):
     while True:
         _beat()  # a confirm can outlast WORKER_STALE_S: the next caller must not read the worker as down
         try:
-            trade = _refresh(api, acct, trade)
+            trade = _refresh(api, trade, deadline)
         except Exception as e:
             _log(f"update_status failed: {_sanitize(e)}")
         status = _enum(trade.status.status)
@@ -833,6 +984,64 @@ def _check_entry_hold(fields):
     if hold["why"] == "clock":
         raise ValueError(f"entry held: this machine's clock is {hold['skew']:+.0f} s off the api's")
     raise ValueError("entry held: outside the TAIFEX regular session (it would queue to the open)")
+
+
+_LAG_PROBE = {}
+
+
+def _arm_lag_probe(code, want_net, sent_at, simulation, now=None):
+    """Time the next reads against this entry, from its send (a later one replaces an unfinished one)."""
+    now = time.time() if now is None else now
+    _LAG_PROBE.clear()
+    _LAG_PROBE.update(contract=code, want_net=int(want_net), sent_at=float(sent_at),
+                      simulation=bool(simulation), next_at=now + LAG_PROBE_S)
+
+
+def _record_lag(lag_s, p, now):
+    try:
+        book = load_json(LAG_PATH, encoding="utf-8")
+        samples = book.get("samples") if isinstance(book, dict) else None
+    except (OSError, ValueError):
+        samples = None
+    samples = (samples if isinstance(samples, list) else [])[-(LAG_KEEP - 1):]
+    samples.append({"at": now, "lag_s": lag_s, "from": "send", "contract": p["contract"],
+                    "want_net": p["want_net"], "simulation": p["simulation"],
+                    "window_s": sinopac_vault.ORDER_SETTLE_S, "probe_every_s": LAG_PROBE_S,
+                    "probe_max_s": LAG_PROBE_MAX_S})
+    try:
+        _atomic_write(LAG_PATH, {"samples": samples})
+    except OSError as e:
+        _log(f"settle lag not written ({type(e).__name__})")
+    _log(f"position lag after an entry: {p['contract']} "
+         + (f"seen {lag_s:.1f}s after the send" if lag_s is not None
+            else f"not seen within {LAG_PROBE_MAX_S:.0f}s of the send"))
+
+
+def _probe_lag(api, acct):
+    """One due read of the armed entry's position: records the lag from the send the first time it
+    shows, or that it did not show inside LAG_PROBE_MAX_S. A failed read is skipped, never retried in
+    a loop."""
+    if not _LAG_PROBE:
+        return
+    now = time.time()
+    if now < _LAG_PROBE["next_at"]:
+        return
+    p = dict(_LAG_PROBE)
+    if now - p["sent_at"] > LAG_PROBE_MAX_S:
+        _LAG_PROBE.clear()
+        _record_lag(None, p, now)
+        return
+    _LAG_PROBE["next_at"] = now + LAG_PROBE_S
+    try:
+        # capped like update_status: these reads run between requests, a hang must not age the heartbeat
+        rows = [position_row(api, x) for x in
+                api.list_positions(acct, timeout=int(UPDATE_STATUS_TIMEOUT_S * 1000)) or []]
+    except Exception as e:
+        _log(f"lag read failed: {_sanitize(e)}")
+        return
+    if sum(int(r["net"]) for r in rows if r and r["productid"] == p["contract"]) == p["want_net"]:
+        _LAG_PROBE.clear()
+        _record_lag(round(now - p["sent_at"], 1), p, now)
 
 
 def serve_requests(api, acct, simulation):
@@ -965,7 +1174,7 @@ def _last_positions():
 
 
 def _wait_retry(retry_at, failures, err, positions, st=None):
-    """Logged out until retry_at, the snapshot restamped every POLL_S (lib/sinopac_futures_account
+    """Logged out until retry_at, the snapshot restamped every POLL_S (lib/account_sinopac
     reads it as `waiting`: the reconciler skips the round instead of counting a failed read). It
     carries the last read's rows, never read as positions (ok false), for a later stop's P1. No
     heartbeat meanwhile: lib/order_sinopac refuses an order before writing its request.
@@ -975,7 +1184,8 @@ def _wait_retry(retry_at, failures, err, positions, st=None):
         if st is not None:
             _announce_if_due(st, time.time())
         at = time.strftime("%H:%M", time.gmtime(retry_at + 8 * 3600))
-        text = (f"永豐登入失敗 {failures} 次（{err}），{at} 再試" if err
+        text = (f"永豐連線中斷，{at} 重新登入" if err == SESSION_LOST_ERR
+                else f"永豐登入失敗 {failures} 次（{err}），{at} 再試" if err
                 else f"永豐上一次登入沒有結果（程序中斷），{at} 再試")
         try:
             _write_snapshot({"ok": False, "waiting": "login_retry", "retry_at": retry_at,
@@ -1075,12 +1285,14 @@ def _note_logout():
         _log(f"logout record not written ({type(e).__name__})")
 
 
-def _login_with_retry(c, bound_key=None):
+def _login_with_retry(c, bound_key=None, streak=None):
     """login(c). An unanswered login (retryable) is tried again for good, spaced by retry_wait_s;
     the streak survives a restart (RETRY_PATH). Its notice is exchange_unreachable (announce_due:
     25, 150, then every 2 h; one retry is moved onto the 150-min P1 mark), never while HALT is set (as the
     reconciler's: that event says trading resumes by itself). Any other failure stops
-    (_login_stopped). The record of the good login stays: _serve drops it after LOGIN_STABLE_S."""
+    (_login_stopped). The record of the good login stays: _serve drops it after LOGIN_STABLE_S.
+    `streak` (a dict) gets the ended streak's since / announced_at: _serve runs that outage clock on
+    while its reads stay unanswered."""
     st = _retry_state()
     positions = _last_positions()
     # the reconciler reads a missing or stale snapshot as a failed read (three in a row HALT): a
@@ -1095,6 +1307,7 @@ def _login_with_retry(c, bound_key=None):
             sys.exit(0)  # nothing held: no session yet
         if bound_key is not None and _bound_key() not in (None, bound_key):
             _log("永豐 unbound or rebound while waiting to log in — not logging in")
+            _drop_snapshot()
             sys.exit(NOT_BOUND_EXIT)
         try:
             st = _note_attempt(st)
@@ -1127,6 +1340,8 @@ def _login_with_retry(c, bound_key=None):
             _atomic_write(RETRY_PATH, dict(st, error=None, since=None, announced_at=None))
         except OSError as e:
             _log(f"login retry state not reset ({type(e).__name__})")
+        if streak is not None:
+            streak.update(since=st["since"], announced_at=st["announced_at"])
         return out
 
 
@@ -1310,10 +1525,18 @@ def _serve(c=None):
         sys.exit(NOT_BOUND_EXIT)
     except Exception as e:
         _login_stopped(_sanitize(e), _login_reason(e))
+    global _KEY_FP
     bound_key = sinopac_vault.bound_env(c["sinopac_api_key"], c["sinopac_secret_key"])["sinopac_api_key"]
-    api, acct = _login_with_retry(c, bound_key)
+    _KEY_FP = bound_key
+    # the account unreadable since (and its last exchange_unreachable): carried over a re-login,
+    # cleared by a good read
+    outage = {"since": None, "announced_at": None}
+    api, acct = _login_with_retry(c, bound_key, outage)
     login_at = time.time()
-    on_request = False
+    on_request = lost = False
+    rows = _last_positions()  # the last good read's, for the waiting snapshot of a lost session
+    fail_since = None
+    confirm = None  # (positions, read time) of the read the next one must match; "done" once published
     _beat()
     simulation = not c["live"]
     try:
@@ -1326,26 +1549,75 @@ def _serve(c=None):
                 # unbound or bound to another key: the cloud's unbind cannot stop this service, so
                 # it leaves by itself (its shim / NSSM start the next one only if still wanted)
                 _log("永豐 unbound or rebound — logging out")
+                _drop_snapshot()
                 return NOT_BOUND_EXIT  # no logout record: drop() just removed the retry file
             if login_at is not None and time.time() - login_at >= LOGIN_STABLE_S:
                 _clear_retry()
                 login_at = None
             _beat()
+            next_gap = POLL_S
             try:
-                _write_snapshot(read_account(api, acct))
+                snap = read_account(api, acct)
             except Exception as e:
-                # keep the session: a re-login per failed read is how a machine walks into 451
+                now = time.time()
+                fail_since = fail_since or now
+                kind = session_lost(e)
+                outage["since"] = outage["since"] or now
+                if relogin_due(kind, fail_since, now):
+                    _log(f"read failed {now - fail_since:.0f}s in a row ({_sanitize(e)}) — the session is "
+                         f"gone: logging out, the restart logs in again")
+                    lost = True
+                    try:
+                        # not a failed read: the reconciler skips the round, as while the login is retried
+                        _write_snapshot({"ok": False, "waiting": "login", "positions": rows,
+                                         "error": "永豐連線中斷，重新登入中"})
+                    except OSError as e2:
+                        _log(f"waiting snapshot not written ({type(e2).__name__})")
+                    _carry_outage(outage, now)
+                    return SESSION_LOST_EXIT
+                # keep the session meanwhile: a re-login per failed read is how a machine walks into 451
                 _log(f"read failed: {_sanitize(e)}")
+                if read_waits(e, kind, now):
+                    # one that clears by itself (maintenance, Solace reconnecting): a `waiting` snapshot,
+                    # the reconciler skips the round and never halts on it; this worker tells the user
+                    # (exchange_unreachable 25, 150, then every 120 min of the outage, as for a login)
+                    _announce_outage(outage, now)
+                    failed = {"ok": False, "waiting": "session", "positions": rows,
+                              "error": f"永豐暫時讀不到帳戶，自動重試中（{_sanitize(e)}）"}
+                else:
+                    failed = {"ok": False, "error": _sanitize(e)}  # counted by the reconciler
                 try:
-                    _write_snapshot({"ok": False, "error": _sanitize(e)})
+                    _write_snapshot(failed)
                 except OSError as e2:
                     _log(f"failed-read snapshot not written ({type(e2).__name__})")
-            next_read = time.time() + POLL_S
+            else:
+                rows, fail_since = snap["positions"], None
+                outage.update(since=None, announced_at=None)
+                held = sorted((r["productid"], r["net"]) for r in rows)
+                if confirm != "done":
+                    if confirm is not None and confirm[0] == held and time.time() - confirm[1] >= LOGIN_CONFIRM_S:
+                        confirm = "done"
+                    else:
+                        if confirm is None or confirm[0] != held:
+                            confirm = (held, snap["query_started_at"])
+                        snap = {"ok": False, "waiting": "login", "positions": rows,
+                                "error": "永豐登入後確認部位中"}
+                        next_gap = LOGIN_CONFIRM_S
+                try:
+                    _write_snapshot(snap)
+                except OSError as e:
+                    _log(f"snapshot not written ({type(e).__name__})")
+            next_read = time.time() + next_gap
             while time.time() < next_read and not _STOP.is_set():
                 time.sleep(REQUEST_CHECK_S)
                 _beat()
                 if serve_requests(api, acct, simulation):
                     next_read = _settled_read_at()  # the next caller sees the fill, not M0-b's []
+                try:
+                    _probe_lag(api, acct)
+                except Exception as e:  # measurement only: never the session's end
+                    _LAG_PROBE.clear()
+                    _log(f"lag probe dropped: {_sanitize(e)}")
                 if os.path.exists(REFRESH_FLAG):
                     try:
                         os.remove(REFRESH_FLAG)
@@ -1356,12 +1628,53 @@ def _serve(c=None):
         on_request = True
         raise
     finally:
+        if lost:
+            _logout_within(api, LOGOUT_WAIT_S)
+        else:
+            try:
+                api.logout()
+            except Exception:
+                pass
+        if on_request:
+            _note_logout()
+
+
+def _announce_outage(outage, now):
+    """exchange_unreachable for an account unreadable since outage['since'] (never under HALT)."""
+    if not announce_due(outage["since"], outage["announced_at"], now) or guard.halted():
+        return
+    events.emit("exchange_unreachable", venue="sinopac", minutes=int((now - outage["since"]) // 60),
+                code="session")
+    outage["announced_at"] = now
+
+
+def _carry_outage(outage, now):
+    """The outage clock into the login record before a session-lost exit: the next process's login
+    streak — and, past a good login, its reads — go on from it, so a maintenance that outlasts
+    re-logins still reaches the 25 / 150-minute notices. The record's ladder (failures) is kept."""
+    if outage["since"] is None:
+        return
+    st = _retry_state()
+    st.update(error=SESSION_LOST_ERR, since=min(outage["since"], st["since"] or outage["since"]),
+              announced_at=max(outage["announced_at"] or 0, st["announced_at"] or 0) or None,
+              retry_at=max(st["retry_at"], now))
+    try:
+        _atomic_write(RETRY_PATH, st)
+    except OSError as e:
+        _log(f"outage not carried into the login record ({type(e).__name__})")
+
+
+def _logout_within(api, wait_s):
+    """api.logout() on a thread, waited for up to wait_s: the logout of a session already gone
+    must not hold the exit (the process ends with os._exit, past any thread)."""
+    def out():
         try:
             api.logout()
         except Exception:
             pass
-        if on_request:
-            _note_logout()
+    t = threading.Thread(target=out, daemon=True, name="sinopac-logout")
+    t.start()
+    t.join(wait_s)
 
 
 # ── Windows cloud service (NSSM): lib/president_worker's recipe ─────────────────────────────────

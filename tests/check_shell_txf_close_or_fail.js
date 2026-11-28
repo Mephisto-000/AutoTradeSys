@@ -24,6 +24,8 @@ const line = (re) => { const m = re.exec(trade); if (!m) throw new Error("找不
     const d = (clock, cloud) => M.trCloseDeferred({ symbol: "TXF", exchange: "president", kind: "market_closed_deferred", clock }, cloud);
     return d("far").title === "tr.ov.evDeferFut" && d("far").note === "tr.ov.evDeferClockFarNote" && d("far").rowNote === d("far").note
       && d("unmeasured", true).note === "tr.cloud.ov.evDeferClockNote" && d("far", true).note === "tr.cloud.ov.evDeferClockFarNote" && d(undefined, true).note === "tr.ov.evDeferNote"; })());
+  ok("永豐(只做期貨)的延後與取消列是台指期那組標題", M.trCloseDeferred({ symbol: "X", exchange: "sinopac", kind: "market_closed_deferred" }).title === "tr.ov.evDeferFut"
+    && M.trCloseDeferred({ symbol: "X", exchange: "sinopac", kind: "close_deferred_cancelled" }).title === "tr.ov.evDeferCancelFut");
   ok("新機器的拒單列不會被認成延後或取消", M.trCloseDeferred({ symbol: "TXF", exchange: "president",
     error: "[order_reject:market_closed] close-all: 休市中沒有平倉，部位還在、沒有停損，開盤後要自己平" }) === null
     && M.trCloseDeferred({ symbol: "TXF", exchange: "president", error: "close-all: 更新後取消等開盤的平倉，部位還在、沒有停損，要自己平" }) === null); }
@@ -43,7 +45,7 @@ ok("拒單 token market_closed 換 tr.err.marketClosed", /market_closed: "tr\.er
 // 部位表掛不掛(trLiveOrderErrs)與原文退路(trOrderErrRaw):列照 lib/portfolio._record_order_error 實際存進 order_errors.json 的樣子
 // (flatten 傳「close-all: [order_reject:market_closed] …」,存檔時 token 搬到最前面;rel-0155 跑一次 _record_order_error 取得)
 { const L = new Function([line(/^const TR_CAPITAL_PREFIX = .*$/m), line(/^const TR_CLOSE_ALL_RE = .*$/m),
-    ...["trCanonSym", "trCanonKey", "trCapitalCanon", "trTwFutCanon", "trMs", "trIsCloseAll", "trLiveOrderErrs", "trOrderErrRaw"].map(fn),
+    ...["trCanonSym", "trCanonKey", "trCapitalCanon", "trTwFutCanon", "trTwFutVenue", "trMs", "trIsCloseAll", "trLiveOrderErrs", "trOrderErrRaw"].map(fn),
     "return { trLiveOrderErrs, trOrderErrRaw, trIsCloseAll };"].join("\n"))();
   const STORED = [
     { ts: "2026-11-16T06:38:49.443015", symbol: "TXF", exchange: "president", error: "[order_reject:market_closed] close-all: 休市中沒有平倉，部位還在、沒有停損，開盤後要自己平" },
@@ -116,6 +118,6 @@ ok("拒單 token market_closed 換 tr.err.marketClosed", /market_closed: "tr\.er
     "tr.closePos", "tr.closeTitle", "tm.txfOpenKept2", "tr.ov.evTxfOpenKept", "tr.ov.evCloseFromPaused"];
   ok("拿掉的句子兩語都不在", GONE.every((k) => g(zh, k) === undefined && g(en, k) === undefined), GONE.filter((k) => g(zh, k) !== undefined || g(en, k) !== undefined));
   const SIX = ["tr.ov.evManualCloseLag", "tr.ov.evManualCloseQueued", "tr.ov.evManualCloseQueuedSoon", "tm.evCloseLagNote", "tm.evCloseQueuedNote", "tm.evCloseQueuedSoonNote"];
-  ok("六句手動平倉點名停止框那顆「暫停並關閉部位」", SIX.every((k) => g(zh, k).indexOf("「暫停並關閉部位」") >= 0 && g(en, k).indexOf("“Pause and close positions”") >= 0), SIX.map((k) => g(zh, k)));
+  ok("六句手動平倉點名停止框那顆「暫停並關閉部位」", SIX.every((k) => g(zh, k).indexOf("「暫停並關閉部位」") >= 0 && g(en, k).indexOf("“Pause and Close Positions”") >= 0), SIX.map((k) => g(zh, k)));
   ok("結果不明的全部平倉那句仍點名停止框那顆", g(zh, "tr.ov.evUnconfirmedCloseAllNote").indexOf("暫停並關閉部位") >= 0); }
 console.log(red ? `\n${red} FAILED` : "\nALL PASS"); process.exit(red ? 1 : 0);

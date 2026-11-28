@@ -16,13 +16,18 @@ Writes `strategies/<name>/wf.json` — the web workspace's 樣本外驗證 tab r
 a run that skips it is invisible to a web user. Rolling windows only (the training
 window slides forward by one step each run); anchored windows are not offered.
 
-Two passes, so the whole thing costs about one parameter scan:
+Two passes, so the whole thing costs about one parameter scan (the signals dominate):
 
-  pass 1  every combo's signals are computed ONCE on the full history, then each
-          run's training slice is priced from that one signal pass → a
-          runs × rows × cols Sharpe grid. No position matrix is kept: one combo's
-          arrays live at a time (a 400-combo × full-history float64 matrix would
-          not fit a 2C/4GB Starter).
+  pass 1  every combo's signals are computed ONCE on the full history and priced
+          ONCE over it (_price_once); each run's training numbers are cut out of
+          that one priced series (_window_stats) → a runs × rows × cols Sharpe grid.
+          A training window therefore starts with whatever the combo held coming
+          in — no entry cost on its first bar, its first bars' returns count —
+          exactly as a user running those parameters all along would have been.
+          (Before 2026-11 each window was re-priced from flat: 108 windows of ~750
+          bars cost ~28 full histories, the whole-market cost of the run.) No
+          position matrix is kept: one combo's arrays live at a time (a 400-combo ×
+          full-history float64 matrix would not fit a 2C/4GB Starter).
   pass 2  only the run winners (≤ n_runs combos, usually fewer) are recomputed;
           each run's test slice is cut from its own winner's position series and
           the slices are concatenated into ONE series, priced by a single
@@ -70,7 +75,16 @@ import time
 
 import numpy as np
 
-from lib.param_scan import SCAN_MAX_AXIS, find_plateau, _finite_numbers, _clear_stale_tmp, _strategy_code_hash, atomic_replace
+from lib.param_scan import SCAN_MAX_AXIS, find_plateau, _finite_numbers, _clear_stale_tmp, _strategy_code_hash, _locate, atomic_replace
+
+# Time limit inside an agent turn (spec typec-iterate-return-floor-2026-11-27 §9.4(a)): an automatic run gets
+# WF_BUDGET_S, never more than the turn has left. The turn's wall clock is the lower of the bridges' (Telegram
+# 2000 s, web / desktop 2100 s — the ledger does not say which surface), minus WF_TAIL_S for the reply.
+WF_BUDGET_S = 300
+TURN_WALL_S = 2000
+WF_TAIL_S = 150
+WF_MIN_AXIS = 5   # a thinned axis keeps at least this many values (the pick is a 3×3 neighbourhood mean)
+_clock = time.time
 
 # Rolling window defaults (see default_windows), three tiers re-optimised monthly:
 # 1095/30 when the history cuts WF_MIN_RUNS runs out of it — a three-year training
@@ -216,21 +230,37 @@ def _price_pnl(pos, exec_raw, close_v, open_v, fee):
     return pf_ret, delta_w
 
 
-def _window_stats(pos, exec_raw, close_v, open_v, index, a, b, fee):
-    """(sharpe, ann_ret, mdd, trades) for bars [a, b), or None when the combo never
-    traded in that window — a do-nothing window's Sharpe 0.0 would otherwise beat
-    every losing combo and win the plateau in a bear stretch (same rule as
-    scan_grid)."""
-    from lib.analysis import compute_stats, count_trades
+def _price_once(pos, exec_raw, close_v, open_v, fee):
+    """One combo priced ONCE over the whole history, ready to be cut into windows: (pf_ret, cumulative
+    count of bars that traded or held a position, cumulative trade count), the counts with a leading 0
+    so a window [a, b) is cum[b] − cum[a]. Per-bar counts, not the 2-D Δw: cutting 108 windows out
+    of a whole-market Δw matrix costs more than the pricing itself."""
+    pf_ret, delta_w = _price_pnl(pos, exec_raw, close_v, open_v, fee)
+    dw = np.nan_to_num(delta_w)
+    held = np.zeros(len(pos), dtype=bool)   # w_curr: the position going into each bar
+    if pos.ndim > 1:
+        held[1:] = np.any(np.nan_to_num(pos[:-1]) != 0, axis=1)
+        changed, trades = np.any(dw != 0, axis=1), np.count_nonzero(np.round(dw, 4), axis=1)
+    else:
+        held[1:] = np.nan_to_num(pos[:-1]) != 0
+        changed, trades = dw != 0, (np.round(dw, 4) != 0).astype(int)
+    active = np.concatenate([[0], np.cumsum(changed | held)])
+    return pf_ret, active, np.concatenate([[0], np.cumsum(trades)])
 
-    pf_ret, delta_w = _price_pnl(pos[a:b], exec_raw[a:b], close_v[a:b], open_v[a:b], fee)
-    # The "never traded" exclusion keeps its raw any-change rule (same as scan_grid) so
-    # plateau picks don't move; only the reported count uses the trade definition.
-    if not np.count_nonzero(np.nan_to_num(delta_w)):
+
+def _window_stats(priced, index, a, b):
+    """(sharpe, ann_ret, mdd, trades) for bars [a, b) cut out of _price_once, or None when the combo
+    neither traded nor held a position in that window — a do-nothing window's Sharpe 0.0 would
+    otherwise beat every losing combo and win the plateau in a bear stretch (same rule as
+    scan_grid). The window starts with whatever the combo held coming in: no entry cost on its
+    first bar, the first bars' returns count (before 2026-11 each window was priced from flat)."""
+    from lib.analysis import compute_stats
+
+    pf_ret, active, trades = priced
+    if active[b] - active[a] == 0:
         return None
-    trades = count_trades(delta_w)
-    sharpe, _, _, mdd, ann_ret = compute_stats(pf_ret, index[a:b])
-    return sharpe, ann_ret, mdd, trades
+    sharpe, _, _, mdd, ann_ret = compute_stats(pf_ret[a:b], index[a:b])
+    return sharpe, ann_ret, mdd, int(trades[b] - trades[a])
 
 
 def _oos_curve(index, pf_ret):
@@ -301,11 +331,48 @@ def _stitch(picks, windows, load_pos):
     return pos_oos, exec_oos, close_oos, open_oos, oos_a, oos_b
 
 
+def _wf_budget(max_seconds, now):
+    """(budget, left, asked): budget in seconds or None = no limit; left = the turn's remaining wall clock or
+    None; asked = run as the user's own request (None, with a readable ledger: no thinning). An unreadable
+    ledger fails closed: None is the automatic limit, like turn() calling such a turn basic."""
+    if max_seconds is not None and (isinstance(max_seconds, bool) or not isinstance(max_seconds, (int, float))
+                                    or not np.isfinite(max_seconds) or max_seconds <= 0):
+        raise ValueError(f"max_seconds must be a positive number of seconds or None, got {max_seconds!r}")
+    try:
+        from lib.iterate import turn
+        t = turn()
+    except ImportError:
+        t = None
+    if t is None:
+        return None, None, False
+    started = t.get("started")
+    if t.get("unread") or isinstance(started, bool) or not isinstance(started, (int, float)) or not np.isfinite(started):
+        return (WF_BUDGET_S if max_seconds is None else max_seconds), None, False
+    left = max(started + TURN_WALL_S - WF_TAIL_S - now, 0.0)
+    return (left if max_seconds is None else min(max_seconds, left)), left, max_seconds is None
+
+
+def _thin(n, k, keep):
+    """k evenly spaced indices of an n-value axis, both ends included; `keep` (an index or None) replaces its
+    nearest pick so the strategy's current value stays on the grid."""
+    if k >= n:
+        return list(range(n))
+    idx = sorted({int(round(x)) for x in np.linspace(0, n - 1, k)})
+    if keep is not None and keep not in idx:
+        idx[min(range(len(idx)), key=lambda m: abs(idx[m] - keep))] = keep
+        idx.sort()
+    return idx
+
+
+def _mins(s):
+    return f"{s / 60:.0f}" if s >= 600 else f"{s / 60:.1f}"
+
+
 def run_walk_forward(data, compute_signals_fn, row_vals, col_vals, output_dir,
                      row_param, col_param, fee=None,
                      row_kw='entry_th', col_kw='exit_th',
                      lookback_days=None, step_days=None,
-                     valid_fn=None, warmup=0, window=1, current=None):
+                     valid_fn=None, warmup=0, window=1, current=None, max_seconds=WF_BUDGET_S):
     """
     Run the walk-forward validation and write `<output_dir>/wf.json`.
 
@@ -335,6 +402,11 @@ def run_walk_forward(data, compute_signals_fn, row_vals, col_vals, output_dir,
                         docstring, point 3. Pass the strategy's WARMUP.
     window            : find_plateau neighbourhood radius (default 1 = 3×3).
     current           : (row_val, col_val) the strategy file holds right now.
+    max_seconds       : inside an agent turn, the time limit (default WF_BUDGET_S = 300), never
+                        more than the turn's remaining wall clock. Over it the grid is thinned
+                        (≥ WF_MIN_AXIS per axis, `current` kept); still over → ❌ skipped, nothing
+                        written. None = the user asked for this run: no thinning, only the turn's
+                        remaining time. Outside a turn there is no limit.
 
     Returns
     -------
@@ -343,6 +415,8 @@ def run_walk_forward(data, compute_signals_fn, row_vals, col_vals, output_dir,
     if fee is None:
         raise ValueError("fee is required: pass fee=lib.costs.fee_of(s) — the strategy's FEE, "
                          "else its market default (references/trading-costs.md)")
+    t_start = _clock()
+    budget, left, asked = _wf_budget(max_seconds, t_start)
     try:   # refused while this turn is still iterating the strategy (spec auto-iterate §5); old workspace: no lib/iterate
         from lib.iterate import before_walk_forward
     except ImportError:
@@ -386,8 +460,10 @@ def run_walk_forward(data, compute_signals_fn, row_vals, col_vals, output_dir,
     # index from price_df, and a "資料只夠 2 輪" must not arrive ten minutes into the
     # scan. The result is reused, so the probe costs nothing.
     probe_key = (cells[0][0], cells[0][2])
+    t0_probe = _clock()
     probe = compute_signals_fn(data, **{row_kw: cells[0][1], col_kw: cells[0][3]})
-    index = _unpack(probe, data)[4]
+    probe_s = _clock() - t0_probe
+    probe_pos, index = _unpack(probe, data)[0], _unpack(probe, data)[4]
     if lookback_days is None or step_days is None:
         lookback_days, step_days = default_windows(int((index[-1] - index[0]).days))
     lookback_days, step_days = int(lookback_days), int(step_days)
@@ -400,21 +476,93 @@ def run_walk_forward(data, compute_signals_fn, row_vals, col_vals, output_dir,
     g_sharpe, g_ann, g_mdd = (np.full(shape, np.nan) for _ in range(3))
     g_trades = np.zeros(shape, dtype=int)
 
-    progress = Progress('walk-forward', len(cells), 'cells')
-    for i, rv, j, cv in cells:
-        result = probe if (i, j) == probe_key else compute_signals_fn(
-            data, **{row_kw: rv, col_kw: cv})
-        progress.tick()
+    def price_cell(i, j, result):
         pos, exec_raw, close_v, open_v, _ = _unpack(result, data)
-        # scan_grid's default when no valid_fn was given and the strategy is Type A
-        if valid_fn is None and pos.ndim == 1 and not rv > cv:
-            continue
+        priced = _price_once(pos, exec_raw, close_v, open_v, fee)
+        pos = exec_raw = None
         for k, (t0, t1, _t2) in enumerate(windows):
-            st = _window_stats(pos, exec_raw, close_v, open_v, index, t0 + warmup, t1, fee)
+            st = _window_stats(priced, index, t0 + warmup, t1)
             if st is None:
                 continue
             g_sharpe[k, i, j], g_ann[k, i, j], g_mdd[k, i, j], g_trades[k, i, j] = st
-    probe = None  # release the probe combo's arrays before pass 2
+
+    # scan_grid's default when no valid_fn was given and the strategy is Type A: those cells never run
+    if valid_fn is None and np.ndim(probe_pos) == 1:
+        cells = [c for c in cells if c[1] > c[3]]
+    # The estimate needs one cell priced over every training window, not just the probe's signals: on a big
+    # universe the pricing is most of the cost. A probe cell the Type A default skips is not that cell.
+    measured = None
+    if cells:
+        i0, rv0, j0, cv0 = cells[0]
+        if (i0, j0) == probe_key:
+            t_sig, result = probe_s, probe
+        else:
+            t_a = _clock()
+            result = compute_signals_fn(data, **{row_kw: rv0, col_kw: cv0})
+            t_sig = _clock() - t_a
+        t_b = _clock()
+        price_cell(i0, j0, result)
+        t_win = _clock() - t_b
+        measured, result = (i0, j0), None
+    probe = probe_pos = None  # release the probe combo's arrays before the loop
+
+    ri, ci = list(range(len(row_vals))), list(range(len(col_vals)))
+    if budget is not None and measured is not None:
+        def estimate(rs, cs):
+            rs, cs = set(rs), set(cs)
+            n = sum(1 for i, _, j, _ in cells if i in rs and j in cs)
+            m = n - 1 if measured[0] in rs and measured[1] in cs else n
+            return m * (t_sig + t_win) + min(n_runs, n) * t_sig + t_win, n
+
+        elapsed = _clock() - t_start
+        est, n_all = estimate(ri, ci)
+        print(f"Walk-forward estimate: about {_mins(elapsed + est)} min for {len(row_vals)}×{len(col_vals)} "
+              f"({n_all} combos, {n_runs} runs)")
+        if elapsed + est > budget:
+            if asked:
+                fits = elapsed + est <= TURN_WALL_S - WF_TAIL_S
+                raise SystemExit(
+                    f"❌ Walk-forward skipped: about {_mins(elapsed + est)} min, this turn has {_mins(left)} min left. Nothing was written; the "
+                    "previous result stays. " + ("Tell the user the estimate; the same request in a new message "
+                                                 "usually fits (a new turn starts with the full time)." if fits else
+                                                 "Tell the user the estimate: it does not fit in one turn."))
+            keep_r = _locate(current[0], row_vals) if current is not None else None
+            keep_c = _locate(current[1], col_vals) if current is not None else None
+            nr, nc = len(row_vals), len(col_vals)
+            lo_r, lo_c = min(nr, WF_MIN_AXIS), min(nc, WF_MIN_AXIS)
+            while True:
+                ri, ci = _thin(len(row_vals), nr, keep_r), _thin(len(col_vals), nc, keep_c)
+                e, _ = estimate(ri, ci)
+                if elapsed + e <= budget:
+                    break
+                if nr <= lo_r and nc <= lo_c:
+                    raise SystemExit(
+                        f"❌ Walk-forward skipped: about {_mins(elapsed + e)} min even on a {len(ri)}×{len(ci)} grid; "
+                        f"an automatic run is limited to {_mins(budget)} min. Nothing was written. Tell the user they "
+                        "can run it from the 樣本外驗證 tab, or (Telegram, the phone app: no such tab) by asking for "
+                        "it in the chat.")
+                if nc <= lo_c or (nr >= nc and nr > lo_r):
+                    nr -= 1
+                else:
+                    nc -= 1
+            print(f"Walk-forward grid thinned: {len(row_vals)}×{len(col_vals)} → {len(ri)}×{len(ci)} "
+                  f"(full grid ≈ {_mins(elapsed + est)} min, limit {_mins(budget)} min)")
+    if (len(ri), len(ci)) != (len(row_vals), len(col_vals)):
+        new_i, new_j = {o: n for n, o in enumerate(ri)}, {o: n for n, o in enumerate(ci)}
+        row_vals, col_vals = [row_vals[i] for i in ri], [col_vals[j] for j in ci]
+        g_sharpe, g_ann, g_mdd, g_trades = (g[:, ri][:, :, ci] for g in (g_sharpe, g_ann, g_mdd, g_trades))
+        cells = [(new_i[i], rv, new_j[j], cv) for i, rv, j, cv in cells if i in new_i and j in new_j]
+        measured = (new_i[measured[0]], new_j[measured[1]]) if measured[0] in new_i and measured[1] in new_j else None
+
+    progress = Progress('walk-forward', len(cells), 'cells')
+    for i, rv, j, cv in cells:
+        if (i, j) == measured:
+            progress.tick()
+            continue
+        result = compute_signals_fn(data, **{row_kw: rv, col_kw: cv})
+        progress.tick()
+        price_cell(i, j, result)
+    result = None
 
     picks = []
     for k in range(n_runs):

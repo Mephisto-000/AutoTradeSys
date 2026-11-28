@@ -2,7 +2,7 @@
 
 manager/flatten reads ORDER_SETTLE_S and last_order_at here (lib.venue_traits snapshot_settle_wait);
 lib/sinopac_worker writes the marker right before every place_order and holds its own reads to it;
-lib/sinopac_futures_account refuses a position read that started too soon after it.
+lib/account_sinopac refuses a position read that started too soon after it.
 The worker's login credentials are resolved here too (the section at the end).
 Stdlib only (winreplace aside), imported as lib.sinopac_vault.
 """
@@ -25,15 +25,18 @@ except ImportError:  # half-updated workspace (lib/winreplace.py not landed): on
 
 
 # The one settle window every 永豐 reader and the worker use — never restate the number elsewhere.
-# UNMEASURED: M0-b (2026-11-16, real account, 1.7.11) only saw list_positions still return [] right
-# after a Filled TMF market IOC; how long it lags was not timed. 20 s is borrowed from 統一 (its
-# position query showed a live fill 12.0 s / 10.9 s after the send, 10-02), as lib/capital_vault
-# borrows it, and fits manager/flatten's TURN_SETTLE_BUDGET_S (25 s). Too short and a lagging []
-# read past the window is taken as flat and the position is opened again. The gate-flip live test
-# (audit M3) must time fill → list_positions, set ORDER_SETTLE_MEASURED_S to the worst lag seen and
-# this to at least twice it; tests/check_sinopac_futures.py refuses a flipped gate until then.
+# M0-b (2026-11-16, real account, 1.7.11) saw list_positions still return [] right after a Filled
+# TMF market IOC. The 2026-11-23 live run (one TMF buy, one close, MKT IOC, each sent once) saw the
+# position, then the flat book, in the snapshot within ~20 s of each fill — that snapshot is held
+# until this window after the send, so it bounds the lag, it does not time it. 20 s stays (Wei
+# 11-23; the runbook's "20 → 30" is void). After an entry the worker reads the position every
+# LAG_PROBE_S from the send up to LAG_PROBE_MAX_S and records when it shows
+# (state/sinopac_settle_lag.json; closes are not timed); ORDER_SETTLE_MEASURED_S is the largest
+# non-simulation sample (one so far: 3.2 s, send → position, 2026-11-23 night session) and this
+# stays at least twice it. Too short and a lagging [] read past the window is taken as flat and
+# the position is opened again. tests/check_sinopac_futures.py refuses an open gate without it (M3).
 ORDER_SETTLE_S = 20
-ORDER_SETTLE_MEASURED_S = None
+ORDER_SETTLE_MEASURED_S = 3.2
 LAST_ORDER_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                "state", "sinopac_last_order_at")
 # the worker's failed-login record (lib/sinopac_worker STOP_PATH): only the user's --once clears it

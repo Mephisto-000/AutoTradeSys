@@ -25,11 +25,12 @@ const GLOBAL_OK = {
   SYS_QUIET: "換語言重畫聊天系統行時的旗標(同步段落)", hasToken: "Blave 登入", csReady: "對話清單第一次載入", acctOutBusy: "登出中", oauthPending: "登入中", SHL_SCROLL: "設定頁捲動", PRIV: "隱私設定", MV: "手機查看",
   MV_BUSY: "同上", PRIV_BUSY: "同上", RN: "回覆通知設定", rsCtx: "回覆音 AudioContext", rsLast: "回覆音 2 秒內只響一次(全 app)", composing: "輸入法組字(共用輸入框)",
   attachedFiles: "共用輸入框的附件;切分頁時由 tabShow 換成那個分頁的 composer.files", rpWaitShownAt: "中欄報告", rpcSeq: "中欄雲端報告", rpcOwed: "中欄雲端報告欠的重抓(任何回合結束才補)",
-  csItems: "歷史清單", delCtx: "確認框", csSearched: "歷史搜尋埋點", turnSeq: "全 app 回合流水號(每個分頁另記 turnSeqMine)", lbOpener: "圖片放大框",
+  csItems: "歷史清單", delCtx: "確認框", paneSideAuto: "雲端沒主機時系統代收側欄(整個視窗一個,不分分頁)", csSearched: "歷史搜尋埋點", turnSeq: "全 app 回合流水號(每個分頁另記 turnSeqMine)",
   thinkFoldSeq: "aria-controls 流水號", stepCharW: "量字寬的快取", loginPending: "本機 AI 登入中", acct: "帳號狀態", acctAt: "同上", acctRetry: "同上", balLast: "餘額",
   balSeq: "同上", acctGone: "去瀏覽器綁卡", acctPending: "帳號重查", acctSettled: "同上", taKeyed: "輸入框打過字(帳號卡)", planSlowSaid: "方案開通", planBusyPlan: "同上",
   planErr: "同上", planBusy: "同上", planSince: "同上", planTimer: "同上", planWas: "同上", planDoneSaid: "同上", planDonePending: "方案開好了那句:等眼前分頁閒著才講",
   sideCvGone: "左下角「免費試用」去外面綁卡、回前景要重查一次(全 app 一格)", sideBooted: "同上(開機讀到 token 之前不畫)", pub: "公開資訊", pubAt: "同上", PH: "手機對話設定(主行程 relay.js 的狀態)", PH_BUSY: "同上", PH_WAIT: "同上(這次請求;取消就換掉)", PH_ERR: "同上", PH_PHONES: "同上(帳號下的手機,唯讀)", PH_QUIET: "同上(同步數字變時不念)", PH_ASKED: "同上(配對確認框跳過的那一次)", PH_ASK_BOX: "同上(開著的配對確認框)", PH_NOTICE_KEY: "同上(輸入框上方「剛配對」那一列畫著哪一批;全 app 一列,不跟分頁換)", PH_NOTICE_CLOSED: "同上(剛按掉的那一批)", planLoginBusy: "方案登入", planLastView: "同上", planLoginOut: "同上",
+  SET_OPENING: "設定框還在開(setOpen 沒回來;雲端主機有新版的點等它才判看過)",
 };
 const unclassified = lets.filter((n) => !tabKeys.includes(n) && !(n in GLOBAL_OK));
 ok("app.js 每一個頂層 let 都歸類:每個分頁一份(TAB_KEYS)或全 app 一份(GLOBAL_OK)", unclassified.length === 0, unclassified);
@@ -49,7 +50,7 @@ const MOD_GLOBAL = {
   "busy.js": { BUSY_PENDING: "原因句的一次性提示" }, "capital.js": { CAP: "群益交接頁" }, "capital_local.js": { CAPL: "群益本機", caplTimer: "同上" },
   "chattabs.js": { tabsK: "分頁列 tick 第幾格(全列一起)", tabsSaid: "讀屏播報合併" }, "i18n.js": { LANG: "語言" },
   "portfolio.js": { PO_ADD_SIG: "策略組合", ctMenu: "同上", ctOpen: "同上", mgmPend: "同上", mgmOpener: "同上", mgsDraft: "同上", mgsOpener: "同上" },
-  "president.js": { PRES: "統一期貨", presTimer: "同上", PRES_FIRST_ARMED: "同上" }, "sinopac.js": { SP: "永豐期貨連接框(全 app 一個)" }, "report-sharelist.js": { SHL_IO: "分享清單" }, "stratflags.js": { sfPop: "彈出層" }, "stratgroups.js": { sgMenu: "資料夾 ⋯ 選單,一次一個", sgPick: "emoji 選擇器,一次一個" },
+  "president.js": { PRES: "統一期貨", presTimer: "同上", PRES_FIRST_ARMED: "同上" }, "sinopac.js": { SP: "永豐期貨連接框(全 app 一個)", spAsk: "設定列〔換金鑰〕開框那一下的意圖,spResume 讀走即清(框全 app 一個)" }, "report-sharelist.js": { SHL_IO: "分享清單" }, "stratflags.js": { sfPop: "彈出層" }, "stratgroups.js": { sgMenu: "資料夾 ⋯ 選單,一次一個", sgPick: "emoji 選擇器,一次一個" },
   "suggest.js": { SUG: "TAB_KEYS 整個換(托盤跟著分頁)" }, "form.js": { FORM: "TAB_KEYS 整個換(表單跟著分頁)", formSeq: "radio 群組名流水號(全 app 一組,兩條分頁的表單名字不撞)" },
   "answers.js": { ANS: "TAB_KEYS 整個換(答案鈕跟著分頁)", ansSeq: "預選說明節點的 id 流水號(全 app 一組,兩條分頁的 id 不撞;同 form.js formSeq)" },
   "trade.js": { TR_AS_SAVED: "自動下單頁", TR: "同上", trTipSeq: "同上", trHistTipEl: "同上", trHistTipAt: "同上", trHistTipOpened: "同上", trHistTipQuiet: "同上", trCvHide: "同上", trCvEscN: "同上", cxOpener: "同上", psOpener: "同上", psMode: "同上", psToAmt: "同上", psFromWhy: "同上", psLoading: "同上", ENV_COMPOSING: "輸入法" },
@@ -58,7 +59,7 @@ const MOD_GLOBAL = {
 const FIELDS = {
   LIB: { pending: "SID", seq: "GLOBAL 清單請求流水號(丟掉晚到的舊回應)", noNew: "GLOBAL 灰字掛在那一支卡上", cloudWait: "GLOBAL 一次只等一支(換一支就放掉)",
     bbWait: "GLOBAL 綁卡即購買的付款頁(api 每帳號一次一張),跟對話分頁無關" },
-  RPT: { pending: "SID", seq: "GLOBAL 清單請求流水號", readSeq: "GLOBAL 閱讀頁請求流水號", turnAt: "TAB", cloudTurn: "TAB", cloudRes: "GLOBAL 每筆帶 rt(那一輪)", noNew: "GLOBAL 灰字掛在框上", poll: "GLOBAL 一次一個輪詢" },
+  RPT: { pending: "SID", seq: "GLOBAL 清單請求流水號", readSeq: "GLOBAL 閱讀頁請求流水號", turnAt: "TAB", cloudTurn: "TAB", cloudRes: "GLOBAL 每筆帶 rt(那一輪)", noNew: "GLOBAL 灰字掛在框上", noNewSid: "GLOBAL 跟 noNew 一組:框送出的是哪一條(〔查看〕切回去)", poll: "GLOBAL 一次一個輪詢" },
   XP: { pending: "TAB" }, RES: { turn: "TAB", cw: "GLOBAL 一次等一輪,帶 rt" }, BR: { blocks: "TAB", cur: "TAB" },
   UPD: { cloudSid: "SID", turnCloud: "TAB", session: "GLOBAL 更新期間,只由 cloudSid 那一條的結束收", lagCv: "GLOBAL", done: "GLOBAL" },
 };
@@ -103,8 +104,7 @@ const TAB = [   // 眼前這一條(分頁自己的 running;切分頁時整組換
   ["app.js", /if \(running && \$\("ta"\)\.value\.trim\(\)\) \{ busySendTell\(\); return; \}/, "Enter:這條回覆完才能送出"],
   ["app.js", /if \(C && !csTitle && !running && !\(o && o\.force\)\)/, "眼前那條空著又閒著就用它"],
   ["app.js", /const live = running \? \[\.\.\.chatEl\(\)\.childNodes\] : \[\];/, "背景開的那條已在跑:即時那段接在歷史後面"],
-  ["app.js", /b\.classList\.toggle\("is-stop", running\);/, "送出鈕"], ["app.js", /b\.classList\.toggle\("is-stopping", running && turnStopping\);/, "送出鈕"],
-  ["app.js", /const queued = running && !!\(CS\.loaded && CS\.loaded\.queued\);/, "送出鈕:排隊中的停止 = 取消排隊"], ["app.js", /b\.dataset\.i18nAria = queued \? "tabs\.queueCancel" : running \? "ws\.stop" : "ws\.send";/, "送出鈕"], ["app.js", /if \(!running\) taWaitShow\(false\);/, "輸入框上方那行"],
+  ["app.js", /const gated = !!\$\("ta"\)\.disabled, stop = running && !gated;/, "送出鈕＝停止鈕(雲端沒開好時不出本機回合的停止鈕,QA 0159 #7);is-stop／排隊／aria 都讀 stop"], ["app.js", /if \(!running\) taWaitShow\(false\);/, "輸入框上方那行"],
   ["app.js", /if \(!running \|\| turnStopping\) return;/, "stopTurn"], ["app.js", /if \(!ok && !engineWait && running\)/, "stopTurn 沒送到"],
   ["app.js", /if \(\(!msg && !attachments\.length\) \|\| running\) return;/, "sendDraft"], ["app.js", /if \(\(!msg && !attachments\.length\) \|\| running\) return false;/, "submitMessage"],
   ["app.js", /running = true; turnSeqMine = turnSeq;/, "開跑"], ["app.js", /sugUnsend\(\); running = false;/, "沒送出去"], ["app.js", /^\s*running = false; turnStopping = false; turnUiSync\(\);/, "回合結束"],

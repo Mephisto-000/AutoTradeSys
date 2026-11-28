@@ -77,6 +77,11 @@ prefer the near-month aliases, or the V2.13.54+ `bstrCIDTandem`(`FITX`) + `bstrS
       prompt while it installs, where a standard account needs an administrator password). Orders go out
       only while Blave is open and this Windows account is signed in; a sleeping or shut-down PC sends
       nothing, stops included.
+    - The app installs only the 群益 component files Blave has pinned (each checked by SHA256). When the
+      app says 「群益更新了元件，要等 Blave 更新後才能安裝。」 / "Capital updated its components. Install will
+      work after Blave updates.", 群益 changed a pinned file or dropped that version's zip: retrying will not
+      help until a new desktop app version ships. Do not download, extract or register the component yourself,
+      and do not point them at 群益's installer.
     - **Mac**: 「Mac 不能連群益（群益的元件只有 Windows 版）。可以在 Windows 電腦上用電腦版，或在網頁開雲端主機時選 Windows（開好之後不能換）。」
       / "Capital can't be connected on a Mac (its component is Windows-only). Use the desktop app on a
       Windows PC, or choose Windows when you launch a cloud machine on the web (it can't be changed afterward)."
@@ -667,7 +672,7 @@ it on an account read exactly as it does its own sends, and its close gate holds
 If the park record cannot be saved after a send, the row goes to the park file's side file
 (`<park file>.unsaved`) and HALT is tripped; a restart reads it back, and the next save the park
 file takes merges it in and removes the side file. Until the claim settles that row (its fill
-booked, or cleared as not filled), pressing Start trading while the park file still refuses it
+booked, or cleared as not filled), pressing Start Trading while the park file still refuses it
 trips HALT again; once it is settled, trading goes on even if the park file still refuses. Never
 delete either file by hand. If the side file is refused too (a full disk), the row is kept in the
 reconciler process only and a restart forgets it.
@@ -675,8 +680,8 @@ reconciler process only and a restart forgets it.
 **A side file that cannot be read has no way out in the app.** If the side file
 (`state/capital_pending_sent.json.unsaved`) exists but cannot be opened, does not parse as a JSON
 object, or holds an entry that is not itself a JSON object (`null`, a number, a string), every press
-of Start trading is followed by HALT again in the next reconciler round — closes and stops are not
-sent either — and doing what the pause reason says (check the position, press Start trading) only
+of Start Trading is followed by HALT again in the next reconciler round — closes and stops are not
+sent either — and doing what the pause reason says (check the position, press Start Trading) only
 repeats it. This is not something the user did wrong. Confirm it read-only before saying so:
 `state/HALT` has `source` `reconciler` and the "no fill report, may not be booked" reason — naming
 `TXF/MXF/TMF` when the file does not read at all, the bad entry's own key when one entry is not an
@@ -684,7 +689,7 @@ object; `state/audit.jsonl` shows `halt_tripped` again after each `halt_cleared`
 there and fails `json.load`, or loads with an entry that is not an object; the reconciler log has a
 line naming the side file itself, `….unsaved does not parse (…) while … is held outside the park
 file — HALT`. Do not go by the reason alone: a pause that was already on keeps its own source and
-reason, so this one may only appear after the user has pressed Start trading once, and with a bad
+reason, so this one may only appear after the user has pressed Start Trading once, and with a bad
 entry it reads exactly like the ordinary case. The side file and the log line are what settle it:
 the ordinary case (a side file that loads and holds only rows and marks) logs `park file not saved …
 is held outside it — HALT` and ends when the claim settles the row; a park file that does not read

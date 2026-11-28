@@ -21,6 +21,9 @@
   const ROB_MAX_DIM = 40;          // 每軸格數上限(同 api 的 _clean_scan);再大不是給人看的,也防 DOM 爆量
   const ROB_STEPS = [0.5, 1.0, 1.75];   // |Sharpe| 四階色深門檻(同雲端)
   const ROB_ALPHA = [0.12, 0.23, 0.34, 0.45];   // 四階 alpha = 雲端 color-mix 的 12/23/34/45%
+  /* 熱圖外層(.rob-heat-body)的寬上限:一格最寬 120,寬欄時格子不拉成橫帶(designer desktop-widescreen-2026-11-24 §2.3)。
+     列標 84 + 每欄 120 + border-spacing(欄數 + 2 個,同 table min-width 的算法),再加 frame 的內距與框 34、直軸名 15 + 間距 8。表照舊 width:100%,窄時照舊橫捲 */
+  const heatCap = (nCols) => 84 + nCols * 120 + (nCols + 2) * 4 + 34 + 23;
 
   const isNum = (v) => typeof v === "number" && isFinite(v);
 
@@ -445,10 +448,17 @@
     // fixed layout 先扣掉 border-spacing 再分欄:角落欄 + cols 共 cols+1 欄,spacing 是 cols+2 個。
     // 單參數不設:340 的地板會頂掉 .is-single 的 max-width,390 寬還會逼出橫捲
     if (!sc.single) tbl.style.minWidth = Math.max(340, 84 + sc.cols.length * 52 + (sc.cols.length + 2) * 4) + "px";
+    /* 軸名不擠在左上角那一格(QA 0159 R3-2;spec p3-0160 §5):橫軸名在熱圖上方、跨所有欄,直軸名直排在左側,都不截;
+       真的放不下才截尾,title 放全名。照舊用常數名(跟程式碼分頁、agent 講的參數名對得上) */
     const thead = el("thead"), hr = el("tr");
+    if (!sc.single) {
+      const ar = el("tr", "rob-ax-row"), ac = el("th", "rob-ax-c");
+      ar.appendChild(el("th", "corner"));
+      ac.colSpan = sc.cols.length; ac.scope = "colgroup";
+      const cs = el("span", "mono", sc.colParam + " →"); cs.title = sc.colParam; ac.appendChild(cs);
+      ar.appendChild(ac); thead.appendChild(ar);
+    }
     const corner = el("th", "corner");
-    corner.appendChild(el("span", "r mono", sc.rowParam + " ↓"));
-    if (!sc.single) corner.appendChild(el("span", "mono", sc.colParam + " →"));
     hr.appendChild(corner);
     sc.cols.forEach((c) => { const th = el("th", null, sc.single ? "" : pv(c, sc.cd)); th.scope = "col"; hr.appendChild(th); });
     thead.appendChild(hr);
@@ -485,7 +495,12 @@
     });
     tbl.appendChild(tbody);
     frame.appendChild(tbl);
-    wrap.appendChild(frame);
+    const body = el("div", "rob-heat-body"), axR = el("div", "rob-ax-r mono", sc.rowParam + " →");   // 直排時「→」轉成朝下
+    axR.title = sc.rowParam; axR.setAttribute("aria-hidden", "true");   // 讀屏從表的 aria-label 與每格 aria-label 拿參數名
+    const R = window.BlaveReport || {};
+    if (!sc.single) body.style.maxWidth = heatCap(sc.cols.length) + "px";   // 單參數由 .is-single 的 328 收
+    body.append(axR, R.scrollFade ? R.scrollFade(frame, t("rp.tab.rob")) : frame);
+    wrap.appendChild(body);
 
     const legend = el("div", "rob-legend");
     function item(sw, frag) {
@@ -576,8 +591,13 @@
     });
     if (hi <= frame.clientWidth) return;
     const pitch = (() => { const c = frame.querySelectorAll("tbody tr:first-child td"); return c.length > 1 ? c[1].getBoundingClientRect().left - c[0].getBoundingClientRect().left : 0; })();
-    let want = Math.max(0, Math.min(lo - 84 - 24, hi - frame.clientWidth + 16));   // 84 = 釘住的列標欄、24 = 它的間距 + frame 內距
-    if (pitch > 0) want = Math.floor(want / pitch) * pitch;   // 對齊欄距:第一欄不要半切(設計師複核 09-25 建議 N4)
+    const loCap = lo - 84 - 24;   // 84 = 釘住的列標欄、24 = 它的間距 + frame 內距
+    let want = Math.max(0, Math.min(loCap, hi - frame.clientWidth + 16));
+    if (pitch > 0) {   // 對齊欄距:第一欄不要半切(設計師複核 09-25 建議 N4)
+      const down = Math.floor(want / pitch) * pitch;
+      // 往下取整最多退回 pitch-1,會吃掉右邊 16 的餘量把最右的標記切掉;那時多捲一欄(不把第一個標記推到列標底下才行)
+      want = hi - down > frame.clientWidth && down + pitch <= loCap ? down + pitch : down;
+    }
     frame.scrollLeft = want;
   }
 
@@ -752,5 +772,5 @@
   };
   // 純計算函式掛出來給核對腳本用(tests/check_shell_robust.js);畫面不靠這個
   // report-wf.js(樣本外驗證)的軸、常數讀法、數字格式也從這裡拿(同一套,不另抄)
-  window.BlaveReport._rob = { sanitizeScan, staleParts, staleTpl, scanChanges, feeTxt, gridInfo, scanInfo, ROB_END_GRACE_DAYS, robWhere, constFromCode, locate, nbrMean, argmax, decimals, sentSig, pv, f2, numList, ROB_MAX_DIM, valBtn };
+  window.BlaveReport._rob = { sanitizeScan, staleParts, staleTpl, scanChanges, feeTxt, gridInfo, scanInfo, ROB_END_GRACE_DAYS, robWhere, constFromCode, locate, heatCap, nbrMean, argmax, decimals, sentSig, pv, f2, numList, ROB_MAX_DIM, valBtn };
 })();

@@ -32,8 +32,10 @@ window runs to SIM_CLOSE_LOCAL.
 Never put a secret, a pfx byte, a certificate subject or a broker message into a return value,
 an exception, the status or a log: probe and simulation results leave as classes.
 """
+import ast
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -53,6 +55,7 @@ SETUP_TIMEOUT_S = 900
 PROBE_TIMEOUT_S = 150
 SIM_TIMEOUT_S = 150
 FINISH_WAIT_S = 300  # the Linux timer ticks every 2 minutes, then a login and a first read
+FINISH_POLL_S = 3
 SIM_CHECKS = 5
 SIM_CHECK_EVERY_S = 180
 SIM_OPEN = (8, 0)
@@ -386,8 +389,15 @@ def run_setup(local=False, push=None):
     return {"setup": "ok"}
 
 
+def _logging_in(snap):
+    """The worker's 「登入中」 / login-retry snapshot (lib/sinopac_worker writes one before its first
+    login and between retries): not an answer yet. A login STOP is an answer."""
+    return isinstance(snap, dict) and not snap.get("ok") and bool(snap.get("waiting")) and not snap.get("login_stopped")
+
+
 def run_finish(local=False, push=None):
-    """The worker is wanted from here on; ok once its first snapshot reads the account."""
+    """The worker is wanted from here on; ok once its first snapshot reads the account (its
+    「登入中」 / login-retry snapshots are waited through)."""
     _update("worker", status="running", reset=True)
     if push:
         push()
@@ -397,16 +407,19 @@ def run_finish(local=False, push=None):
         with atomic_file.replacing(p["wanted"], encoding="utf-8") as f:
             json.dump({"at": int(time.time())}, f)
         if IS_WINDOWS and not local:
-            r = cc._run_quiet([_python(local), p["worker"], "--install"], FINISH_WAIT_S, "install")
-            ok = r.returncode == 0
-        else:
-            deadline = time.time() + FINISH_WAIT_S
-            snap = None
-            while time.time() < deadline and snap is None:
-                time.sleep(3)
-                snap = _read_since(p["snapshot"], started)
-            ok = bool(snap and snap.get("ok"))
-        if not ok:
+            # its exit code judges the first snapshot alone (「登入中」 too): the loop below decides
+            try:
+                cc._run_quiet([_python(local), p["worker"], "--install"], FINISH_WAIT_S, "install")
+            except RuntimeError as e:
+                print(f"[sinopac_connect] worker install: {e}", file=sys.stderr)
+        deadline = time.time() + FINISH_WAIT_S
+        snap = None
+        while time.time() < deadline and snap is None:
+            time.sleep(FINISH_POLL_S)
+            snap = _read_since(p["snapshot"], started)
+            if _logging_in(snap):
+                snap = None
+        if not (snap and snap.get("ok")):
             _refuse("WORKER_FAILED", "the 永豐 worker did not read the account")
     except Exception as e:
         _update("worker", status="failed", error=cc._code(e, "WORKER_FAILED"))
@@ -417,10 +430,25 @@ def run_finish(local=False, push=None):
 
 # ── dispatch ─────────────────────────────────────────────────────────────────
 
+def workspace_open():
+    """The workspace's own lib/venue_traits.py lists "futures" for 永豐: its worker logs in only then.
+    Read as text, never imported (workspace code stays out of this process)."""
+    try:
+        src = atomic_file.read_bytes(os.path.join(WORKSPACE, "lib", "venue_traits.py")).decode("utf-8")
+        m = re.search(r"^_SINOPAC_MODES = (.+)$", src, re.M)
+        return m is not None and "futures" in ast.literal_eval(m.group(1).strip())
+    except (OSError, ValueError, SyntaxError, TypeError):  # UnicodeDecodeError is a ValueError
+        return False
+
+
 def gate():
-    """Refusals every step shares: the futures gate, then (login steps) the binding."""
+    """Refusals every step shares: the futures gate (this runtime's, then the workspace's: a runtime
+    newer than the workspace would take the certificate and then fail the login), then (login steps)
+    the binding."""
     if "futures" not in venue_traits.verified_modes(sinopac_service.VENUE):
         _refuse("NOT_OPEN", "永豐 futures is not open yet")
+    if not workspace_open():
+        _refuse("WORKSPACE_OLD", "this machine's workspace predates 永豐 futures — update it first")
 
 
 def need_bound(cmd):

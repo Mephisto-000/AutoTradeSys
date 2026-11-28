@@ -37,7 +37,7 @@ t("主機重開後對帳器停著(reconciler.stopped.reason = machine_restart)�
   t("…已按暫停 → 已暫停;gated true / 缺欄位 → 已暫停;缺 stMayTrade 那個字 → 整行不顯示",
     cloudLine(Cg({ gated: false }, { halted: true })).state === "paused" && cloudLine(Cg({ gated: true })).state === "paused" && cloudLine(Cg({})).state === "paused"
     && statusLine(TPL, cloudLine(Cg({ gated: false })), L) === null); }
-{ // 「讀不到狀態」只給真的讀不到(連不上 / 回報過舊);讀得到、對帳器只是沒在跑 = 雲端頁同一句「尚未啟動下單」(trade.js trStateText 的 dead)
+{ // 「讀不到狀態」只給真的讀不到(連不上 / 回報過舊);讀得到、對帳器只是沒在跑 = 雲端頁同一句「尚未啟動下單」(trade.js trStateParts 的 dead)
   const S = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "strings.js"), "utf8");
   const zh = (k) => { const i = S.indexOf("zh:"), m = new RegExp('"' + k.replace(/\./g, "\\.") + '": "([^"]*)"').exec(S.slice(i)); return m && m[1]; };
   const en = (k) => { const m = new RegExp('"' + k.replace(/\./g, "\\.") + '": "([^"]*)"').exec(S.slice(0, S.indexOf("zh:"))); return m && m[1]; };
@@ -205,12 +205,18 @@ t("preload:renderer 待接的三個入口都在", /minVersionState:/.test(pre) &
   const tz = appMenuTemplate(zh, false, false, () => {}, () => {}, onFull), tzFull = appMenuTemplate(zh, false, true, () => {}, () => {}, onFull), ten = appMenuTemplate({}, false, false, () => {}, () => {}, onFull);
   const noLabel = items(tz).filter((x, i) => !(i === 0 && x.top) && !x.label);
   t("app 選單:除了 app 名稱那一格(系統放名字),每一格都有 label", noLabel.length === 0);
-  t("app 選單:zh 介面每一格的字都來自 zh.po(沒有一格退回英文)", items(tz).slice(1).every((x) => Object.values(zh).includes(x.label)) && Object.keys(MENU_EN).every((k) => zh[k]));
+  // 「對話分頁 {n}」是主行程代數字的那一格(⌘1–⌘8):比對時把數字換回 {n}
+  const fromCat = (cat, label) => Object.values(cat).includes(label) || Object.values(cat).includes(String(label).replace(/\d+$/, "{n}"));
+  t("app 選單:zh 介面每一格的字都來自 zh.po(沒有一格退回英文)", items(tz).slice(1).every((x) => fromCat(zh, x.label)) && Object.keys(MENU_EN).every((k) => zh[k]));
+  const tabs = items(tz).filter((x) => /^CmdOrCtrl\+[1-9]$/.test(x.accelerator || ""));
+  t("app 選單「顯示」:⌘1–⌘9 切對話分頁也列出(QA 0159 R4-10);只顯示不註冊(畫面 keydown 接),⌘9 = 最後一個",
+    tabs.length === 9 && tabs.every((x) => x.registerAccelerator === false && typeof x.click === "function") && tabs[0].label === zh.menuTabN.replace("{n}", "1") && tabs[8].label === zh.menuTabLast
+    && tz[3].submenu.findIndex((x) => x.accelerator === "CmdOrCtrl+1") > tz[3].submenu.findIndex((x) => x.accelerator === "Cmd+Shift+2"));
   t("app 選單:字照 spec §1.2 / Wei 拍板(顯示;隱藏 Blave、結束 Blave 帶空格,同選單列圖示與結束確認框;拷貝;沒有「設定⋯」)",
     tz[3].label === "顯示" && items(tz).some((x) => x.role === "hide" && x.label === "隱藏 Blave") && items(tz).some((x) => x.role === "quit" && x.label === "結束 Blave")
     && /msgid "tm\.quitGo"\nmsgstr "結束 Blave"/.test(po)
     && items(tz).some((x) => x.role === "copy" && x.label === "拷貝") && !items(tz).some((x) => /設定|Settings/.test(x.label || "")));
-  t("app 選單:還沒交字時整份是英文退路(Title Case 的 This Computer)", items(ten).slice(1).every((x) => Object.values(MENU_EN).includes(x.label)) && items(ten).some((x) => x.label === "This Computer"));
+  t("app 選單:還沒交字時整份是英文退路(Title Case 的 This Computer)", items(ten).slice(1).every((x) => fromCat(MENU_EN, x.label)) && items(ten).some((x) => x.label === "This Computer"));
   t("編輯選單逐項列:沒有 editMenu 整包(不帶 Substitutions / Speech),複製貼上的 role 都在", !items(tz).some((x) => /Menu$/.test(x.role || ""))
     && ["undo", "redo", "cut", "copy", "paste", "pasteAndMatchStyle", "delete", "selectAll"].every((r) => items(tz).some((x) => x.role === r)));
   const fs1 = (tpl) => items(tpl).filter((x) => /全螢幕|Full Screen/.test(x.label || ""));

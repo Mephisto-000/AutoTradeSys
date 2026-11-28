@@ -15,18 +15,18 @@
 
 </div>
 
-> 本文译自英文版 README 的 commit [`767dbb8`](https://github.com/Blave-TW/blave-agent/blob/767dbb8/README.md)。内容有出入时，以英文原文为准。
+> 本文译自英文版 README 的 commit [`fb0ea88`](https://github.com/Blave-TW/blave-agent/blob/fb0ea88/README.md)。内容有出入时，以英文原文为准。
 
 https://github.com/user-attachments/assets/66c747e9-b068-4da9-a372-84d9afa7cb0d
 
-<p align="center"><a href="https://blave.org/docs/cn">文档</a></p>
+<p align="center"><a href="https://blave.org/docs/cn">使用教程</a></p>
 
 ## 你会得到
 
 - **所有策略都在一个 app 里。** 每支都有回测、成交、参数扫描、版本。
 - **回测会抓过拟合。** MCPT p 值、参数平台、样本外验证。
 - **默认按真实手续费算。** 手续费填 0 会警告。
-- **自动交易已经接好。** Binance、OKX、Bybit、BingX、Gate.io、Bitget、StockCoin，以及台指期（Windows）。
+- **自动交易已经接好。** Binance、OKX、Bybit、BingX、Gate.io、Bitget、StockCoin，以及台指期（永丰期货 Mac、Windows 都能接；群益期货、统一期货仅限 Windows）。
 - **模拟交易。** 不需要密钥。
 - **上网帮你找点子。** 读几个网站，带回三个能回测的。
 - **AI 自己选。** Claude Code、Codex、DeepSeek 密钥或 Blave AI。
@@ -72,7 +72,7 @@ Windows 在 PowerShell 里改跑 `npm.cmd install` 与 `npm.cmd start`。
 - **每笔委托都跟交易所核对过**，记在 `state/audit.jsonl`。
 - **回测只代表过去。** 交易可能亏光本金。
 
-交易所与密钥：[文档](https://blave.org/docs/cn/exchange_api) · 数据来源：[加密](https://blave.org/docs/cn/data_crypto)、[台股](https://blave.org/docs/cn/data_twstock)
+交易所与密钥：[使用教程](https://blave.org/docs/cn/exchange_api) · 数据来源：[加密](https://blave.org/docs/cn/data_crypto)、[台股](https://blave.org/docs/cn/data_twstock)
 
 ## 云端运行（付费）
 

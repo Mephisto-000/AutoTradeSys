@@ -44,8 +44,9 @@ OWN = {
     "capital": {"lib/order_capital.py", "lib/account_capital.py", "lib/capital_worker.py",
                 "lib/capital_vault.py", "lib/capital_quote.py", "runtime/capital_connect.py", "runtime/capital_local.py"},
     # AutoTradeSys fork: its TW-stock libs, plus upstream's (unused here) futures relay and service
+    # (upstream's futures account reader took the name lib/account_sinopac.py in 0.1.61: the fork's stock one stays)
     "sinopac": {"lib/order_sinopac.py", "lib/account_sinopac.py", "lib/sinopac_session.py",
-                "lib/sinopac_data.py", "lib/sinopac_futures_account.py", "lib/sinopac_worker.py",
+                "lib/sinopac_data.py", "lib/sinopac_worker.py",
                 "runtime/sinopac_service.py", "runtime/sinopac_local.py"},
     "president": {"lib/order_president.py", "lib/account_president.py", "lib/president_worker.py",
                   "lib/president_vault.py"},
@@ -104,11 +105,17 @@ check(venue_wiring._NON_AUTO == {"president", "capital"}, "venue_wiring._NON_AUT
 check(venue_traits.venues("tw_stock_spot") == {"sinopac"}, "tw_stock_spot venues")
 check(close_symbol._NOT_PERP == {"capital", "sinopac", "president"}, "close_symbol._NOT_PERP",
       close_symbol._NOT_PERP)
+# upstream 0.1.61 hand-wires its 永豐 futures; the fork's sinopac stays the auto-wired stock row
 check(venue_traits.venues("hand_wired") == {"capital", "president"}, "hand_wired venues")
 check(venue_traits.venues("native_units") == {"capital", "president"}, "native_units venues")
 check(venue_traits.venues("windows_identity") == {"capital"}, "windows_identity venues")
 check(all(venue_traits.get(v, "label") for v in venue_traits.venues("auto_wire", False)),
       "every TW broker has a label for user-facing messages (flatten never says 群益 for another broker)")
+check(venue_traits.get("sinopac", "label") == "永豐期貨",
+      "sinopac label is 永豐期貨 (the futures firm the user opened, not 永豐金)", venue_traits.get("sinopac", "label"))
+for doc in ("AGENTS.md", os.path.join("references", "sinopac-broker.md")):
+    with open(os.path.join(ROOT, doc), encoding="utf-8") as fh:
+        check("永豐金" not in fh.read(), f"{doc} names SinoPac 永豐期貨, not 永豐金 (the agent may quote it to the user)")
 check(venue_traits.hand_wired_routed(["binance", "capital"]) == "capital"
       and venue_traits.hand_wired_routed(["binance", ""]) is None
       and venue_traits.hand_wired_routed(["Capital"]) is None,
@@ -146,8 +153,14 @@ check("sinopac" not in unverified and not {"verified_modes", "bound_marker", "cr
       and "sinopac" not in venue_traits.dormant(tempfile.gettempdir())
       and venue_traits.cred_env("SINOPAC_CA_PATH") is None,
       "sinopac is the fork's wired TW-stock row (no futures gate cells, never dormant)", sorted(_sj))
-check(os.path.exists(os.path.join(ROOT, "lib", "account_sinopac.py")),
-      "lib/account_sinopac.py ships (the stock account reader)")
+check(os.path.exists(os.path.join(ROOT, "lib", "account_sinopac.py"))
+      and not os.path.exists(os.path.join(ROOT, "lib", "sinopac_futures_account.py"))
+      and "def stock_rows(" in open(os.path.join(ROOT, "lib", "account_sinopac.py"), encoding="utf-8").read(),
+      "lib/account_sinopac.py ships as the stock account reader (upstream 0.1.61 renamed its futures reader to it)")
+# upstream 0.1.61 opened its futures gate here (_SINOPAC_MODES = ("futures",)); runtime/sinopac_connect.workspace_open
+# reads that line as text — the fork keeps it shut, in both copies
+check(all('\n_SINOPAC_MODES = ()\n' in open(os.path.join(ROOT, p), encoding="utf-8").read() for p in TABLES),
+      "both venue_traits copies keep upstream's futures gate shut (_SINOPAC_MODES = ())")
 # a synthetic row keeps the mechanism itself under test, whatever the real rows say
 sys.path.insert(0, os.path.join(ROOT, "runtime"))
 rt_traits = importlib.import_module("venue_traits")

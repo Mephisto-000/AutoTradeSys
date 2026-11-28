@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 from lib.param_scan import find_plateau
 from lib.walk_forward import (run_walk_forward, default_windows, _run_windows, _stitch,
-                              _split_runs, _wfe, _unpack, _window_stats,
+                              _split_runs, _wfe, _unpack, _window_stats, _price_once,
                               WF_MIN_DENOM, WF_MIN_RUNS)
 
 fails = 0
@@ -148,7 +148,7 @@ wins_a, _tail, _total = _run_windows(df.index, LOOKBACK, STEP, WARMUP)
 r1 = doc["runs"][0]
 pos, exec_raw, cl, op, _ = _unpack(compute_signals(df, entry_th=r1["params"][0], exit_th=r1["params"][1]), df)
 t0, t1, _t2 = wins_a[0]
-cell = _window_stats(pos, exec_raw, cl, op, df.index, t0 + WARMUP, t1, 0.0005)
+cell = _window_stats(_price_once(pos, exec_raw, cl, op, 0.0005), df.index, t0 + WARMUP, t1)
 check(cell is not None and abs(cell[0] - r1["train_sharpe"]) < 5e-4,
       f"train_sharpe = 選中格自己的 Sharpe(重算對得上)→ {r1['train_sharpe']} vs {cell[0]:.4f}")
 
@@ -159,7 +159,7 @@ for gi, ev in enumerate(ENTRY_VALS):
         if not ev > xv:
             continue
         p2, e2, c2, o2, _ = _unpack(compute_signals(df, entry_th=ev, exit_th=xv), df)
-        st = _window_stats(p2, e2, c2, o2, df.index, t0 + WARMUP, t1, 0.0005)
+        st = _window_stats(_price_once(p2, e2, c2, o2, 0.0005), df.index, t0 + WARMUP, t1)
         if st:
             grid1[gi, gj] = st[0]
 best1, nbr1, _br, _bc, _ns = find_plateau(grid1, ENTRY_VALS, EXIT_VALS)
@@ -171,7 +171,7 @@ check(abs(nbr1[best1] - r1["train_sharpe"]) > 1e-6,
 # ── warmup 逐輪套用:第一輪訓練切片有被裁掉開頭 ────────────────────────────────
 check(r1["train_start"] == df.index[WARMUP].strftime("%Y-%m-%d") != df.index[0].strftime("%Y-%m-%d"),
       f"第 1 輪訓練窗從第 {WARMUP} 根起算(開頭被裁掉)→ {r1['train_start']}")
-untrimmed = _window_stats(pos, exec_raw, cl, op, df.index, t0, t1, 0.0005)
+untrimmed = _window_stats(_price_once(pos, exec_raw, cl, op, 0.0005), df.index, t0, t1)
 check(untrimmed is not None and abs(untrimmed[0] - cell[0]) > 1e-6,
       f"沒裁 warmup 的訓練 Sharpe 不一樣({untrimmed[0]:.4f} vs {cell[0]:.4f})→ 裁切確實有作用")
 check(all(r["train_start"] > p["train_start"] and r["train_end"] > p["train_end"]
@@ -181,6 +181,48 @@ check(max(spans) - min(spans) <= 1, f"每輪訓練窗等長(warmup 逐輪套用�
 check([r["test_start"] for r in doc["runs"][1:]] == [
       (pd.Timestamp(r["test_end"]) + pd.Timedelta(days=1)).strftime("%Y-%m-%d") for r in doc["runs"][:-1]],
       "測試窗首尾相接、不重疊(所以能接成一條)")
+
+# ── pass 1 計價一次再切片(spec typec-iterate-return-floor §9.4(b)、§9.5 第 14 條) ──────────
+# 每組參數對整段歷史只計價一次;訓練窗的數字從那一條切出來,窗開頭帶著前面的部位進來
+from lib.walk_forward import _price_pnl
+from lib.analysis import compute_stats as _cstats, count_trades as _ctrades
+pf_full, dw_full = _price_pnl(pos, exec_raw, cl, op, 0.0005)
+a1, b1 = t0 + WARMUP, t1
+hand = _cstats(pf_full[a1:b1], df.index[a1:b1])[0]
+diffs, moved = [], 0
+for (w0, w1, _w2), rr in zip(wins_a, doc["runs"]):
+    pk, ek, ck, ok_, _ = _unpack(compute_signals(df, entry_th=rr["params"][0], exit_th=rr["params"][1]), df)
+    full_k = _price_pnl(pk, ek, ck, ok_, 0.0005)[0]
+    h = _cstats(full_k[w0 + WARMUP:w1], df.index[w0 + WARMUP:w1])[0]
+    from_flat = _price_pnl(pk[w0 + WARMUP:w1], ek[w0 + WARMUP:w1], ck[w0 + WARMUP:w1], ok_[w0 + WARMUP:w1], 0.0005)[0]
+    moved += abs(_cstats(from_flat, df.index[w0 + WARMUP:w1])[0] - h) > 5e-4
+    diffs.append(abs(h - rr["train_sharpe"]))
+check(max(diffs) < 5e-4 and moved > 0,
+      f"每輪 train_sharpe = 整段計價一次後切出那個訓練窗的 Sharpe(手算,最大差 {max(diffs):.5f});"
+      f"{moved} 輪跟「窗內從空手計價」不同,所以這條分得出新舊")
+if True:
+    priced = _price_once(pos, exec_raw, cl, op, 0.0005)
+    st = _window_stats(priced, df.index, a1, b1)
+    check(st is not None and abs(st[0] - hand) < 1e-12 and st[3] == _ctrades(dw_full[a1:b1]),
+          f"_window_stats(切片)= 手算的 Sharpe 與那一段的交易筆數 → {st and st[3]} vs {_ctrades(dw_full[a1:b1])}")
+    n = len(df)
+    hold = np.ones(n)                       # 第一根就進場、之後一直抱著:窗內沒有交易但有部位
+    flat = np.zeros(n)                      # 從頭到尾空手
+    late = np.zeros(n); late[n - 50:] = 1.0  # 只在最後 50 根有部位:前面的窗什麼都沒做
+    nox = np.zeros(n, dtype=bool)
+    sh = _window_stats(_price_once(hold, nox, cl, op, 0.0005), df.index, 300, 500)
+    sf = _window_stats(_price_once(flat, nox, cl, op, 0.0005), df.index, 300, 500)
+    sl = _window_stats(_price_once(late, nox, cl, op, 0.0005), df.index, 300, 500)
+    check(sh is not None and sh[3] == 0 and sh[0] != 0.0,
+          f"窗內一直抱著、沒交易:照算(有報酬),交易筆數 0 → {sh}")
+    check(sf is None and sl is None, "窗內沒部位也沒交易:排除(跟舊規則一樣,做什麼都沒做的窗不參與選參)")
+    W = np.zeros((n, 2)); W[100:, 0] = 0.5; W[400:, 1] = 0.5   # Type C:2 欄權重
+    C2 = np.column_stack([cl, cl * 1.01]); O2 = np.column_stack([op, op * 1.01])
+    pf2, dw2 = _price_pnl(W, nox, C2, O2, 0.0005)
+    s2 = _window_stats(_price_once(W, nox, C2, O2, 0.0005), df.index, 350, 450)
+    check(s2 is not None and abs(s2[0] - _cstats(pf2[350:450], df.index[350:450])[0]) < 1e-12
+          and s2[3] == _ctrades(dw2[350:450]) == 1,
+          f"Type C 2-D 權重:同樣切片,交易筆數只算窗內那一筆 → {s2 and s2[3]}")
 
 # ── 兩條分母護欄的 e2e:手續費吃掉每一輪 → 每輪訓練 Sharpe ≤ 0 ─────────────────
 path_b = run_walk_forward(make_df(drift=-0.0004, seed=11), compute_signals, ENTRY_VALS, EXIT_VALS,
@@ -299,5 +341,170 @@ try:
 except SystemExit:
     _exited = True
 check(_exited and not os.path.exists(os.path.join(_d2, "wf.json")), "跑的期間 strategy.py 變了:拒寫、不留 wf.json")
+
+
+# ── time limit inside an agent turn (spec typec-iterate-return-floor-2026-11-27 §9.4(a), §9.5) ──
+import contextlib, io, time
+import lib.walk_forward as _wfm
+import lib.strategy as _S
+import lib.progress as _prog
+
+_TWS = tempfile.mkdtemp(prefix="wf-turn-", dir=os.environ.get("SCRATCHPAD") or None)
+_S._REPO_ROOT = __import__("pathlib").Path(_TWS)
+_CLK = [0.0]
+_wfm_clock0 = getattr(_wfm, "_clock", None)
+_wfm._clock = lambda: _CLK[0]
+_ws0 = _wfm._window_stats
+ROWS12 = [round(-0.01 + 0.002 * k, 10) for k in range(12)]
+COLS10 = [round(-0.01 + 0.002 * k, 10) for k in range(10)]
+_n = [0]
+
+
+def turn_ledger(started_ago=0.0, write=True):
+    tid = "f" * 16
+    d = os.path.join(_TWS, "state", "iterate")
+    os.makedirs(d, exist_ok=True)
+    pth = os.path.join(d, tid + ".json")
+    if write:
+        with open(pth, "w") as f:
+            json.dump({"v": 1, "turn": tid, "tier": "full", "started": time.time() - started_ago, "deadline": None,
+                       "max_rounds": 10, "user_asked": False, "pid": None, "strategies": []}, f)
+    elif os.path.exists(pth):
+        os.remove(pth)
+    os.environ["BLAVE_TURN_ID"] = tid
+
+
+def timed_run(rows, cols, sig_s=1.0, win_s=0.0, turn=True, started_ago=0.0, ledger=True, old_wf=False, **kw):
+    """run_walk_forward on a fake clock: each compute_signals call costs sig_s, each _window_stats win_s.
+    Returns (doc or the exception, stdout, compute_signals calls)."""
+    _n[0] += 1
+    out_dir = os.path.join(_TWS, "strategies", f"wft{_n[0]}")
+    os.makedirs(out_dir, exist_ok=True)
+    if old_wf:
+        with open(os.path.join(out_dir, "wf.json"), "w") as f:
+            f.write('{"old": 1}')
+    if turn:
+        turn_ledger(started_ago, ledger)
+    else:
+        os.environ.pop("BLAVE_TURN_ID", None)
+    _CLK[0] = time.time()
+    calls = [0]
+
+    def cs(d, entry_th=0.0, exit_th=0.0):
+        calls[0] += 1
+        _CLK[0] += sig_s
+        return compute_signals(d, entry_th, exit_th)
+
+    def ws(*a):
+        _CLK[0] += win_s
+        return _ws0(*a)
+
+    _wfm._window_stats = ws
+    kw.setdefault("valid_fn", lambda r, c: True)
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            p = run_walk_forward(df, cs, rows, cols, out_dir, row_param="ENTRY_TH", col_param="EXIT_TH", fee=0.0005,
+                                 lookback_days=LOOKBACK, step_days=STEP, warmup=WARMUP, **kw)
+        res = json.load(open(p))
+    except BaseException as e:   # SystemExit included: the skip
+        res = e
+    finally:
+        _wfm._window_stats = _ws0
+        os.environ.pop("BLAVE_TURN_ID", None)
+    return res, buf.getvalue(), calls[0], out_dir
+
+
+def shape(res):
+    return (len(res["row_vals"]), len(res["col_vals"])) if isinstance(res, dict) else None
+
+
+# 1. inside a turn, estimate over 300 s → thinned, current kept, ≥ 5 per axis
+cur = (ROWS12[3], COLS10[7])
+res, out, _, _ = timed_run(ROWS12, COLS10, sig_s=3.0, current=cur)
+check(isinstance(res, dict) and shape(res) != (12, 10) and min(shape(res)) >= 5
+      and cur[0] in res["row_vals"] and cur[1] in res["col_vals"]
+      and "Walk-forward grid thinned" in out and "Walk-forward estimate" in out,
+      f"回合內估計超過 300 秒:格子抽稀、current 留著、每軸 ≥ 5、印了說明 → {shape(res)} {res if not isinstance(res, dict) else ''}")
+# 2. coarsest still over → skipped, nothing written, the old wf.json untouched
+res, out, _, od = timed_run(ROWS12, COLS10, sig_s=20.0, old_wf=True)
+check(isinstance(res, SystemExit) and "❌ Walk-forward skipped" in str(res)
+      and open(os.path.join(od, "wf.json")).read() == '{"old": 1}',
+      f"最粗還超過:❌ skipped、不寫、舊的 wf.json 不動 → {res!r}")
+# 3. max_seconds=None, estimate over 300 but inside the turn's time → full grid
+res, out, _, _ = timed_run(ROWS12, COLS10, sig_s=3.0, max_seconds=None)
+check(shape(res) == (12, 10), f"用戶要求(None)、估計 < 回合剩餘:不抽稀 → {shape(res)} {res if not isinstance(res, dict) else ''}")
+# 4. max_seconds=None over the turn's time → skipped with the estimate; one whole turn too short → says so
+res, out, _, od = timed_run(ROWS12, COLS10, sig_s=3.0, max_seconds=None, started_ago=1500, old_wf=True)
+check(isinstance(res, SystemExit) and "this turn has" in str(res) and "usually fits" in str(res)
+      and open(os.path.join(od, "wf.json")).read() == '{"old": 1}',
+      f"用戶要求(None)、估計 > 回合剩餘:不抽稀、不寫、講估計(新一則通常跑得完)→ {res!r}")
+res, out, _, _ = timed_run(ROWS12, COLS10, sig_s=20.0, max_seconds=None)
+check(isinstance(res, SystemExit) and "does not fit in one turn" in str(res), f"一整個回合都跑不完 → 那句 → {res!r}")
+# 5. outside a turn: no limit
+res, out, _, _ = timed_run(ROWS12, COLS10, sig_s=20.0, turn=False)
+check(shape(res) == (12, 10), f"回合外:估計再大也不抽稀、不跳過 → {shape(res)}")
+# 6. cut to the turn's remaining time
+res_a, _, _, _ = timed_run(ROWS12, COLS10, sig_s=1.5, started_ago=1750)
+res_b, _, _, _ = timed_run(ROWS12, COLS10, sig_s=1.5, started_ago=0)
+check(isinstance(res_a, dict) and shape(res_a) != (12, 10) and shape(res_b) == (12, 10),
+      f"上限被回合剩餘時間截短(剩 100 秒抽稀、剛開始不抽)→ {shape(res_a)} / {shape(res_b)}")
+# 7. a turn id without a ledger: None is 300 s
+res, _, _, _ = timed_run(ROWS12, COLS10, sig_s=3.0, max_seconds=None, ledger=False)
+check(isinstance(res, dict) and shape(res) != (12, 10), f"ledger 讀不到:None 當 300 秒 → {shape(res)}")
+# 8. an axis with ≤ 5 values is neither thinned nor padded
+ROWS4 = [0.0, 0.002, 0.004, 0.006]
+COLS12 = [round(-0.012 + 0.001 * k, 10) for k in range(12)]
+res, _, _, _ = timed_run(ROWS4, COLS12, sig_s=6.0)
+check(isinstance(res, dict) and shape(res)[0] == 4 and 5 <= shape(res)[1] < 12,
+      f"≤ 5 個值的軸不抽不補,只抽另一軸 → {shape(res)}")
+res, _, _, _ = timed_run(ROWS12, [0], sig_s=20.0)
+check(isinstance(res, dict) and shape(res)[1] == 1 and 5 <= shape(res)[0] < 12, f"單常數的一格第二軸不補 → {shape(res)}")
+# 9. current None / off the axis: not forced in, no error
+res_n, _, _, _ = timed_run(ROWS12, COLS10, sig_s=3.0, current=None)
+res_o, _, _, _ = timed_run(ROWS12, COLS10, sig_s=3.0, current=(0.0031, COLS10[7]))
+check(isinstance(res_n, dict) and isinstance(res_o, dict) and 0.0031 not in res_o["row_vals"] and COLS10[7] in res_o["col_vals"]
+      and all(r["params"][0] in res_o["row_vals"] and r["params"][1] in res_o["col_vals"] for r in res_o["runs"]),
+      "current 是 None 或不在軸上:不硬塞、不報錯;挑到的參數都在新格子上")
+# 10. only valid cells count
+res_h, _, _, _ = timed_run(ROWS12, COLS10, sig_s=3.0, valid_fn=lambda r, c: ROWS12.index(r) % 2 == 0)
+check(shape(res_h) == (12, 10), f"估計只算 valid 的格:排掉一半就不用抽稀 → {shape(res_h)}")
+# 11. Progress total follows the new grid
+_seen = []
+_P0 = _prog.Progress
+
+
+class _RecP(_P0):
+    def __init__(self, label, total, *a, **k):
+        _seen.append((label, total))
+        super().__init__(label, total, *a, **k)
+
+
+_prog.Progress = _RecP
+try:
+    res, _, _, _ = timed_run(ROWS12, COLS10, sig_s=3.0)
+finally:
+    _prog.Progress = _P0
+wf_tot = [t for lbl, t in _seen if lbl == "walk-forward"]
+check(isinstance(res, dict) and wf_tot and wf_tot[-1] == shape(res)[0] * shape(res)[1],
+      f"Progress 總數 = 新格子的組數 → {wf_tot} {shape(res)}")
+# 12. Type A default: cells[0] is a corner that fails row > col — the estimate measures the first cell that runs
+ROWS_C = [round(-0.012 + 0.002 * k, 10) for k in range(14)]
+COLS_C = [round(-0.01 + 0.002 * k, 10) for k in range(12)]
+res, out, _, _ = timed_run(ROWS_C, COLS_C, sig_s=0.05, win_s=1.0, valid_fn=None)
+check(isinstance(res, dict) and shape(res) != (14, 12), f"角落那格不合 row > col:照樣量得到訓練窗的時間、抽得到稀 → {shape(res)} {res if not isinstance(res, dict) else ''}")
+# 12b. the measured cell is not recomputed
+res, _, calls, _ = timed_run(ROWS12, COLS10, sig_s=3.0)
+winners = {tuple(r["params"]) for r in res["runs"]} if isinstance(res, dict) else set()
+check(isinstance(res, dict) and calls == shape(res)[0] * shape(res)[1] + len(winners),
+      f"量過的那組在新格子上不重算:呼叫次數 = 格數 + 不同贏家數 → {calls} vs {shape(res)} + {len(winners)}")
+# 13. max_seconds must be positive or None
+bad = []
+for v in (0, -5, "300"):
+    r_, _, _, _ = timed_run(ROWS4, COLS10[:3], sig_s=0.0, max_seconds=v)
+    bad.append(isinstance(r_, ValueError))
+check(all(bad), f"max_seconds 傳 0、負數、字串 → ValueError → {bad}")
+if _wfm_clock0 is not None:
+    _wfm._clock = _wfm_clock0
 
 print("all checks passed" if not fails else f"FAILED: {fails}"); sys.exit(1 if fails else 0)

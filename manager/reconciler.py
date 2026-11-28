@@ -854,7 +854,7 @@ def _capital_overfill(symbol, root, result, lots, requested, base, intent):
         # the api keeps 200 characters of a halt reason (_halt_words): the seq stays in audit and log
         msg = (f"Capital reported {got:g} lots filled on {symbol}, {lots} sent. Not booked. All trading "
                f"paused, closes and stops too. Check {symbol} in the Capital app. Blave won't handle any "
-               f"difference. Then press Start trading.")
+               f"difference. Then press Start Trading.")
     else:
         msg = (f"群益回報 {symbol} 成交 {got:g} 口，比送出的 {lots} 口多（序號 {seq}）。Blave 沒有記這筆。"
                f"自動下單已全部暫停，平倉與停損也不會送。到群益下單軟體核對 {symbol} 部位，"
@@ -1619,7 +1619,7 @@ def _halt_words(name, app, what, lots, reads, before, now):
         en, en_app = _VENUE_EN[name]
         # the api keeps 200 characters of a halt reason (agent_events halt.fields.reason): the steps must fit
         return (f"{en} {what}: {abs(lots):g}-lot {'buy' if lots > 0 else 'sell'}, no fill report. All trading paused, "
-                f"closes and stops too. Check {what} in {en_app}; Blave won't handle any difference. Then press Start trading.")
+                f"closes and stops too. Check {what} in {en_app}; Blave won't handle any difference. Then press Start Trading.")
     return (f"{name} {what} {'買' if lots > 0 else '賣'} {abs(lots):g} 口沒回報成交，帳戶讀了 {reads} 次都對不上"
             f"（送單前 {before}、現在 {now}）。自動下單已全部暫停，平倉與停損也不會送。到{app}核對 {what} 部位，"
             f"差額 Blave 不會處理。之後再按「啟動下單」。")
@@ -1650,7 +1650,7 @@ def _unverified_words(venue, pid):
     if _en():
         en, en_app = _VENUE_EN[name]
         return (f"{en} {pid}: an order with no fill report may not be booked. All trading paused, closes and "
-                f"stops too. Check the {pid} position in {en_app}, then press Start trading.")
+                f"stops too. Check the {pid} position in {en_app}, then press Start Trading.")
     return (f"{name} {pid} 有一筆沒回報成交，Blave 確認不了它記帳了沒。自動下單已全部暫停，平倉與停損也不會送。"
             f"到{app}核對 {pid} 部位，再按「啟動下單」。")
 
@@ -1730,7 +1730,7 @@ def _book_late_fill_or_halt(name, root, venue, contract, lots, park_id, ordernos
         # HALT is a full freeze; the row stays, so the round after 解除暫停 books it (once, by its park id)
         if _en():
             msg = (f"{_VENUE_EN.get(name, (name,))[0]} {contract}: a late {abs(lots):g}-lot fill wasn't recorded. All "
-                   f"trading paused, closes and stops too. Check {root}, then press Start trading; Blave records it next round.")
+                   f"trading paused, closes and stops too. Check {root}, then press Start Trading; Blave records it next round.")
         else:
             msg = (f"{name} {contract} 有 {abs(lots):g} 口晚到的成交記不進帳本。自動下單已全部暫停，平倉與停損也不會送。"
                    f"核對 {root} 部位後按「啟動下單」，Blave 下一輪會再記一次。")
@@ -2020,9 +2020,9 @@ def _president_place_order(symbol, signed_diff, asset_spec=None, reduce_only=Fal
 
 
 # ── SinoPac (永豐期貨) hand-wired path ───────────────────────────────────────
-# Routed only once lib/venue_traits lists "futures" for 永豐 (hand_wired follows it). Lots end to
-# end, positions from lib/sinopac_worker's snapshot (read through lib/sinopac_futures_account,
-# lib/account_sinopac from the gate flip on), the snapshot keyed by month code like 統一's.
+# Routed only while lib/venue_traits lists "futures" for 永豐 (hand_wired follows it). Lots end to
+# end, positions from lib/sinopac_worker's snapshot (read through lib/account_sinopac), the
+# snapshot keyed by month code like 統一's.
 # The read-your-writes marker is machine-wide (lib/sinopac_vault): one worker sends every order
 # and one list_positions reads every month, and M0-b's lag was the whole account reading [].
 # Its account held one position, so whether the lag is per row or the whole list is not known; a
@@ -2043,8 +2043,8 @@ class SinopacCacheLagError(CapitalCacheLagError):
 
 
 def _sinopac_acct():
-    from lib import sinopac_futures_account   # the gate flip renames it lib/account_sinopac
-    return sinopac_futures_account
+    from lib import account_sinopac
+    return account_sinopac
 
 
 def _sinopac_login_stopped():
@@ -2379,7 +2379,7 @@ def _sinopac_place_order(symbol, signed_diff, asset_spec=None, reduce_only=False
         if _en():
             msg = (f"SinoPac reported {got:g} lots filled on {sym}, {lots} sent. Not booked. All trading "
                    f"paused, closes and stops too. Check {sym} in the SinoPac app. Blave won't handle any "
-                   f"difference. Then press Start trading.")
+                   f"difference. Then press Start Trading.")
         else:
             msg = (f"永豐回報 {sym} 成交 {got:g} 口，比送出的 {lots} 口多。Blave 沒有記這筆。自動下單已全部暫停，"
                    f"平倉與停損也不會送。到永豐 app 核對 {sym} 部位，差額 Blave 不會處理。之後再按「啟動下單」。")
@@ -2541,6 +2541,12 @@ def _test_hang_park(symbol):
     return bool(callable(getattr(ex, 'stopping', None)) and ex.stopping())
 
 
+def _dormant_venues():
+    # getattr: a half-updated workspace's venue_traits has no dormant()
+    dormant = getattr(venue_traits, "dormant", None)
+    return dormant(os.getcwd()) if dormant else frozenset()
+
+
 def place_order(symbol, signed_diff, asset_spec=None, reduce_only=False,
                 exchange=None, contributors=None):
     """
@@ -2604,6 +2610,11 @@ def place_order(symbol, signed_diff, asset_spec=None, reduce_only=False,
         return False
     _progress()
     if _TEST_HANG_S is not None and _test_hang_park(symbol):
+        return False
+    if venue_traits.has(exchange, 'hand_wired') and exchange in _dormant_venues():
+        # keys from before the venue's own bind (永豐's odd-lot era): nothing reads it, so nothing
+        # is sent to it either (= lib.venue_wiring.hand_wired_venue)
+        logging.warning(f"[reconciler] {symbol}: {exchange} was never bound for trading here — not sent")
         return False
     try:
         if venue_traits.has(exchange, 'hand_wired'):

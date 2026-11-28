@@ -83,7 +83,8 @@ Three generations of pricing exist. Each account is on exactly one at a time:
   (cloud view) pay without leaving the app — a card already on file is charged in the box, a new
   card goes through the payment page in the browser. Paid server starts from the desktop are
   limited to 5 per day (Taipei time); upgrading a running server is done on the website.
-- **Card trial: 14 days, AI credit included, no server.** Adding a card starts it (a 10 TWD
+- **Card trial: AI credit included, no server; its length is per account — read it from the
+  account page, never quote a fixed number of days**. Adding a card starts it (a 10 TWD
   card check goes into the wallet) and means agreeing to the first period, 888 TWD, when the
   trial ends; cancelling before then charges nothing. Opening a server during the trial ends the
   trial at once and starts the first period (plan + add-on), with that period's AI credit.
@@ -99,6 +100,8 @@ Three generations of pricing exist. Each account is on exactly one at a time:
 - **Only keys Blave Agent issues are covered** — the cloud server's key and the desktop app's
   sign-in key. A key the user created themselves (API page; their own scripts, an external agent)
   needs an **API plan** (`403 ERR007` points to it). The Agent plan does not include an API plan.
+  The desktop key is written into the workspace `.env` at sign-in when the account includes
+  data — never ask the user to copy it.
 - **Already paying for Pro?** The Agent plan includes Pro; a separate Pro subscription keeps
   renewing until the user cancels it where they bought it (website, App Store, Google Play).
 
@@ -190,8 +193,9 @@ Japanese, Vietnamese, Spanish and Portuguese site faces display USD at 30 TWD/US
   running or stopped (see next bullet), so a machine that exists for a full 30 days costs exactly
   that. Say "per 30 days" rather than "about"; a 31-day calendar month is 24 hours more.
   **Exceptions that make a month short of full** — check before quoting a month to someone who
-  just signed up: the 14-day card-bound free trial waives the server fee entirely (last bullet of
-  this section, Linux Starter only, so a new user's first 30 days is 768 TWD not 1,440); a machine
+  just signed up: the card-bound free trial waives the server fee entirely for its length (last
+  bullet of this section, Linux Starter only, so a new user's first 30 days costs less than 1,440
+  TWD — the trial length is per account, read it from the account page); a machine
   still `installing` is not yet metered; and a balance under 50 TWD stops the machine (a balance
   of 0 deletes it, with the strategies, data and keys on it).
 
@@ -202,14 +206,15 @@ Japanese, Vietnamese, Spanish and Portuguese site faces display USD at 30 TWD/US
   `usage_blave` (`deduct_blave_api_credit` short-circuits on `has_machine`). Every `lib/data.py`
   fetch, backtest, param scan, cron-scheduled strategy and scheduled report is
   covered by the hour already paid.
-- Free trial (card-bound, 14 days, Linux Starter only): the server hour is not charged and no
-  transaction row is written for it.
+- Free trial (card-bound, Linux Starter only; length per account, shown on the account page): the
+  server hour is not charged and no transaction row is written for it.
 
 ## Meter 2 — data fee (`usage_blave`) — machine owners never pay it
 
 For an account with no cloud machine and no API plan, whichever key makes the call — the user's
-own API key or the data key the desktop app received at sign-in. The desktop key has one more
-free case: while the card trial runs, or while a machine is still being set up. Rule in
+own API key or the data key the desktop app received at sign-in (written into the workspace `.env`
+automatically when the account can get data — included, or the hour's data fee is covered; never
+ask the user to copy it). The desktop key has one more free case: while the card trial runs, or while a machine is still being set up. Rule in
 `deduct_blave_api_credit` (rate: `PRICING["blave_api_per_hour"]`):
 
 - Exempt outright: API-plan subscribers; any account with a Blave Agent machine (running or stopped).

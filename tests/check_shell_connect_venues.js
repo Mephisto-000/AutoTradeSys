@@ -13,18 +13,19 @@ const GATE = require("./_electron_gate");
 // 統一期貨在這台電腦的下拉要不要列:照 trade.js 的旗標(0.1.18 關、0.1.19 開),測試不自己假設
 const tradeSrc = fs.readFileSync(path.join(SHELL, "renderer", "trade.js"), "utf8"), presFlag = tradeSrc.match(/^const PRES_LOCAL_ON = (true|false);$/m), presOn = !!presFlag && presFlag[1] === "true";
 const caplFlag = tradeSrc.match(/^const CAPL_LOCAL_ON = (true|false);$/m), caplOn = !!caplFlag && caplFlag[1] === "true";
+const spFlag = tradeSrc.match(/^const SINOPAC_LOCAL_ON = (true|false);$/m), spOn = !!spFlag && spFlag[1] === "true";
 let red = 0; const ok = (n, c, got) => { console.log((c ? "PASS  " : "FAIL  ") + n); if (!c) { red++; if (got !== undefined) console.log("      實際:" + (typeof got === "string" ? got : JSON.stringify(got))); } };
 const J = JSON.stringify;
 
 if (!process.versions.electron) (async () => {
-  ok("⓪ trade.js 有 PRES_LOCAL_ON 旗標,「台灣期貨」那組磚看它(cxPresListed);群益本機另受 CAPL_LOCAL_ON 管(0.1.50 起開);不是 Windows 只出永豐(SINOPAC_LOCAL_ON 開才出;0.1.58 隨附、旗標關著);AutoTradeSys fork 的永豐金現股磚在這台電腦「台股」組最後(Mac 也列)", !!presFlag && !!caplFlag
+  ok("⓪ trade.js 有 PRES_LOCAL_ON 旗標,「台灣期貨」那組磚看它(cxPresListed);群益本機另受 CAPL_LOCAL_ON 管(0.1.50 起開);不是 Windows 只出永豐(SINOPAC_LOCAL_ON 開才出;0.1.61 起開、AutoTradeSys fork 關著);fork 的永豐金現股磚在這台電腦「台股」組最後(Mac 也列,cx.macTw 那行接在磚下)", !!presFlag && !!caplFlag && !!spFlag
     && tradeSrc.includes('function cxTwTiles(env, platform) {\n  const sp = SINOPAC_LOCAL_ON ? ["sinopac", "sp.venue"] : null;\n  if (env !== "local") return [[CAPITAL, "cap.venue"], sp].filter(Boolean);'
       + '   // 雲端:Linux 與為群益／統一開的 Windows 主機都開永豐(Wei 11-17)\n  if (platform !== "win32") return sp ? [sp] : null;\n'
       + '  return [cxCaplListed() ? [CAPITAL, "cap.venue"] : null, cxPresListed() ? ["president", "pres.venue"] : null, sp].filter(Boolean);')
     && /const tw = cxTwTiles\(CXF\.env, window\.blave\.platform\);/.test(tradeSrc)
     // AutoTradeSys fork:永豐金現股的磚(上游期貨旗標打開、cxTwTiles 自己列了 sinopac 時不重複)
     && /const sino = CXF\.env === "local" && !\(tw \|\| \[\]\)\.some\(\(\[id\]\) => id === "sinopac"\) \? \[\["sinopac", t\("sino\.venue"\)\]\] : \[\];/.test(tradeSrc)
-    && tradeSrc.includes('    if (tw === null) group("tw", "cap.group.tw", sino, t("cx.macTw"));\n    else if (tw.length || sino.length) {\n      group("tw", "cap.group.tw", tw.map(([id, k]) => [id, t(k)]).concat(sino));'));
+    && tradeSrc.includes('    const items = (tw || []).map(([id, k]) => [id, t(k)]).concat(sino);\n    if (tw === null && !items.length) group("tw", "cap.group.tw", [], macTw());\n    else if (items.length) {\n      group("tw", "cap.group.tw", items);'));
   // ── ① daemon 白名單 ──
   const { argsOk } = require(path.join(SHELL, "daemon.js"));
   const CC = require(path.join(SHELL, "cloudcmd.js"));
@@ -137,12 +138,13 @@ app.whenReady().then(async () => {
     if (ENV.cur !== "cloud") envSwitch("cloud"); cxModalOpen(null, null), (($m) => { if ($m && !$m.checked) { $m.checked = true; $m.dispatchEvent(new Event("change")); } })($("cx-mode-real")); })()`);
   await wait(150);
   const cloudOpts = await tiles();
-  ok("③ 雲端視角(不預選、沒有主鈕;模擬在框腳):七塊磚(Binance / BingX / OKX / Gate.io / Bybit / Bitget / StockCoin)+ 台灣期貨那一組的群益(renderer/capital.js)",
-    J(cloudOpts) === J(["binance", "bingx", "okx", "gateio", "bybit", "bitget", "stockcoin", "capital"]) && (await js(`$("cx-go").hidden && !$("cx-paper").hidden && document.activeElement === $("cx-tile-binance")`)));
+  ok("③ 雲端視角(不預選、沒有主鈕;模擬在框腳):七塊磚(Binance / BingX / OKX / Gate.io / Bybit / Bitget / StockCoin)+ 台灣期貨那一組的群益(renderer/capital.js)" + (spOn ? "、永豐排最後" : ";SINOPAC_LOCAL_ON 關著 → 沒有永豐"),
+    J(cloudOpts) === J(["binance", "bingx", "okx", "gateio", "bybit", "bitget", "stockcoin", "capital"].concat(spOn ? ["sinopac"] : [])) && (await js(`$("cx-go").hidden && !$("cx-paper").hidden && document.activeElement === $("cx-tile-binance")`)));
   const labels = await js(`[...document.querySelectorAll("#cx-body .cx-tile .n")].map((n) => n.textContent)`);
   const groups = await js(`[...document.querySelectorAll("#cx-body .cx-grp")].map((g) => g.textContent)`);
-  const capL = await js(`[t("cap.venue"), t("cap.group.tw")]`);
-  ok("③ 磚上是交易所的正式名字;群益(字串表的名字)在自己那一組", J(labels) === J(["Binance", "BingX", "OKX", "Gate.io", "Bybit", "Bitget", "StockCoin", capL[0]]) && groups.length === 2 && groups[1] === capL[1] && capL[0] !== "cap.venue");
+  const capL = await js(`[t("cap.venue"), t("cap.group.tw"), t("sp.venue")]`);
+  ok("③ 磚上是交易所的正式名字;群益" + (spOn ? "、永豐" : "") + "(字串表的名字)在自己那一組", J(labels) === J(["Binance", "BingX", "OKX", "Gate.io", "Bybit", "Bitget", "StockCoin", capL[0]].concat(spOn ? [capL[2]] : []))
+    && groups.length === 2 && groups[1] === capL[1] && capL[0] !== "cap.venue" && (!spOn || capL[2] !== "sp.venue"));
   const byVenue = {};
   for (const v of ["okx", "bingx", "gateio", "bybit", "stockcoin", "bitget"]) { await pick(v); byVenue[v] = await fields(); }
   ok("③ OKX、Bitget 三格(API Key / Secret Key / Passphrase);BingX / Gate.io / Bybit / StockCoin 兩格", J(byVenue.okx) === J(["cx-api", "cx-secret", "cx-pass"])
@@ -200,15 +202,36 @@ app.whenReady().then(async () => {
   // 這台電腦
   await js(`(() => { window.__platform = "darwin"; window.__over.binanceIp = async () => "198.51.100.7"; envSwitch("local"); TR_BAGS.local.st = { alive: true, report: { venues: {} } }; cxModalOpen(null, null); })()`);
   await wait(150);
-  // AutoTradeSys fork:Mac 上「台股」組講 cx.macTw,下面仍有永豐金的磚(shioaji 在 Mac 也跑得起來)
-  ok("③ 這台電腦是 Mac:七塊加密貨幣磚,台灣期貨那組不出群益、統一的磚、原位講 cx.macTw;下面一塊永豐金", J(await tiles()) === J(["binance", "bingx", "okx", "gateio", "bybit", "bitget", "stockcoin", "sinopac"])
-    && (await js(`(document.querySelector("#cx-body .cx-macnote") || {}).textContent === t("cx.macTw")`)));
+  // AutoTradeSys fork:Mac 上「台股」組一定有永豐金現股那一塊(shioaji 在 Mac 也跑得起來),cx.macTw 那行接在磚下
+  ok("③ 這台電腦是 Mac:七塊加密貨幣磚,台股那組有永豐金(fork)、磚下講 cx.macTw", J(await tiles()) === J(["binance", "bingx", "okx", "gateio", "bybit", "bitget", "stockcoin", "sinopac"])
+    && (await js(`!!document.querySelector("#cx-body .cx-tiles + .cx-macnote")`))
+    && J(await js(`[...document.querySelectorAll("#cx-body .cx-grp")].map((g) => g.textContent)`)) === J(await js(`[t("cx.group.crypto"), t("cap.group.tw")]`))
+    && (await js(`(() => { const n = document.querySelector("#cx-body .cx-macnote"), b = n && n.querySelector("button"), live = typeof p3Live === "function" && p3Live();
+      return !!n && n.firstChild.nodeValue === t("cx.macTw") && (live ? !!b && b.textContent === t("cx.macTwGo") && n.textContent === t("cx.macTw") + t("cx.macTwGo") : !b && n.textContent === t("cx.macTw")); })()`)));
+  // spec mac-tw-row-0160:磚下面那行的〔改用雲端主機〕熱區不得往上蓋進磚(點磚最底排像素要開那塊磚、不是加購框)。
+  // 磚底是小數,量在底 −1／+1;磚左右圓角那段點到的是底下的 .cx-tiles,只驗不是連結
+  // 磚接說明行只在 Mac 有永豐磚時出;旗標關著就在框裡用同一組 class 搭一份量完拆掉,量的是真的樣式表
+  { const hr = await js(`(() => { let n = document.querySelector("#cx-body .cx-tiles + .cx-macnote"), fx = null;
+      if (!n || !n.querySelector(".btn-quiet")) { fx = document.createElement("div"); fx.innerHTML = '<div class="cx-tiles">' + '<button type="button" class="cx-tile"><span class="n">x</span></button>'.repeat(3) + '</div><p class="cx-macnote">' + t("cx.macTw") + '<button type="button" class="btn-quiet">' + t("cx.macTwGo") + '</button></p>';
+        document.querySelector("#cx-body .cx-pick").appendChild(fx); n = fx.lastChild; }
+      n.scrollIntoView({ block: "center" });
+      const b = n.querySelector(".btn-quiet"), g = n.previousElementSibling, tl = [...g.querySelectorAll(".cx-tile")], gr = g.getBoundingClientRect(), br = b.getBoundingClientRect(), y = gr.bottom - 1, rad = (e) => parseFloat(getComputedStyle(e).borderBottomLeftRadius) || 0;
+      const xs = new Set(); for (let x = Math.floor(br.left) - 30; x <= br.right + 30; x += 2) xs.add(x); tl.forEach((e) => { const r = e.getBoundingClientRect(); for (let x = Math.ceil(r.left + rad(e)) + 1; x < r.right - rad(e) - 1; x += 4) xs.add(x); });
+      let inTile = 0; const bad = [];
+      for (const x of xs) { const el = document.elementFromPoint(x, y), own = tl.find((e) => { const r = e.getBoundingClientRect(); return x > r.left + rad(e) && x < r.right - rad(e); });
+        if (el && el.closest(".cx-macnote")) bad.push(["link", x]); else if (own) { inTile++; if (!el || el.closest(".cx-tile") !== own) bad.push(["tile", x]); } }
+      const top = document.elementFromPoint((br.left + br.right) / 2, gr.bottom + 1), pre = getComputedStyle(b, "::before");
+      const o = { fixture: !!fx, inTile, bad, gap: Math.round((n.getBoundingClientRect().top - gr.bottom) * 10) / 10, hitH: parseFloat(pre.height), linkJustBelow: !!top && top.closest(".btn-quiet") === b };
+      if (fx) fx.remove(); return o; })()`);
+    ok("③ Mac 磚下的〔改用雲端主機〕(" + (hr.fixture ? "SINOPAC_LOCAL_ON 關著,用同 class 搭的那份" : "真的永豐磚") + "):點磚最底排像素回傳那塊磚、不是連結;熱區 44 高、上緣剛好接磚底;磚到這行 12",
+      hr.inTile > 0 && hr.bad.length === 0 && hr.hitH === 44 && hr.linkJustBelow && hr.gap === 12, hr); }
   await js(`(() => { cxModalClose(false); window.__platform = "win32"; cxModalOpen(null, null); })()`); await wait(150);
   // 這台電腦的「台灣期貨」組(Windows):群益本機受 CAPL_LOCAL_ON 管、統一受 PRES_LOCAL_ON 管(群益在前,同 mockup);兩個都關時那一組整個不出
   // 永豐金(AutoTradeSys fork)一定在「台股」組的最後一塊,所以這台電腦的「台股」組永遠在
-  ok("③ 這台電腦(Windows):七塊磚" + (presOn ? " + 台灣期貨有統一" : ";PRES_LOCAL_ON 關著 → 沒有統一") + (caplOn ? "、群益本機" : "(CAPL_LOCAL_ON 關著 → 沒有群益)") + "、永豐金",
+  ok("③ 這台電腦(Windows):七塊磚" + (presOn ? " + 台灣期貨有統一" : ";PRES_LOCAL_ON 關著 → 沒有統一") + (caplOn ? "、群益本機" : "(CAPL_LOCAL_ON 關著 → 沒有群益)") + "、永豐金(fork)排最後",
     J(await tiles()) === J(["binance", "bingx", "okx", "gateio", "bybit", "bitget", "stockcoin"].concat(caplOn ? ["capital"] : [], presOn ? ["president"] : [], ["sinopac"]))
-    && J(await js(`[...document.querySelectorAll("#cx-body .cx-grp")].map((g) => g.textContent)`)) === J(await js(`[t("cx.group.crypto"), t("cap.group.tw")]`)));
+    && !(await js(`!!document.querySelector("#cx-body .cx-macnote")`))
+    && J(await js(`[...document.querySelectorAll("#cx-body .cx-grp")].map((g) => g.textContent)`)) === J(await js(presOn || caplOn || spOn ? `[t("cx.group.crypto"), t("cap.group.tw")]` : `[t("cx.group.crypto"), t("cap.group.tw")]`)));   // fork:永豐金在,台股組永遠在
   if (caplOn) {
     await pick("capital");
     ok("③ CAPL_LOCAL_ON 開著:這台電腦選 capital → 群益本機的框(標題「連接群益期貨」、這台電腦);頭列有「換一家」、框腳不出模擬", (await js(`CXF.venue`)) === "capital"

@@ -46,13 +46,13 @@ Every strategy (Type A, B, and C) sets four name/label fields at the top of the 
 
 - `STRATEGY_NAME` — the **technical id**: lowercase, snake_case, used for the directory, files, and reporting key. Keep it stable; nothing user-facing depends on it. (e.g. `doge_holder_conc`)
 - `DISPLAY_NAME` — the **human-facing name** shown in the workspace strategy list. Write it in plain language: *what it trades + what it does*, NOT the engineer id or a raw indicator name. Use the language the user is conversing in (Chinese users → Chinese). It is also how you refer to the strategy in replies (AGENTS.md › Response Style). Examples: `doge_holder_conc` → `"DOGE 大戶持倉集中度"`, `rsi_bb_reversal` → `"RSI＋布林通道反轉"`, `supertrend_sol` → `"SOL SuperTrend 順勢"`.
-- `DESCRIPTION` — **one plain sentence** the user could read months later and remember what this strategy does, e.g. `"追蹤 DOGE 大戶持倉集中度,集中度升高時進場做多"`. One line, no jargon dump.
+- `DESCRIPTION` — **one plain sentence** the user could read months later and remember what this strategy does, e.g. `"追蹤 DOGE 大戶持倉集中度，集中度升高時進場做多"`. One line, no jargon dump. Chinese text in `DESCRIPTION` and `LOGIC` uses full-width punctuation (，：（）); numbers, English and code like `ATR(14)` stay half-width. `DISPLAY_NAME` takes none of `、；：「」;:` (the platform rejects such a name and shows the folder id instead); join parts with a space or ＋ as in the examples.
 - `LOGIC` — **the rules**, shown under the name when the user opens 策略邏輯 on the strategy page (web and desktop). A plain string constant (triple-quoted for several lines; not an f-string, dict or list — the platform reads it without running the file). One rule per line, each starting with `entry:`, `exit:` or `stop:` — English, lowercase, half- or full-width colon; the rule after it in the user's language with the real numbers from the code. Several lines with the same prefix are several rules, in order; a line without a prefix continues the rule above it. Use `stop:` for stop-loss / take-profit / trailing / time stops, `exit:` for signal exits. Display caps: 300 characters per rule, 12 rules per prefix — write short rules, not paragraphs.
 
 ```python
 STRATEGY_NAME = "doge_holder_conc"
 DISPLAY_NAME  = "DOGE 大戶持倉集中度"
-DESCRIPTION   = "追蹤 DOGE 大戶持倉集中度,集中度升高時進場做多"
+DESCRIPTION   = "追蹤 DOGE 大戶持倉集中度，集中度升高時進場做多"
 LOGIC = """
 entry: 大戶持倉集中度高於過去 30 天的 80 百分位
 entry: 4h 收盤價在 50 根均線之上
@@ -160,6 +160,58 @@ can ask to go back to one. Nothing to run by hand — `run()` does it.
   `current`), not necessarily the last one.
 - Entry / exit records and parameter-scan grids are NOT stored per version — do not offer
   to show them for an old version.
+
+### Version guide (what this version changed)
+
+The workspace's compare view shows, under the numbers, what the new version changed — one
+short item per change, each opening onto its own lines of code. You write it whenever you
+change an existing strategy's code, after the LAST edit and before the backtest:
+
+1. `from lib.strategy import version_changes, write_guide`
+2. `version_changes(name)` → `{"base": n, "changes": [{"del": [[old line, text], …], "add": [[line, text], …]}, …]}`:
+   the file against the version your edit started from (`base` — after a restore that is the
+   restored one, not the newest). `add` carries this file's line numbers, `del` the old file's.
+3. `write_guide(name, items)` — at most 6 items, each `{"title", "body", "lines"}` plus
+   `"old_lines"` when it removes lines. It raises on a bad item; fix that item and call again.
+   It returns `unexplained`: changed lines no item covers.
+4. Backtest. The new version stores the guide. An edit after `write_guide` voids it (the run
+   prints that the guide was not stored) — call it again after that edit.
+
+Rules:
+- **One item = one change the user would name**: a parameter, an entry rule, an exit, a data
+  source. Order them by logic, not by line number. Seven changes → merge the small ones.
+- **Title**: what changed, one phrase in the user's language — ≤20 characters in Chinese or
+  Japanese, about 8 words otherwise. Parameter values belong here (「ATR 週期從 10 改成 14」).
+- **Body**: at most two sentences, each ≤25 Chinese characters or about 15 words: what the
+  strategy now does differently and which way it moves (fewer signals, later exits, wider
+  stops). **Never a result**: no return, Sharpe, drawdown, win rate or trade count, no
+  better / worse / 提升 / 改善 about performance. The numbers table is the whole version
+  against the whole version, not this item's effect.
+- **`lines`**: `[[start, end], …]` in this file, 1-based, the lines that hold the change —
+  copy them from `version_changes`. A removed line goes with the item that covers all the added
+  lines of the same change; a removal with nothing added in its place needs `old_lines` (old-file
+  numbers from `del`).
+- Every item must cover a changed line (`write_guide` refuses one that does not). Changes you
+  cannot describe stay uncovered: the user sees them listed as differences without a
+  description. Never pad an item to cover them. `VERSION_NOTE` lines need no item.
+- **No guide** for the first version, a restore, a re-run without an edit, a fork's first
+  backtest, or an install or re-install of a library strategy — you did not write that change.
+- Every round of an iteration flow that edits the code writes its own guide.
+- `write_guide` still refusing after one fix → backtest without it; the compare view then shows
+  the plain diff. Never skip the backtest over a guide.
+
+```python
+write_guide("sol_supertrend", [
+    {"title": "ATR 週期從 10 改成 14", "body": "趨勢線看更長的波動，轉向訊號變少、反應慢一點。",
+     "lines": [[12, 12]]},
+    {"title": "進場加上成交量濾網", "body": "成交量高於 20 根均量才進場，量縮時不進場。",
+     "lines": [[15, 15], [41, 43]]},
+    {"title": "停損從固定 2% 改成 2 倍 ATR", "body": "波動大時停損放寬，波動小時收緊。",
+     "lines": [[16, 16], [58, 58]]},
+])
+```
+
+Not 「Sharpe 從 1.21 升到 1.48」 or 「報酬變好」 in a body — that is the table's job.
 
 ### Restoring a version
 
@@ -480,11 +532,11 @@ Dead zones now behave correctly: a long is **held** through `(sell_th, buy_th)` 
 
 `threshold_position` is the per-bar state machine (exit checked before entry, NaN holds). It is a Python loop — ~0.5 s per 390k bars (5-min since 2023, measured on a Lightsail medium) — which is nothing once per backtest. Never hand-write the loop in `strategy.py`; call the lib. For scans see *Scanning four thresholds* below: with one side pushed out of range the lib takes a vectorized path, so a scan cell costs milliseconds, not the loop.
 
-**Scanning any pair — the flow is always `scan_grid → find_plateau → (on_edge → extend_axis → scan_grid → find_plateau, once) → write_scan → plot_heatmap`** (`write_scan` feeds the 參數掃描 tab (web and desktop); details and the two web prompts in `references/lib.md` › *Parameter scan workflow*).
+**Scanning any pair — the flow is always `scan_until_interior` (`scan_grid → find_plateau`, extended and rescanned while the plateau is on a border) `→ write_scan → plot_heatmap`** (`write_scan` feeds the 參數掃描 tab (web and desktop); details and the two web prompts in `references/lib.md` › *Parameter scan workflow*).
 
 **Grid size — three principles** (Pardo's plateau-search practice / industry convention): **10–20 values per axis** (the `nice_grid` / `percentile_thresholds` defaults: ≈ 15 → 100–400 combos — scan time is linear in combos × bars × the cost of ONE `compute_signals` call: vectorized signals (`hysteresis`, rolling/where/ffill) run 100–400 cells in ≤ 10 s on any bar count, 40×40 on two years of 5-min bars in ~45 s; a per-bar Python loop inside `compute_signals` costs ~0.5 s per cell on 390k bars (minutes per grid) — vectorize before widening the grid, never the other way round); **the step must have trading meaning** (whole bars for windows, a threshold move a trader would notice — a finer step makes neighbours differ by noise and the plateau's neighbourhood mean degenerate into a single cell); **coarse first, then fine** (zoom a second scan into the plateau's neighbourhood only if it needs resolving). 40 per axis is the hard cap.
 
-**Plateau on a grid border → extend that side once, rescan, then `write_scan`.** A border cell's neighbourhood is truncated and the real optimum may lie outside the range. After `find_plateau`, `on_edge(best_idx, grid.shape)` lists the borders hit (`(axis, side)`); `extend_axis(vals, side)` adds 5 cells beyond that end at the same step (int axes stay int, never past 40; `floor=1` for bar counts). Rerun `scan_grid → find_plateau` on the extended axes and write that grid. **One extension only** — it is the same scan and the same iteration under the Iteration Brakes; a plateau still on the border after it is reported as such.
+**Plateau on a grid border → extend that side and rescan until it is interior, then `write_scan`.** A border cell's neighbourhood is truncated and the real optimum may lie outside the range. `scan_until_interior` does the loop: each round adds 5 cells beyond the border at the same step (an axis at 40 is coarsened to the next nice step instead), rescans only the new cells and finds the plateau again. It stops at an interior plateau, at a physical bound you pass (`row_floor` / `col_floor=1` for bar counts, a ceil for a bounded threshold), after 6 extensions, or when the next rescan would push the whole scan past 5 minutes. Write the grid it returns with `evaluated=r['evaluated']`. All rounds are the same scan and the same step under the Iteration Brakes. Interior → adopt that pair; still on the border → report it as such and let the user choose (`references/lib.md` › *Parameter scan workflow*).
 
 **Scanning four thresholds — scan each side independently, two heatmaps.**
 
@@ -553,7 +605,7 @@ After combining, the only hard checks are the per-side ones — `BUY_TH > SELL_T
 
 1. **Round 1 — the two most likely sensitive constants**, everything else pinned at the values `strategy.py` holds now. Thresholds first (entry/exit levels move the Sharpe most), then window lengths, then the rest. Every constant must be a `compute_signals` kwarg so the pinned ones are just passed through. `find_plateau` → pin that pair at its plateau.
 2. **Round 2 — the next pair** (or, with three constants, the remaining one paired with the most sensitive one from round 1), thresholds pinned at the round-1 plateau. `find_plateau` → done.
-3. **Stop after two rounds.** Both rounds together are the scan step of `AGENTS.md` › *Iteration Brakes*; do not re-scan round 1 with the round-2 windows, do not add a third pair. Report both plateaus and let the user choose. The border extension (`on_edge → extend_axis → rescan`, once) applies to **round 1 only** — it stays inside that iteration and is what `scan.json` gets; round 2 is the last iteration and never extends.
+3. **Stop after two rounds.** Both rounds together are the scan step of `AGENTS.md` › *Iteration Brakes*; do not re-scan round 1 with the round-2 windows, do not add a third pair. Report both plateaus and let the user choose. The border extension (`scan_until_interior`) applies to **round 1 only** — it stays inside that iteration and is what `scan.json` gets; round 2 is the last iteration and never extends.
 
 Every round gets its own `plot_heatmap` PNG (`heatmap.png`, `heatmap_round2.png` — they reach the user through the workspace chat / Telegram). **`write_scan` is called once, for the round-1 pair only.** Reason: the web's adopt prompt only changes the two constants in `scan.json`, and round 1 is the only grid computed with every *other* constant at the file's current value — so its `current` mark is honest and 「把 ENTRY_Z 改成 …」 lands on a cell that was actually scanned. Round 2 was computed with the thresholds pinned at the plateau, not the file's values; writing it would mark a current cell whose Sharpe was never measured under the file's constants. The round-2 recommendation goes in the conversation. Long/short threshold pairs that decouple by turning the other side off (previous section) are a separate case — two independent 2D scans, write the side you recommend.
 

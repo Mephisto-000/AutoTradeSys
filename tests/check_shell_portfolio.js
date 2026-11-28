@@ -102,7 +102,7 @@ ok("manage_optimize / manage_backtest 形狀:剛好三欄、成員 1–64 不重
 ok("優化是 Deferred(腳本最長 120 秒才 ack):等 ack 給 150 秒,其餘照舊 20 秒", /const CMD_TIMEOUT_MS = \{ manage_optimize: 150000(?:, rename_strategy: 90000)? \};/.test(fs.readFileSync(path.join(__dirname, "..", "shell", "daemon.js"), "utf8"))
   && /timeoutMs = CMD_TIMEOUT_MS\[cmd\] \|\| 20000/.test(fs.readFileSync(path.join(__dirname, "..", "shell", "daemon.js"), "utf8")));
 ok("雲端視角也送得出優化三個指令:沒有雲端停用鈕,ENV_CLOUD_CMDS 依序接上 manage_*", !/mgCloudOff|mg\.cloudOff/.test(psrc)
-  && /ENV_CLOUD_CMDS = \[[^\]]*"stats_refresh", "manage_optimize", "manage_backtest", "manage_cancel"(?:, "rename_strategy")?\]/.test(src));
+  && /ENV_CLOUD_CMDS = \[[^\]]*"stats_refresh", "manage_optimize", "manage_backtest", "manage_cancel"(?:, "rename_strategy")?, "workspace_update"\]/.test(src));
 ok("雲端的優化 ack 窗同本機那份 150 秒(其餘照舊 20 秒)", /ackWindowMs: require\("\.\/daemon"\)\.CMD_TIMEOUT_MS\[cmd\]/.test(fs.readFileSync(path.join(__dirname, "..", "shell", "main.js"), "utf8"))
   && /now\(\) \+ \(\(sendOpts && sendOpts\.ackWindowMs\) \|\| ACK_WINDOW_MS\)/.test(fs.readFileSync(path.join(__dirname, "..", "shell", "cloudcmd.js"), "utf8")));
 
@@ -151,7 +151,7 @@ ok("必改 3:存金額框的策略列用 trCloseTag / trCtCloseTag(「平倉」�
   vm.runInContext(pure.replace(/^const /gm, "var ") + "\nvar trTipSeq = 0;\n" + ["trEl", "trSec", "trTipLabel", "poHelpGroup", "poCfgSec", "trHead", "trFmt", "trFmt2", "trFmtPrice", "trMoneyInto", "trReport", "trContracts", "trStored", "trBase", "trNamesOf", "trNames",
     "trListNames", "trDisplay", "trPickOff", "trPickBtn", "trVenueId", "trVenueLabel", "trVenueKind", "trTwBroker", "trStratName", "trTwNamesWant", "trTwName", "trTwNameEl", "trTwLotsText", "trTxfWant", "trRowTxf", "trRowTxfNew", "trCtPend", "trCtStored", "trCt", "trCtGate", "trCtDirty", "trCtRollTag",
     "trRowMoneyStored", "trCtPayload", "trRowIsLot", "trRowMoney", "trLotsFmt", "trLotsTgtFmt", "trLotsInto", "trQuoteMap", "trNoSignalYet", "trZoneOf", "trZoneLabel", "trZoneUnit", "trFxView", "trZoneSum", "trTotalText",
-    "trPaintPosCell", "trAmountTable", "trNoVenueYet", "trGoStartKey", "trTradableFunded", "trUnrouted", "trRouteDirty", "trCloseTag", "trStratHeld", "trPaperTwOk", "trPaperTw", "trCtCloseTag", "trCfOpen", "trCfBookBad", "trCfStates", "trCfHolds", "trMarks", "trCfQty", "trCfRows", "trCfTick", "trPvRequest", "trLivePositions", "trBook", "trTwClosedKeys", "trGatedKeys", "trAwaitKeys", "poPartStates", "poSigTable", "trPosDetail", "trManualPart", "trPlanTotal", "trTxfPrice", "trNetRows", "trWithUnit", "trCatchWill", "trCatchPlan", "trCatchSame", "trBookFresh", "trWaitStranded", "trGateSide", "trTradesSym", "trAppRestartQuiet", "trPaperCapOf", "trPaperAvailEl", "cxMonoNums"].map((n) => cutF(src, n)).join("\n"), ctx);
+    "trPaintPosCell", "trAmountTable", "trNoVenueYet", "trGoStartKey", "trTradableFunded", "trUnrouted", "trRouteDirty", "trCloseTag", "trStratHeld", "trPaperTwOk", "trPaperTw", "trCtCloseTag", "trCfOpen", "trCfBookBad", "trCfStates", "trCfHolds", "trMarks", "trCfQty", "trCfRows", "trCfTick", "trPvRequest", "trLivePositions", "trBook", "trTwClosedKeys", "trGatedKeys", "trAwaitKeys", "poPartStates", "poSigTable", "trPosDetail", "trManualPart", "trPlanTotal", "trTxfPrice", "trNetRows", "trWithUnit", "trCatchPlan", "trCatchSame", "trBookFresh", "trWaitStranded", "trGateSide", "trTradesSym", "trAppRestartQuiet", "trPaperCapOf", "trPaperAvailEl", "cxMonoNums"].map((n) => cutF(src, n)).join("\n"), ctx);
   const V = { credentials: true, pair: true, order: true, account: true };
   const bag = (venues, extra) => ({ env: "local", listLoaded: true, picked: null, sent: null, save: null, edits: { btc: 600 }, bad: {}, raw: {}, sig: {}, ct: { edits: {}, basis: {}, sent: null }, just: null,
     list: [{ name: "btc", displayName: "BTC", hasBacktest: true, symbol: "BTCUSDT" }, { name: "tw", displayName: "TW", hasBacktest: true, symbol: "2330" }],
@@ -300,7 +300,7 @@ ok("必改 3:存金額框的策略列用 trCloseTag / trCtCloseTag(「平倉」�
       rp.last_reconcile = { ts: now, actual: o.held ? { "2330@spot": { side: "long", size: o.held } } : {}, gates: o.gates || {} };
       vm.runInContext("TR = this.TR;", ctx); return rp; };
     pt({ noState: true, held: 100000 });
-    const cw = vm.runInContext("trCatchWill(TR.st.report)", ctx);
+    const cw = vm.runInContext("((trCatchPlan(TR.st.report) || {}).text || null)", ctx);
     ok("P2-1 (a) 還沒算出訊號的 swap 台股 Type A(沒有 state):補齊說明不講 2330(contribs 的 key 是 2330@spot,notYet 對得上)", !/2330/.test(cw || ""), J(cw));
     pt({ pos: 1, held: 100000 });
     const sh = vm.runInContext("trStratHeld('tw')", ctx);
@@ -465,19 +465,27 @@ ok("必改 3:存金額框的策略列用 trCloseTag / trCtCloseTag(「平倉」�
     ok("trAppRestartQuiet:沒金額、帳本空、沒暫停 → true;有金額 / 帳本有部位 / 暫停中又有自己下單的策略 → false;暫停但 selfOrdering:false → true",
       q(R()) === true && q(R({ config: { amounts: { a: 1 } } })) === false && q(R({ last_reconcile: { ledger: { BTCUSDT: { side: "long", size: 5 } } } })) === false
       && q(R({ halt: { halted: true } })) === false && q(R({ halt: { halted: true }, selfOrdering: false })) === true && q(R({ daemon: { reconciler: { running: true } } })) === false);
-    ok("狀態行:halted 而且 trAppRestartQuiet → tr.notStarted(不講重開)", /s = !ask && !done && trAppRestartQuiet\(r\) \? t\("tr\.notStarted"\)/.test(src)); }
+    ok("狀態行:halted 而且 trAppRestartQuiet → tr.notStarted(不講重開)", /if \(!ask && !done && trAppRestartQuiet\(r\)\) p = P\(t\("tr\.s\.off"\), t\("tr\.notStarted"\)\);/.test(src)); }
   // 第 8 列:補齊會送出的單(取自部位表的差額)
   { ctx.TR = bag({ binance: V }); ctx.TR.st.report.account.read_at = Math.floor(Date.now() / 1000);
-    const w = vm.runInContext("TR = this.TR; trCatchWill(TR.st.report)", ctx);
+    const w = vm.runInContext("TR = this.TR; ((trCatchPlan(TR.st.report) || {}).text || null)", ctx);
     ok("補齊說明:BTC 目標 500、帳上 400 → 「會買進 BTCUSDT 100 USDT」;台股(交易所不交易)不列", /tr\.opt\.catchWill \{"side":"tr\.opt\.buy","sym":" BTCUSDT","n":"100 USDT"\}/.test(w) && !/2330/.test(w), w);
     ctx.TR.st.report.config.amounts.btc = 400;   // 目標 = 帳上:差額 0 → 不講會送什麼單(沒有單)
-    ok("補齊說明:差額為 0(目標 400、帳上 400)→ 不出「會買進…」;有差額時才出", vm.runInContext("trCatchWill(TR.st.report)", ctx) === null);
+    ok("補齊說明:差額為 0(目標 400、帳上 400)→ 不出「會買進…」;有差額時才出", vm.runInContext("((trCatchPlan(TR.st.report) || {}).text || null)", ctx) === null);
     { const none = vm.runInContext("JSON.stringify(trCatchPlan(TR.st.report))", ctx); ctx.TR.st.report.config.amounts.btc = 500;
       const one = vm.runInContext("trCatchPlan(TR.st.report)", ctx); ctx.TR.st.report.config.amounts.btc = 400;
       const unknown = vm.runInContext("trCatchPlan(Object.assign({}, TR.st.report, { venues: {} }))", ctx);
       // spec 0158-catchup-intro §1.3:預選補齊要分得出「沒有單」和「不知道」
       ok("trCatchPlan:讀過帳沒有單 → { text: null, n: 0, key: \"\" };有一筆 → n = 1、key 是「方向標的 數量」(不含股名,同網頁);沒連交易所(不知道)→ null",
         none === '{"text":null,"n":0,"key":"","items":[]}' && JSON.stringify(one.items) === '[{"k":"+BTCUSDT","q":100,"exact":false}]' && !!one && one.n === 1 && /tr\.opt\.catchWill/.test(one.text) && one.key === "+BTCUSDT 100 USDT" && unknown === null, [none, one, unknown]); }
+    // 稽核 release-0160-e 必修 1:送單後等快照(SnapshotLag,trPosPending)時帳上讀不到——不能把帳上當 0 列整筆補齊單(同網頁 pfCatchUnread)
+    { const rp = ctx.TR.st.report, keepV = rp.account.venues.binance; ctx.TR.st.report.config.amounts.btc = 500;
+      const before = vm.runInContext("trCatchPlan(TR.st.report)", ctx);
+      rp.account.venues.binance = { ok: false, error: { type: "SnapshotLag", stage: "get_positions" }, equity: 10000, currency: "USDT", positions: null };
+      const lagPlan = vm.runInContext("trCatchPlan(TR.st.report)", ctx), lagWait = vm.runInContext("trWaitStranded(TR.st.report)", ctx), lagUnread = vm.runInContext("trPosUnread(TR.st.report)", ctx);
+      rp.account.venues.binance = keepV; ctx.TR.st.report.config.amounts.btc = 400;
+      ok("SnapshotLag:trPosUnread 為真;trCatchPlan → null(不知道,不列單)、trWaitStranded → 0;快照正常時照列(對照組)",
+        !!before && before.n === 1 && lagUnread === true && lagPlan === null && lagWait === 0 && vm.runInContext("trPosUnread(TR.st.report)", ctx) === false, J([before && before.n, lagUnread, lagPlan, lagWait])); }
     { const S = vm.runInContext("trCatchSame", ctx), I = (...xs) => ({ items: xs.map(([k, q, exact]) => ({ k, q, exact: !!exact })) });
       // 稽核 0158 B3(收窄):只放過捨入雜訊,畫面上的數字(口數、股數、金額取整)不同就算變了
       ok("trCatchSame:兩邊不知道 = 同;一邊不知道 = 變;1,200.3 對 1,199.8(都寫 1,200)= 同;1,200 → 1,212(1%)、→ 1,248(4%)、→ 1,201 都算變;口數 2 → 3 變;多一筆、翻向、口數與金額混用都算變",
@@ -494,7 +502,7 @@ ok("必改 3:存金額框的策略列用 trCloseTag / trCtCloseTag(「平倉」�
     // 0.1.27 模擬交易台股(can_paper_twstock):差額是台幣,照標的寫 TWD,BTC 那筆照舊帳戶幣
     { const PV = { paper: V }; ctx.TR = bag(PV, { can_paper_twstock: true });
       ctx.TR.st.report.account.venues = { paper: { ok: true, equity: 10000, currency: "USDT", positions: {} } };
-      const pw = vm.runInContext("TR = this.TR; trCatchWill(TR.st.report)", ctx) || "";
+      const pw = vm.runInContext("TR = this.TR; ((trCatchPlan(TR.st.report) || {}).text || null)", ctx) || "";
       ok("補齊說明(模擬交易台股):2330 寫「100,000 TWD」、BTC 寫 USDT,不把台股標成 USDT",
         /"sym":" 2330","n":"100,000 TWD"/.test(pw) && /"sym":" BTCUSDT","n":"500 USDT"/.test(pw) && !/"sym":" 2330","n":"[^"]*USDT"/.test(pw), pw); }
     // 實機 integ2 10-18:台股寫「代號 名字」、模擬盤照股數(同策略組合表那一格);休市時補一句「開盤後第一輪才成交」,開盤中不補;crypto 那筆不受影響
@@ -502,7 +510,7 @@ ok("必改 3:存金額框的策略列用 trCloseTag / trCtCloseTag(「平倉」�
       rp.account.venues = { paper: { ok: true, equity: 10000, currency: "USDT", positions: {} } }; rp.config.exchanges = { btc: "paper", tw: "paper" };
       rp.states.tw.raw_closes = { 2330: 1030 }; rp.states.tw.raw_close_dates = { 2330: "2026-10-16" };
       vm.runInContext("TR_TWN.names = { 2330: '台積電' };", ctx);
-      const at = (ms) => { const real = Date.now; Date.now = () => ms; try { return vm.runInContext("TR = this.TR; trCatchWill(TR.st.report)", ctx) || ""; } finally { Date.now = real; } };
+      const at = (ms) => { const real = Date.now; Date.now = () => ms; try { return vm.runInContext("TR = this.TR; ((trCatchPlan(TR.st.report) || {}).text || null)", ctx) || ""; } finally { Date.now = real; } };
       const sat = at(Date.UTC(2026, 9, 17, 3, 0)), mon = at(Date.UTC(2026, 9, 19, 2, 0)), monLate = at(Date.UTC(2026, 9, 19, 6, 0));
       vm.runInContext("TR_TWN.names = null;", ctx);
       ok("補齊說明(模擬交易台股):「買進 2330 台積電 97 股」(100,000 ÷ 1,030 捨去,同部位表);週六與 14:00 補休市句,週一 10:00 不補",
@@ -534,13 +542,13 @@ ok("必改 3:存金額框的策略列用 trCloseTag / trCtCloseTag(「平倉」�
     ok("等新訊號提醒:要加碼(目標 500、帳上 400)、帳上沒部位、差額沒過門檻(目標 395)、策略沒金額 → 0",
       ws(500, 1, 400) === 0 && ws(500, 0, null) === 0 && ws(395, 1, 400) === 0 && ws(0, 0, 400) === 0, J([ws(500, 1, 400), ws(500, 0, null), ws(395, 1, 400), ws(0, 0, 400)]));
     // 0.1.28 美股純代號(trUsNoAuto,同網頁 pfWaitStranded／pfCatchWill):不會自動下單,不算會開著的部位、補齊說明不列
-    { const us = (mk, fn, pos, held) => { ctx.TR = bag({ binance: V }); const r = ctx.TR.st.report; r.config.amounts.btc = 500; r.states.btc = { symbol: "AMZN", position: pos };
+    { const W = "((r) => (trCatchPlan(r) || {}).text || null)", us = (mk, fn, pos, held) => { ctx.TR = bag({ binance: V }); const r = ctx.TR.st.report; r.config.amounts.btc = 500; r.states.btc = { symbol: "AMZN", position: pos };
         r.strategy_kinds = { btc: { type: "A", market: mk } }; r.account.venues.binance.positions = { AMZN: { side: "long", size: held, entry_price: 200 } };
         return vm.runInContext("TR = this.TR; " + fn + "(TR.st.report)", ctx); };
       ok("美股:等新訊號提醒不算(us_stock 0、mixed 1);補齊說明不列(us_stock null、mixed 有)",
         us("us_stock", "trWaitStranded", 0, 400) === 0 && us("mixed", "trWaitStranded", 0, 400) === 1
-        && us("us_stock", "trCatchWill", 1, 100) === null && /AMZN/.test(us("mixed", "trCatchWill", 1, 100) || ""),
-        J([us("us_stock", "trWaitStranded", 0, 400), us("mixed", "trWaitStranded", 0, 400), us("us_stock", "trCatchWill", 1, 100), us("mixed", "trCatchWill", 1, 100)])); }
+        && us("us_stock", W, 1, 100) === null && /AMZN/.test(us("mixed", W, 1, 100) || ""),
+        J([us("us_stock", "trWaitStranded", 0, 400), us("mixed", "trWaitStranded", 0, 400), us("us_stock", W, 1, 100), us("mixed", W, 1, 100)])); }
     // 0.1.58 Wei 實機(模擬帳戶、第一次啟動前):對帳器從沒跑過(last_reconcile null)、模擬帳本空的、策略 state.json 已有 position 1。
     // 補齊的單只靠 states × 金額對讀到的帳算,不靠對帳快照:要列出「買進 BTCUSDT 1,000 USDT」。states 還沒有這支(報告在策略第一次寫 state.json 之前)才是 null
     { const b = bag({ paper: V }), r = b.st.report;
@@ -839,8 +847,8 @@ ok("1264 寬開著聊天欄(Windows 捲軸佔 17px):中欄 ≤ 600 時表頭可�
   ok("載入中的字:第一次安裝引擎 → tr.loadingEngine;更新引擎 → tr.loadingEngineUpd;裝完 / 沒有快照 / 雲端 → tr.loading",
     L("local", { phase: "run", kind: "first" }) === "tr.loadingEngine" && L("local", { phase: "run", kind: "update" }) === "tr.loadingEngineUpd"
     && L("local", { phase: "done", kind: "first" }) === "tr.loading" && L("local", null) === "tr.loading" && L("cloud", { phase: "run", kind: "first" }) === "tr.loading");
-  ok("只留一個:自動下單頁頁首那一行講(trStateText),內容區不再畫第二個「載入中…」;策略組合頁沒有頁首狀態行,寫在內容區那一處",
-    /if \(state === "loading"\) return TR\.env === "cloud" \? t\("tr\.cloud\.hdFetching"\) : trLoadingText\(\);/.test(src) && /if \(state === "loading"\) return;/.test(cutF(src, "trPaintOnboard"))
+  ok("只留一個:自動下單頁頁首那一行講(trStateParts),內容區不再畫第二個「載入中…」;策略組合頁沒有頁首狀態行,寫在內容區那一處",
+    /if \(state === "loading"\) return P\(null, null, TR\.env === "cloud" \? t\("tr\.cloud\.hdFetching"\) : trLoadingText\(\)\);/.test(src) && /if \(state === "loading"\) return;/.test(cutF(src, "trPaintOnboard"))
     && !/t\("tr\.loading"\)/.test(cutF(src, "trPaintOnboard")) && /trEl\("div", "pf-state", trLoadingText\(\)\)/.test(cutF(src, "poPaintCfg"))); }
 // 程式稽核 audit-desktop-portfolio-2026-10-14
 ok("P1-1 trRoundLots 補 1e-9(同機器 lib/portfolio、網頁 pfRoundLots):0.01 + 3×0.83 = 2.4999… → 3;負的同樣往外", C.trRoundLots(0.01 + 3 * 0.83) === 3 && C.trRoundLots(-(0.01 + 3 * 0.83)) === -3 && C.trRoundLots(2.4) === 2 && C.trLotsTarget(0.01 + 3 * 0.83).lots === 3);
@@ -1094,7 +1102,7 @@ ok("優化表不再講台指期進位超配(0.1.44 拿掉):程式、門檻常數
   && /t\("mg\.lotsUnderFoot", \{ amt \}\)/.test(psrc));
 ok("等待那一行只剩回測(寫「回測：」,在回測區標題列下);優化不等,「優化：」那句拿掉(spec portfolio-optimize-lite §8-1)", /t\("mg\.waitPrefixBt"\) \+ \(n === 1/.test(cutF(psrc, "mgBuildPage")) && !fs.readFileSync(path.join(R, "strings.js"), "utf8").includes('"mg.waitPrefixOpt"'));
 ok("投資組合還沒算出成分(沒有權重):金額表部位寫「—」(tooltip tr.sigNotYet),不是空手", /const cNotYet = isC && !tc && !noSig;/.test(src) && /trPaintPosCell\(tgt, a, pos, tc, \{ noSig, notYet: notYet \|\| cNotYet, txf, sentOn, clamped: paperShort \? "paper" : \(tc && tc\.clamped\) \|\| null \}\);/.test(src));
-ok("剛選進、還沒回報、清單沒寫市場:金額表與部位表都不先標「合約」", /if \(isC \|\| market\) first\.appendChild\(trEl\("span", "mkt-tag"/.test(src) && /if \(!guess\) c\.appendChild\(trEl\("span", "mkt-tag"/.test(src));
+ok("剛選進、還沒回報、清單沒寫市場:金額表與部位表都不先標「合約」", /if \(isC \|\| market\) \{ if \(!isC && usNo\) noAutoTag\(\); else first\.appendChild\(trEl\("span", "mkt-tag"/.test(src) && /if \(!guess\) c\.appendChild\(trEl\("span", "mkt-tag"/.test(src));
 // runtime NEEDS_ROUTING 閘門改成任何沒路由的成員都擋(金額 0 也算):只有金額 0 的成員沒路由也落 Z
 { const ctx = vm.createContext({ TR: { list: [] } }); const pure = src.slice(src.indexOf("/* ── 純邏輯("), src.indexOf("/* ── 純邏輯到此"));
   vm.runInContext(pure.replace(/^const /gm, "var "), ctx);
@@ -1192,9 +1200,12 @@ ok("回測卡:btWaiting 時只寫 mg.btWaitPerf + 取消(不畫進度條、不�
   const line = (o, tr) => { const keep = Object.assign({}, st), kt = ctx.TR; Object.assign(st, o || {}); if (tr) ctx.TR = Object.assign({}, kt, tr); try { return vm.runInContext("mgRerunLine({})", ctx); } finally { Object.assign(st, keep); ctx.TR = kt; } };
   const at = new Date(2026, 0, 5, 16, 29).getTime() / 1000, on = line({ prop: { computed_at: at } }), btn = (l) => l.kids[l.kids.length - 1];
   const fresh = new Date(Date.now() - 60000), hm = String(fresh.getHours()).padStart(2, "0") + ":" + String(fresh.getMinutes()).padStart(2, "0"), today = line({ prop: { computed_at: fresh.getTime() / 1000 } });
-  ok("重算權重:有這一組的權重 → 「上次計算 01/05 16:29」(trErrStamp:24 小時內只寫 HH:mm)在前、文字鈕在後(aria-describedby 指到時間);沒有這一組的權重只畫鈕",
+  ok("重算權重:有這一組的權重 → 「上次計算 01/05 16:29」(trErrStamp:同一天只寫 HH:mm)在前、文字鈕在後(aria-describedby 指到時間);沒有這一組的權重只畫鈕",
     on.className === "mg-rerun" && on.kids.length === 2 && on.kids[0].textContent === "上次計算 01/05 16:29" && today.kids[0].textContent === "上次計算 " + hm && on.kids[0].id === "mg-last-run" && btn(on).textContent === "重算權重"
     && btn(on).className === "btn-quiet" && btn(on).attrs["aria-describedby"] === "mg-last-run" && !btn(on).disabled && ((l) => l.kids.length === 1 && !("aria-describedby" in btn(l).attrs))(line()), J(on.kids.map((k) => k.textContent)));
+  { const st = (a, b) => vm.runInContext("trErrStamp(" + a.getTime() / 1000 + ", " + b.getTime() + ")", ctx);
+    const y = st(new Date(2026, 10, 21, 21, 40), new Date(2026, 10, 22, 9, 0)), same = st(new Date(2026, 10, 22, 0, 5), new Date(2026, 10, 22, 23, 50));
+    ok("QA 0159 #2 跨日看日曆日:昨晚 21:40 在今早 09:00 看寫「11/21 21:40」(不到 24 小時也帶日期);同一天只寫時間", y === "11/21 21:40" && same === "00:05", [y, same]); }
   const n0 = sent.length; btn(on).on.click();
   ok("重算權重:按了 = mgRunOptimize() 手動送(不帶 auto／retry,權重簽名沒變也照送;mgRunOptimize 本身不看簽名),焦點留在同一列的〔策略〕",
     sent.length === n0 + 1 && sent[n0].length === 0 && strat.focused === 1 && !/optTried|mgOptSig/.test(cutF(psrc, "mgRunOptimize").split("\n").slice(0, 3).join("\n")), J(sent));
@@ -1250,7 +1261,7 @@ let psPromise = null;
       Object.keys(FIX).length === 5 && !Object.keys(FIX).some((k) => FIX[k].go === "size") && !bad.length, bad.join(";")); }
   ok("Wei 定字:sz.noVol 兩語;接「換一個方法」連結的那幾句(mg.why.noVol／shortMdd／method／changeMethod／changeTarget)拿掉", CAT.zh["sz.noVol"] === "近 90 天沒有波動資料，不能用目標波動" && CAT.en["sz.noVol"] === "No volatility data for the last 90 days"
     && ["mg.why.noVol", "mg.why.shortMdd", "mg.why.method", "mg.why.changeMethod", "mg.why.changeTarget"].every((k) => !(k in CAT.zh) && !(k in CAT.en)));
-  ["mg.applyDiffSetN", "mg.applyWhyUnread", "sz.noVol", "mg.why.pickTitle"].forEach((k) => { if (!CAT.zh[k] || !CAT.en[k] || CAT.zh[k].length > 25) ok("字串 " + k, false); });
+  ["mg.applyWhyUnread", "sz.noVol", "mg.why.pickTitle"].forEach((k) => { if (!CAT.zh[k] || !CAT.en[k] || CAT.zh[k].length > 25) ok("字串 " + k, false); });
   ok("方法不見／缺參數兩句兩語都含〔方法〕連結字(鈕下那句連到方法框);沒選方法那句只講「先選方法」(spec §4)", ["mg.allocGone", "mg.needParams"].every((k) => ["zh", "en"].every((L) => CAT[L][k].indexOf(CAT[L]["mg.why.tbMethod"]) >= 0))
     && CAT.zh["mg.needAlloc"] === "先選方法" && CAT.en["mg.needAlloc"] === "Pick a method first");
   // 每一條帶去哪:點了走對的函式、送 mg_why_fix;整句是連結時沒有前段
@@ -1267,7 +1278,7 @@ let psPromise = null;
       && /if \(!fix \|\| fix\.go === "run" \|\| !mgWhyCan\(fix\)\)/.test(cutF(psrc, "mgWhyFill")) && plainFund.kids.length === 1 && plainFund.kids[0].tag === "span" && plainFund.kids[0].textContent === "先填投入資金");
     ok("開框的連結帶 aria-haspopup,直接做事的(主機更新)不帶", go("mg.applyDiffSet").b.attrs["aria-haspopup"] === "dialog" && !go("sz.oldMdd", { TR: { env: "cloud", st: { alive: true } }, upNow: () => ({ cloud: { link: {} } }) }).b.attrs["aria-haspopup"]);
     ok("按不動就不出連結:選擇策略開不了／優化在跑;句子照出", go("mg.applyDiffSet", { trPickOff: () => true }).b === null && go("sz.staleMdd", { mgBag: () => ({ params: {}, optBusy: true }) }).b === null
-      && flatText(go("mg.applyDiffSet", { trPickOff: () => true }).el) === "配置 2 檔、這裡 3 檔");
+      && flatText(go("mg.applyDiffSet", { trPickOff: () => true }).el) === "這組策略跟配置不同，把配置改成這組");
     const c2 = whyCtx(), plain = mkEl("div"); c2.plain = plain; vm.runInContext("mgWhyFill(plain, '建議金額跟目前一樣', MG_WHY_FIX['mg.applyWhySame'], 'mg-why-fix')", c2);
     ok("等一下就好／好狀態不連:表上沒有這幾個原因", plain.kids.length === 1 && plain.kids[0].tag === "span" && ["mg.applyWhySame", "mg.applyWhyQuote", "mg.applyWhyFx", "mg.applyWhyWait", "mg.applyWhyUnread", "tr.saving", "tr.ccyMixed"].every((k) => !(k in vm.runInContext("MG_WHY_FIX", c2)))); }
   // 登入:原地開瀏覽器登入(planSignIn 帶這顆鈕),不繞去設定;等待中被輪詢重畫,鈕字由 signInLabel 接手
@@ -1291,9 +1302,10 @@ let psPromise = null;
     const a = why({ eff: 1, rows: [] }, false); c.unread = false; c.mgSameAsAmounts = () => true;
     const u = why({ eff: 1, rows: [{ name: "x", spec: null, money: 5, native: null, fxMissing: false }] }, true), q2 = why({ eff: 1, rows: [{ name: "t", spec: {}, money: 5, native: null, fxMissing: false }] }, true);
     ok("讀不到設定優先於成員不同;幣別未定 → 幣別句;台指期缺報價 → 報價句", a === "mg.applyWhyUnread" && u === "unk:x" && q2 === "mg.applyWhyQuote", J([a, u, q2])); }
-  // 成員不同的句子
-  { const c = vm.createContext({ t: (k, a) => k + J(a), trNames: () => ["a", "b", "c"], mgMembers: () => ["a", "b", "d"] }); vm.runInContext(cutF(psrc, "mgDiffText"), c); const same = vm.runInContext("mgDiffText()", c); c.mgMembers = () => ["a"]; const diff = vm.runInContext("mgDiffText()", c);
-    ok("成員不同:同檔數講差幾檔,不同檔數比數字", same === 'mg.applyDiffSetN{"n":1}' && diff === 'mg.applyDiffSet{"a":3,"b":1}', J([same, diff])); }
+  // 成員不同的句子(spec p3-0160 §3):一條句子講「兩邊不同、怎麼補」,不講檔數;連結字寫方向、放句尾,框標題講改的是配置
+  ok("成員不同:mg.applyDiffSet 一句、連結字 mg.why.alloc 在句尾、舊的檔數句 mg.applyDiffSetN 拿掉;框標題 mg.why.pickTitle", !("mg.applyDiffSetN" in CAT.zh) && !("mg.applyDiffSetN" in CAT.en) && !/mgDiffText|applyDiffSetN/.test(psrc)
+    && ["zh", "en"].every((L) => CAT[L]["mg.applyDiffSet"].endsWith(CAT[L]["mg.why.alloc"])) && CAT.zh["mg.applyDiffSet"] === "這組策略跟配置不同，把配置改成這組" && CAT.zh["mg.why.pickTitle"] === "改配置的策略"
+    && CAT.en["mg.why.alloc"] === "Use These in Allocation" && CAT.en["mg.why.pickTitle"] === "Change Allocation Strategies");
   // 真錢:〔改配置〕的預勾不能繞過下單鎖
   { const els = {}, E = (id) => els[id] || (els[id] = Object.assign(mkEl("div", id), { classList: { toggle() {}, add() {}, remove() {} }, querySelector: (q) => (id === "ps-modal" ? E("head") : null) })); E("ps-scrim").hidden = true;
     const rowsSeen = []; const list = ["a", "b", "tx", "kept"].map((name) => ({ name, symbol: name.toUpperCase() + "USDT", hasBacktest: true }));
@@ -1311,11 +1323,12 @@ let psPromise = null;
   { const ap = cutF(src, "psApply"), cl = cutF(src, "psClose");
     ok("確定後留在優化分頁、焦點落〔套用金額〕,不搬去配置金額格;取消回連結,連結被重畫換掉就憑 data-fk 找", ap.indexOf("if (fromWhy) {") > ap.indexOf("poPaintCfg();") && ap.indexOf("if (fromWhy) {") < ap.indexOf('querySelectorAll(".amt-in")') && /const ap = \$\("mg-apply"\); if \(ap && !ap\.disabled\) ap\.focus\(\);/.test(ap)
       && /else if \(!\(fromWhy && mgWhyFocus\(\)\)\) psRefocus\(\);/.test(cl) && /\$\("ps-title"\)\.textContent = t\("tr\.pick\.title"\);/.test(cl)); }
-  // spec portfolio-optimize-lite §3:原因句跟預覽同一列、靠右、可用整列寬(不放最右一欄,長句會撐寬鈕);高度固定、空著也佔位
+  // spec portfolio-optimize-lite §3:原因句跟預覽同一列、靠右、可用整列寬(不放最右一欄,長句會撐寬鈕);高度固定、空著也佔位。
+  // 0.1.61(designer desktop-widescreen-2026-11-24 §2.4):鈕直接接在目標值後面,不再隔一條 1fr,多的寬度留在列尾
   { const css = fs.readFileSync(path.join(R, "trade.css"), "utf8"), bp = cutF(psrc, "mgBuildPage");
-    ok("部位大小那一列:投入資金、三選一、目標、〔套用金額〕一列;預覽與原因句一列(原因句 role=status、鈕 aria-describedby 指到它);窄欄折三列量主欄寬(container)",
-      /sz\.append\(fund\.wrap, seg, tf\.wrap, ap, msg\)/.test(bp) && /grid-template-areas: "fund seg t \. go" "msg msg msg msg msg"/.test(css) && /\.mg-szw \{ container: mg-sz \/ inline-size;/.test(css)
-      && /@container mg-sz \(max-width: 620px\)/.test(css) && /\.mg-apply-why \{ grid-area: why; flex: 1; min-width: 0; min-height: 18px;[^}]*text-align: right;/.test(css));
+    ok("部位大小那一列:投入資金、三選一、目標、〔套用金額〕一列;預覽與原因句一列(原因句 role=status、鈕 aria-describedby 指到它);窄欄折三列量主欄寬(container),≤340 三選一自己一列(同網頁)",
+      /sz\.append\(fund\.wrap, seg, tf\.wrap, ap, msg\)/.test(bp) && /grid-template-areas: "fund seg t go" "msg msg msg msg";[^}]*justify-content: start;/.test(css) && /\.mg-szw \{ container: mg-sz \/ inline-size;/.test(css)
+      && /@container mg-sz \(max-width: 620px\)/.test(css) && /@container mg-sz \(max-width: 340px\) \{\s*\.mg-sz \{ grid-template-areas: "fund fund" "seg seg" "t t" "pv go" "why why"; \}/.test(css) && /\.mg-apply-why \{ grid-area: why; flex: 1; min-width: 0; min-height: 18px;[^}]*text-align: right;/.test(css));
     ok("〔套用金額〕與「計算中…」疊在同一格(鈕寬不跳);計算中鈕裡轉圈＋字", /ap\.appendChild\(trEl\("span", "lbl", t\("mg\.apply"\)\)\)/.test(bp) && /busy\.append\(sp, t\("mg\.busy"\)\)/.test(bp) && /\.mg-apply > \.lbl, \.mg-apply > \.lbl-busy \{ grid-area: 1 \/ 1; \}/.test(css) && /E\.ap\.classList\.toggle\("is-busy", busy\)/.test(cutF(psrc, "mgSzRecalc")));
     ok("三選一一組一個 Tab 停點、方向鍵換選項(spec §8-4);「方法 未設定」灰字一般字重(§8-6)", /b\.tabIndex = on \|\| \(!m && i === 0\) \? 0 : -1;/.test(cutF(psrc, "mgSzRecalc")) && /e\.key === "ArrowRight" \|\| e\.key === "ArrowDown" \? 1/.test(bp) && /\.tb-fld \.v\.unset \{ color: var\(--ink-3\); font-weight: 400; \}/.test(css) && /"v unset"/.test(cutF(psrc, "mgToolbar")));
     ok("mgPaint 簽章帶 trPickOff:選擇策略開得了／開不了時連結跟著換;部位大小那三格不進簽名(打字不整區重建,焦點留在輸入框)", /trPickOff\(\), mgWhyCan/.test(cutF(psrc, "mgPaint")) && !/G\.sizing/.test(/const sig = [^;]*;/.exec(cutF(psrc, "mgPaint"))[0]) && /mgFocusBack\(keepIn\)/.test(cutF(psrc, "mgPaint")));

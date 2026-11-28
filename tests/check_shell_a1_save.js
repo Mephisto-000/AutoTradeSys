@@ -267,10 +267,15 @@ const draft = (o) => Object.assign({ picked: ["btc", "tw", "n5"], edits: { n5: 2
     ok("美股 存金額框:AMZN 不列進會送單,ETHUSDT 照列", !f.rows.some((x) => /^tr\.cf\.(buy|sell)AMZN/.test(x)) && f.rows.some((x) => /^tr\.cf\.buyETHUSDT300/.test(x)), J(f)); }
   // 不會送單時(列目標「原 → 新」):美股列只寫金額,不換數量、表頭不寫依哪一根;加密對照組照寫(B2;同網頁 8ebba9e22)
   { const US = { name: "us", displayName: "US", hasBacktest: true, symbol: "AMZN", market: "swap", srcMarket: "us_stock" };
+    // QA 0.1.60 R3-9:沒存過的美股裸代號草稿存了必被 US_SYMBOL 拒(不看金額)——不送、框不列,其他列照存
     bag({ picked: ["btc", "tw", "us"], edits: { us: 300 }, list: [US], noPv: true, pvs: { us: pvA("AMZN", { close: 200 }) } });
+    const f0 = open(); await tick();
+    ok("美股新列(存了必被拒):不送、不開框列它;送出的那一份沒有它", f0.direct === true && sends.length === 1 && sends[0].cmd === "amounts" && !("us" in sends[0].args.amounts), J([f0, sends]));
+    // 原 → 新 那條只剩已存的美股列(舊版存進去的)會走到
+    bag({ amounts: { us: 100 }, picked: ["btc", "tw", "us"], edits: { us: 300 }, list: [US], noPv: true, pvs: { us: pvA("AMZN", { close: 200 }) } });
     const f = open();
-    ok("美股新列(原 → 新):只寫金額、不換成數量(qty 不算)", f.title === "tr.cf.title" && J(f.rows) === J(["AMZN0→300"]), J(f));
-    ok("美股新列:表頭不寫「依那根算」", !/asof/.test(f.cap), J(f.cap));
+    ok("美股已存列(原 → 新):只寫金額、不換成數量(qty 不算)", f.title === "tr.cf.title" && J(f.rows) === J(["AMZN100→300"]), J(f));
+    ok("美股已存列:表頭不寫「依那根算」", !/asof/.test(f.cap), J(f.cap));
     bag({ picked: ["btc", "tw", "ec"], edits: { ec: 300 }, list: [EC], noPv: true, pvs: { ec: pvA("ETHUSDT", { close: 3000 }) } });
     const g = open();
     ok("對照:加密新列照寫顆數,不寫依哪一根", J(g.rows) === J(["ETHUSDT0→3000.1 tr.cf.unitCoins"]) && !/asof/.test(g.cap), J(g)); }
@@ -566,10 +571,15 @@ const draft = (o) => Object.assign({ picked: ["btc", "tw", "n5"], edits: { n5: 2
     const go = (o) => { bag(Object.assign({ list: [EC], noPv: true }, o)); vm.runInContext("trCfOpen({ from: 'sp', input: { name: 'ec', initial: '300', kind: 'amount', oneLeg: true }, stored: trBase(), opener: null })", ctx); return ctx.BOX; };
     const notes = (b) => flat(b.extra).filter((n) => n.className === "cf-note").map((n) => n.textContent), inField = (b) => flat(flat(b.extra).find((n) => /cf-in-fld/.test(n.className))).some((n) => n.textContent === "tr.cf.nextRound");
     let b = go({ firing: true, paper: true });
-    ok("⑤ 新策略沒有預覽、在跑:一開框主鈕可按、「儲存並下單」+ 模擬;下一輪那句在表下、不在輸入格裡", b.title === "tr.cf.titleFire" && b.ok === "tr.cf.titleFire" && !b.okDisabled && b.mark === "tr.mode.paper"
+    // 0.1.60(spec p3-0160 §4b):從策略頁開、這支還沒在策略組合裡 → 標題＝主鈕「加入並下單」/「加到策略組合」;已在組合裡的照舊(上面 btc 那兩條)
+    ok("⑤ 新策略沒有預覽、在跑:一開框主鈕可按、「加入並下單」+ 模擬;下一輪那句在表下、不在輸入格裡", b.title === "sp.cf.addFire" && b.ok === "sp.cf.addFire" && !b.okDisabled && b.mark === "tr.mode.paper"
       && J(notes(b)) === J(["tr.cf.nextRound"]) && !inField(b) && !flat(b.extra).some((n) => n.className === "cf-wait"), J({ t: b.title, dis: b.okDisabled, n: notes(b) }));
     b = go({});
-    ok("⑤ …不在跑:「儲存金額」、主鈕可按、沒有那句", b.title === "tr.cf.title" && !b.okDisabled && notes(b).length === 0, J({ t: b.title, n: notes(b) })); }
+    ok("⑤ …不在跑:「加到策略組合」(標題＝主鈕)、主鈕可按、沒有那句", b.title === "po.add" && b.ok === "po.add" && !b.okDisabled && notes(b).length === 0, J({ t: b.title, n: notes(b) }));
+    b = go({}); ctx.BOX = null;
+    vm.runInContext("trCfOpen({ from: 'sp', oosFail: true, input: { name: 'ec', initial: '300', kind: 'amount', oneLeg: true }, stored: trBase(), opener: null })", ctx);
+    const oos = flat(ctx.BOX.extra).filter((n) => /\bcf-oos\b/.test(n.className));
+    ok("⑤ 樣本外沒過(oosFail):輸入格下一行 sp.oosFail;沒帶就沒有", oos.length === 1 && oos[0].textContent === "sp.oosFail" && !flat(b.extra).some((n) => /\bcf-oos\b/.test(n.className)), J(oos.map((n) => n.textContent))); }
   { const S = bag({ edits: {}, picked: ["btc", "tw", "tw2"], list: [{ name: "tw2", displayName: "TW2", hasBacktest: true, symbol: "2603", market: "spot", twd: true, twdAll: true }] });
     // 沒有 picker 草稿的那一種(前置已保證:策略頁那一態有草稿時不出〔儲存〕):直送整份已存的
     S.picked = null; S.ct.edits = { other: "MXF" };

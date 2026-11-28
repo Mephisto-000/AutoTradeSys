@@ -737,12 +737,15 @@ function setCat(cat) {
     if (b.dataset.setCat === cat) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current");
   });
   $("set-modal").querySelectorAll(".set-pane").forEach((p) => { p.hidden = p.dataset.setCat !== cat; });
+  // 換類或重開都從頂端看起:捲動框是共用的,不歸零會停在上一頁捲到的位置(QA 0159 #13「外觀」被捲掉)
+  const scr = $("set-modal").querySelector(".set-content"); if (scr) scr.scrollTop = 0;
   // 開到這一類就拿最新的狀態;沒登入的人要的是公開數字
   if (cat !== "model" && typeof akClear === "function") akClear();   // API 金鑰子頁:離開這一類就把沒存的金鑰從輸入框清掉
   if (cat === "model") mdlPaint();
   if (cat === "src") { srcLoad(); trackFeature("settings_datasrc"); } else srcClear();   // 資料來源(renderer/datasrc.js);離開那一類就把沒存的金鑰從輸入框清掉
   if (cat === "rules") rulesOpen(); else rulesClear();   // Agent 規則(renderer/rules.js):離開這一類就丟掉沒存的編輯
   if (cat === "display") aboutIdLoad();
+  if (cat === "display" && typeof upDotSeen === "function") upDotSeen();   // 左下「雲端主機有新版」的點:真的畫出一般才算看過
   if (cat === "display" && typeof awakeLoad === "function") { themeLoad(); awakeLoad(); rnLoad(); }   // 設定 › 一般的外觀與防睡開關
   if (cat === "display" && typeof ccyPaint === "function") ccyPaint();   // 設定 › 顯示幣別(帳號偏好)
   if (cat === "priv") privLoad();
@@ -752,19 +755,22 @@ function setCat(cat) {
   if (cat === "plan") { planPaint(); trackFeature("settings_plan"); if (hasToken) { acctCheck(); balLoad(); if (!pub) pubLoad().then(() => { if (!$("set-plan").hidden) planPaint(); }); } else pubLoad().then(() => { if (!$("set-plan").hidden) planPaint(); }); }
   if (cat === "plan" && SHL_SCROLL) { SHL_SCROLL = false; shlReveal(); }
 }
+let SET_OPENING = false;   // setOpen 還沒回來(之後呼叫端可能再切別的分類):upDotSeen 等它
 async function setOpen() {
-  await Promise.all([mvLoad(), phStateLoad()]); connectCatSync();   // 「連結」那一顆出不出要在框打開之前定好,不在眼前長出來(主行程同步回,讀不到 = 不出)
-  if (typeof upRefresh === "function") upRefresh();   // 下載完當下在下單、之後暫停了:主行程不會再推事件,打開設定時自己重讀(稽核 M3)
-  $("set-lang").value = LANG;
-  setCat("display");
-  const sc = $("set-scrim");
-  sc.hidden = false;
-  requestAnimationFrame(() => sc.classList.add("open"));   // hidden→顯示的同一幀加 class 不會跑 transition
-  $("set-close").focus();
-  hasToken = await window.blave.hasBlaveToken();
-  paintBlaveBtn();
-  ccyPaint();
-  detect();
+  await Promise.all([mvLoad(), phStateLoad()]); connectCatSync(); SET_OPENING = true;   // 「連結」那一顆出不出要在框打開之前定好,不在眼前長出來(主行程同步回,讀不到 = 不出)
+  try {
+    if (typeof upRefresh === "function") upRefresh();   // 下載完當下在下單、之後暫停了:主行程不會再推事件,打開設定時自己重讀(稽核 M3)
+    $("set-lang").value = LANG;
+    setCat("display");
+    const sc = $("set-scrim");
+    sc.hidden = false;
+    requestAnimationFrame(() => sc.classList.add("open"));   // hidden→顯示的同一幀加 class 不會跑 transition
+    $("set-close").focus();
+    hasToken = await window.blave.hasBlaveToken();
+    paintBlaveBtn();
+    ccyPaint();
+    detect();
+  } finally { SET_OPENING = false; }
 }
 /* 設定 › 顯示幣別(Wei 10-14,同網頁設定 modal 的 base_currency 下拉):寫帳號上的偏好,雲端的合計、投入資金幣別、總權益跟著換。
    選項只用狀態信封明列的 base_currency_options(∪ 目前顯示幣,USD 排最前);舊 api 沒這欄、沒登入 → 整列不出。
@@ -847,6 +853,7 @@ function applyLangChoice(v) {
   if (lastDetect) paintRows(lastDetect); else detectingRows();
   stratRefresh(false).then(() => { if (RP.name) stratSelect(RP.name, true); });
   trRepaint();   // 自動下單頁、狀態帶、設定 › 連線(trade.js)
+  if (typeof rpPaintLogic === "function" && !$("rp").hidden) rpPaintLogic();   // 策略庫那支的策略邏輯照新語言重抓(雲端視角不走 stratSelect)
 }
 // radiogroup 的鍵盤慣例:左右鍵換格並套用(只有兩格,不繞圈也夠)
 $("cn-lang").addEventListener("keydown", (e) => {
@@ -1233,32 +1240,46 @@ function connectPaint() {
    「更新雲端主機」才在本機聊天送那一句固定的話(up.c.msg),自動下單可能在跑時先問。報告還沒有 workspace_update 欄位之前,
    (c) 由那一回合推得(送出的那一回合在跑、或之後碰過雲端的回合在跑),事後那一行由版號追上推得(只有 from → to)。
    決策全在 upPlan / upDoneLine(純函式,tests/check_shell_settings.js 直接跑);upPaint 只照它畫。 */
-var UPD = { cloudSid: null, turnCloud: false, session: null, lagCv: null, done: null };   // cloudSid = 送「更新雲端主機」那一條(別條先結束不收它的)
+/* 0.1.60(spec cloud-workspace-update-command-0160 §4):報告帶 can_ws_update 的主機,「更新雲端主機」改送機器直接指令 workspace_update,
+   不開任何回合(session.direct)。這一次的結果用狀態轉移認(M8):按下當下報告裡那一份的 ts = prevTs,之後第一份 ts 不同的終態就是這次的,
+   不拿機器時鐘(秒)跟電腦時鐘(毫秒)比。認到了記 wuResult = 那份的 ts,失敗那一行只對它講。舊 runtime 照舊走本機回合那條 */
+var UPD = { cloudSid: null, turnCloud: false, session: null, lagCv: null, done: null, wuResult: null, sayTo: null };   // cloudSid = 送「更新雲端主機」那一條(別條先結束不收它的);sayTo = 結果行只寫進的那一條對話(按下當下的分頁)
 const UP_SESSION_IDLE_MS = 30 * 60000;   // 更新期間 30 分鐘沒有回合就結束(兜底)
+const UP_DIRECT_MAX_MS = 60 * 60000;   // 直接指令那條的兜底:機器端最長約 57 分鐘(F 兩輪＋P＋A＋A2),比它長才收
 /* 更新期間裡最後一個回合結束滿 3 分鐘(> 雲端 2 分鐘一次的回報,成功的更新這時一定已經回報),再按「更新雲端主機」而雲端仍落後 = 上一次沒成功:
    允許重送。不然讀不到最新版號(lv null)時更新期間只能等 30 分鐘閒置才結束,這段時間按了沒有任何反應(設計複稽核 R4) */
 const UP_RETRY_MS = 3 * 60000;
 /* 每次畫之前看一眼雲端:更新期間什麼時候結束、版號追上時記一筆給事後那一行的退路。純函式(只改 mem)。
    cloud = snapshot 的 cloud 那一塊;stale = 報告說重開後沒能確認停住(版號一樣也算落後) */
-function upObserve(mem, cloud, stale, cloudTurn, now) {
+function upObserve(mem, cloud, stale, cloudTurn, now, wu) {
   const c = cloud || {}, cv = c.config_version || null, lv = c.latest_config_version || null;
   const lag = !!(cv && lv && cv !== lv) || !!stale, caughtUp = !!(cv && lv && cv === lv) && !stale;
   const endSession = () => { mem.session = null; mem.cloudSid = null; };
-  if (mem.session && cloudTurn) mem.session.lastTurnAt = now;
+  // 這一次等不到結果就收掉(出了新一版、兜底逾時):結果行要寫進的那一條也放掉,之後別處發起的更新不寫進它(稽核 release-0160-e P2)
+  const giveUp = () => { endSession(); mem.sayTo = null; };
+  const s = mem.session;
+  if (s && s.direct && wu && wu.ts != null && wu.ts !== s.prevTs) {
+    if (wu.state === "applying") s.sawApplying = true;
+    // 終態而且不是按下當下那一份:這次的結果(漏掉 applying 的快速失敗也算)
+    else { mem.wuResult = wu.ts; endSession(); }
+  }
+  if (mem.session && cloudTurn && !mem.session.direct) mem.session.lastTurnAt = now;
   if (lag) { mem.done = null; if (cv) mem.lagCv = mem.lagCv || cv; }
   if (caughtUp) {
     if (mem.session || (mem.lagCv && mem.lagCv !== cv)) mem.done = { from: (mem.session && mem.session.fromCv) || mem.lagCv || null, to: lv };
     if (mem.session) endSession();
     mem.lagCv = null;
   }
-  if (mem.session && lv && mem.session.nv && lv !== mem.session.nv) endSession();   // 出了更新一版:這一次的結果不拿來判下一版
-  if (mem.session && !cloudTurn && now - (mem.session.lastTurnAt || mem.session.startAt) > UP_SESSION_IDLE_MS) endSession();
+  if (mem.session && lv && mem.session.nv && lv !== mem.session.nv) giveUp();   // 出了更新一版:這一次的結果不拿來判下一版
+  // 兜底:舊路 30 分鐘沒有回合;直接指令那條沒有回合、不看 cloudTurn,60 分鐘(比機器端最長的一輪長)
+  if (mem.session && mem.session.direct ? now - mem.session.startAt > UP_DIRECT_MAX_MS
+    : mem.session && !cloudTurn && now - (mem.session.lastTurnAt || mem.session.startAt) > UP_SESSION_IDLE_MS) giveUp();
   return mem;
 }
 /* 雲端是「沒有主機」或「啟動中」= 舊主機已經不在了:之前記的落後、追上、更新期間都是那台的事,清掉——
    不清的話新開的主機一跑起來就被當成「已更新到」。停機(同一台)與讀不到不清。 */
 function upMachineGone(mem, kind) {
-  if (kind === "none" || kind === "starting") Object.assign(mem, { lagCv: null, done: null, session: null, cloudSid: null });
+  if (kind === "none" || kind === "starting") Object.assign(mem, { lagCv: null, done: null, session: null, cloudSid: null, sayTo: null });
   return mem;
 }
 const UP_WU_STATES = ["applying", "done", "failed"], UP_WU_OUTCOMES = ["updated", "up_to_date", "restart_failed", "restart_deferred", "stopped", "error", "partial"];
@@ -1288,7 +1309,9 @@ function upPlan(o) {
   // config_supports_wf === false 也算落後:api 讀不到最新版號(lv null)時,樣本外驗證的落後態〔去更新〕→「檢查更新」才有出口(稽核 P2-5)
   const cloudLag = o.kind === "running" && (!!(cv && lv && cv !== lv) || !!o.cloudStale || c.config_supports_wf === false);
   // (c):報告說正在換檔;沒有那個欄位時由本機那一回合推得(檢查更新送出的那一回合在跑、或更新期間內碰過雲端的回合在跑)
-  const applying = !!(wu && wu.state === "applying") || (cloudTurn && !!mem.session && (!!mem.cloudSid || !!mem.turnCloud));
+  const direct = !!(mem.session && mem.session.direct);
+  const applying = !!(wu && wu.state === "applying") || (direct && (o.now || 0) - mem.session.startAt < UP_RETRY_MS)
+    || (!direct && cloudTurn && !!mem.session && (!!mem.cloudSid || !!mem.turnCloud));
   // (b):Squirrel 已暫存好(updater 的 publicState 每次都重看 isTrading:下單中是 blocked)。回合在跑時不能重開(會把它斷掉)。
   // 下單中也照出(0.1.10):ask = 按了主行程會先問、確認後收工再裝,字尾接「…」
   const ready = ph === "ready" || ph === "blocked", ask = ph === "blocked";
@@ -1319,10 +1342,11 @@ function upPlan(o) {
     const csegs = [cv ? ["up.row.cloud", { cv }] : ["up.row.cloudName"]];
     if (applying) cloud = { segs: csegs, status: ["up.row.applying"], link: null };
     else if (!cloudLag) cloud = { segs: csegs, status: ["up.row.latest"], link: null };
-    else if (!cloudTurn && !!mem.session && (o.now || 0) - (mem.session.lastTurnAt || mem.session.startAt) < UP_RETRY_MS) cloud = { segs: csegs, status: ["up.row.applying"], link: null };
+    else if (!direct && !cloudTurn && !!mem.session && (o.now || 0) - (mem.session.lastTurnAt || mem.session.startAt) < UP_RETRY_MS) cloud = { segs: csegs, status: ["up.row.applying"], link: null };
     else {
+      // 直接指令那條(o.direct = 報告 can_ws_update)不開回合,對著雲端的回合在跑也不鎖;舊路照舊鎖
       cloud = { segs: csegs, status: cv && lv && cv !== lv ? ["up.row.cloudNew", { lv }] : !lv && c.config_supports_wf === false ? ["up.row.cloudNewBare"] : null,
-        link: { kind: "cloud", disabled: cloudTurn || !!o.cloudBusy, spin: !!o.cloudBusy, ask: ["halted", "dead", "noaccount"].indexOf(o.exec) < 0 } };
+        link: { kind: "cloud", disabled: (!o.direct && cloudTurn) || !!o.cloudBusy, spin: !!o.cloudBusy, ask: ["halted", "dead", "noaccount"].indexOf(o.exec) < 0 } };
     }
   }
   return { slot, row: { segs, status }, link, spin, cloudLag, cloud };
@@ -1353,8 +1377,35 @@ function upDoneLine(wu, mem) {
     const tail = wu.replaced > 0 && wu.dir ? ["up.done.replaced", { n: wu.replaced, dir: wu.dir }] : null;
     return { key, head, tail, view: tail ? "cloud" : null, dir: wu.dir };
   }
+  // 失敗只對這次按的那一次講(直接指令那條認到的結果,M3):stopped = 什麼都沒動;partial / error / 沒有 outcome = 可能動了一部分。
+  // 開 app 時報告裡就有的舊 failed、舊路(agent 在聊天講過了)都不講
+  if (wu && wu.state === "failed" && mem && mem.wuResult != null && wu.ts === mem.wuResult)
+    return { key: "wu:" + wu.ts, head: [wu.outcome === "stopped" ? "up.done.failedNone" : "up.done.failedPartial"], tail: null, view: null, dir: null };
   if (!wu && mem && mem.done && mem.done.to) return { key: "v:" + mem.done.to, head: ["up.done.cloud", { cv: mem.done.to }], tail: null, view: null, dir: null };
   return null;
+}
+/* 左下第一格的「雲端主機有新版」點(設計師 spec cloud-update-dot-0160 §1):關於列第二行有〔更新雲端主機〕、狀態字寫著有新版,
+   而且這一版還沒看過。key = 最新版號;讀不到就 "bare:"+現版號。鈕被鎖照亮;換檔中、送出後 3 分鐘內、cloudStale(版號一樣)不亮 */
+function upDotPlan(p, seen) {
+  const c = p && p.cloud, st = c && c.status;
+  if (!c || !c.link || !st || (st[0] !== "up.row.cloudNew" && st[0] !== "up.row.cloudNewBare")) return { on: false, key: null };
+  const seg = (c.segs || []).find((x) => x[0] === "up.row.cloud"), cv = seg && seg[1] && seg[1].cv ? seg[1].cv : "";
+  const key = st[0] === "up.row.cloudNew" && st[1] && st[1].lv ? st[1].lv : "bare:" + cv;
+  return { on: seen !== key, key };
+}
+const UP_DOT_SEEN_KEY = "cloud_upd_dot_seen";   // 看過的那一版(照裝置存,同 ws_upd_said)
+function upDotNow() { try { return upDotPlan(upNow(), lsGet(UP_DOT_SEEN_KEY)); } catch (_) { return { on: false, key: null }; } }   // 開機第一次畫時 trade.js 還沒載入
+/* 看過 = 設定 › 一般真的畫出來那一幀,點也還亮著。設定還在開(setOpen 還沒回來)就等它回來:planOpen／rpGoDataSrc 會在那之後切走,
+   路過一般不算看過 */
+function upDotSeen() {
+  const check = (n) => {
+    if (SET_OPENING && n < 100) { setTimeout(() => check(n + 1), 30); return; }
+    const pane = document.querySelector('.set-pane[data-set-cat="display"]'), d = upDotNow();
+    if (!d.on || !pane || pane.hidden || $("set-scrim").hidden || pane.offsetParent === null) return;
+    lsSet(UP_DOT_SEEN_KEY, d.key);
+    amFirstPaint(); if (amIsOpen()) amPaint();
+  };
+  requestAnimationFrame(() => setTimeout(() => check(0), 0));
 }
 /* app 換版後第一次啟動、蓋過改動(主行程 syncOfficialOnUpdate 只在那時給):同 §3 的格式,「開啟資料夾」開 Finder */
 function upBackupLine(st) {
@@ -1381,11 +1432,20 @@ function upSayLines(cst) {
   let said = []; try { said = JSON.parse(lsGet(UP_SAID_KEY) || "[]"); } catch (_) { said = []; }
   if (!Array.isArray(said)) said = [];
   const lines = [upBackupLine(UP), cst && envCloudKind(cst) === "running" ? upDoneLine(upWu(cst.report), UPD) : null];
-  lines.forEach((L) => {
+  lines.forEach((L, i) => {
     if (!L || said.indexOf(L.key) >= 0) return;
     said.push(L.key); lsSet(UP_SAID_KEY, JSON.stringify(said.slice(-20)));
-    upSayLine(L);
+    if (i === 0) { upSayLine(L, null); return; }
+    /* 雲端更新的結果行只寫進按〔更新雲端主機〕當下那一條對話(Wei 11-23):別的分頁不出;那一條已關掉、或這台電腦沒記到是哪一條
+       (別台電腦／網頁發起、重開 app 前發起的)就不寫——不改寫到別的分頁。寫過就放掉,之後別處發起的更新不再寫進它 */
+    const T = upSayTab(UPD.sayTo); UPD.sayTo = null;
+    if (T) upSayLine(L, T);
   });
+}
+function upSayTab(sid) {
+  if (!sid || typeof CS === "undefined") return null;
+  const T = CS.tabs.get(sid);
+  return T && !T.dead && !T.closed && CS.order.includes(sid) ? T : null;
 }
 /* 那一行記著 key 與參數(不是畫好的字):切語言時 applyStatic → upRelang 照現在的語言重畫(0.1.11 Windows 真機:切 en 後還是中文) */
 const UP_LINE_OF = new WeakMap();
@@ -1396,12 +1456,14 @@ function upPaintLine(el, L) {
   upRich(el, L.head[0], L.head[1], { mono: ["cv", "av", "n", "dir"], view });
   if (L.tail) { if (LANG !== "zh") el.append(" "); upRich(el, L.tail[0], L.tail[1], { mono: ["n", "dir"], view }); }
 }
-function upSayLine(L) {
+// T = 寫進哪一條對話(null = 眼前這條);不是眼前那條就只放進它的節點,不唸、不捲眼前的聊天
+function upSayLine(L, T) {
   const el = document.createElement("div"); el.className = "msg sys";
   UP_LINE_OF.set(el, L);
   upPaintLine(el, L);
+  if (T && T !== CS.cur) { T.el.appendChild(el); return; }
   srSay(el.textContent);
-  chatEl().appendChild(el); busyPin(); scrollChat();
+  (T ? T.el : chatEl()).appendChild(el); busyPin(); scrollChat();
 }
 function upRelang() { document.querySelectorAll("#chat-scroll .msg.sys").forEach((el) => { const L = UP_LINE_OF.get(el); if (L) upPaintLine(el, L); }); }
 /* 「查看」:本機備份 → 主行程開 Finder(路徑由主行程算,畫面不交路徑);雲端備份 → 在本機聊天送一句固定的話請這台電腦的 agent 列出
@@ -1421,13 +1483,16 @@ function upNow() {
   const exec = !cst ? "loading" : kind === "running" && !cst.alive ? "unknown" : trExecState(cst);
   return upPlan({ up: UP, cloud: (cst && cst.cloud) || null, kind, localTurn: upLocalTurn(), cloudTurn: !!upCloudTurn(), mem: UPD, now: Date.now(),
     cloudStale: !!(cst && trRestartUnconfirmed(cst.report)), wu: kind === "running" ? upWu(cst.report) : null, checking: UP_CHECKING,
-    exec, cloudBusy: UP_CLOUD_BUSY, win: window.blave.platform === "win32" });
+    exec, cloudBusy: UP_CLOUD_BUSY, direct: upDirect(cst), win: window.blave.platform === "win32" });
 }
+// 主機的 runtime 收得下 workspace_update(報告 can_ws_update;舊 runtime 沒有這一欄 → 照舊走本機回合那條)
+function upDirect(cst) { return !!(cst && cst.report && cst.report.can_ws_update === true); }
 /* 一回合結束了(turn-end 叫;回合出錯 / 沒回覆 / 分類過的錯誤都算 fault)。只管更新期間內的回合。
    回合出錯、或整回合沒碰雲端主機:什麼都沒換,更新期間到此為止(之後無關的回合不再被畫成更新中);
    碰了雲端、正常結束:立刻強制問一次雲端(主機已回報就不必等下一輪輪詢),期間留到版號追上 / 30 分鐘沒回合 */
 function upTurnEnded(faulted) {
   if (!UPD.cloudSid && !UPD.session) return;
+  if (UPD.session && UPD.session.direct) return;   // 直接指令那條沒有回合:別的回合結束不收它
   if (UPD.cloudSid && UPD.cloudSid !== sessionId) return;   // 結束的是別條:更新那一輪還在跑,不收它的(turnCloud 是那一條自己的)
   const touched = UPD.turnCloud;
   UPD.cloudSid = null; UPD.turnCloud = false;
@@ -1437,7 +1502,7 @@ function upTurnEnded(faulted) {
 function upPaint() {
   const cst = TR_BAGS.cloud.st, kind = cst ? envCloudKind(cst) : "loading";
   if (cst) upMachineGone(UPD, kind);
-  if (kind === "running") upObserve(UPD, cst.cloud, trRestartUnconfirmed(cst.report), !!upCloudTurn(), Date.now());
+  if (kind === "running") upObserve(UPD, cst.cloud, trRestartUnconfirmed(cst.report), !!upCloudTurn(), Date.now(), upWu(cst.report));
   const p = upNow();
   // 關於那一行:段與段之間半形「 · 」,版號 mono;狀態字不換色
   const line = $("set-up-line"); line.textContent = "";
@@ -1459,20 +1524,10 @@ function upPaint() {
   else { if (cl) cbtn.append(t("up.cloud.go") + (cl.ask ? "…" : "")); cbtn.removeAttribute("aria-label"); }
   const cBusy = !!(cl && cl.disabled && !cl.spin);   // 更新雲端主機:對著雲端的回合在跑是鎖,點了講原因;刷新中(圓環)照舊 disabled
   cbtn.disabled = !!(cl && cl.disabled) && !cBusy; busyLock(cbtn, cBusy); cbtn.title = cBusy ? t("busy.cloudUpd") : "";
-  // 聊天輸入列右上那一格(照網頁 .ws-update):只剩雲端主機「更新中…」(狀態字,aria-disabled)。本機等重開的提示只在側欄膠囊(§3.2:同一件事只講一處)
-  const w = $("ws-update");
-  if (w) {
-    const k = p.slot && p.slot.kind === "applying" ? "applying" : "", hadFocus = document.activeElement === w;
-    w.hidden = !k; w.dataset.kind = k;
-    w.firstElementChild.textContent = k ? t("up.applying") : "";
-    w.disabled = false; w.setAttribute("aria-disabled", k ? "true" : "false");
-    w.classList.toggle("is-status", !!k);
-    w.title = "";
-    if (hadFocus && w.hidden) $("ta").focus();   // 那一格收掉了:焦點不能掉到 BODY
-  }
   upPillPaint();
   upSchedPaint();
   upSayLines(cst);
+  if (typeof amFirstPaint === "function") amFirstPaint();   // 左下的「雲端主機有新版」點跟著關於列第二行
 }
 /* 「檢查更新」:app 重查一次 + 雲端唯讀刷新一次報告(第二行的版號跟著新)。永遠不送訊息——雲端更新只走「更新雲端主機」 */
 async function upCheck() {
@@ -1501,8 +1556,9 @@ function upCloudWhere(cst) {
 async function upCloudUpdate(opener) {
   if (UP_CLOUD_BUSY) return;
   // 更新是另開一條分頁送一句話:本機回合不相干,只擋對著雲端的回合。在按的那顆鈕下講,〔停止〕只停擋路那一條(關於列、策略組合那一行、版本框都走這裡)
-  const cloudSid = upCloudTurn();
-  if (cloudSid) { busyTell(busySlot("upc-why", opener && opener.isConnected ? opener.closest(".set-up-row") || opener : $("set-upc")), "cloudUpd", cloudSid); return; }
+  const cloudSid = upDirect(TR_BAGS.cloud.st) ? null : upCloudTurn();   // 直接指令不開回合:對著雲端的回合在跑也照送
+  if (cloudSid) { busyTell(busySlot("upc-why", upCloudAnchor(opener)), "cloudUpd", cloudSid); return; }
+  upCloudSay(null, opener);
   trackFeature("cloud_upd_open");
   UP_CLOUD_BUSY = true; upPaint();
   let fresh = false;
@@ -1510,7 +1566,7 @@ async function upCloudUpdate(opener) {
   if (!fresh) return;
   const p = upNow(), cl = p.cloud && p.cloud.link;
   if (!cl || cl.disabled) return;
-  if (!cl.ask) { await upCloudSend(); return; }
+  if (!cl.ask) { await upCloudSend(opener); return; }
   /* 狀態句三選一(設計師 D 版,同 web 的分支):在跑 → 改到下單程式才在空檔用新版重啟;重開沒確認停住 → 新版下單程式起來會先停住
      (有重開紀錄時,雲端的更新腳本只重啟會先停住的那一版);其餘(回報過期、loading、halted 但不新鮮…)都是讀不到 → 照在跑處理。
      回報不新鮮(alive=false)時裡面的狀態不能信(同 upNow),不走 unconfirmed 那句。lede 帶版號「從 cv 到 lv」,缺一就用不帶號那句。
@@ -1522,21 +1578,46 @@ async function upCloudUpdate(opener) {
   else lines.unshift(t("up.cf.ledeBare"));
   confirmBox({ title: t("up.cf.title"), lead, lines,
     details: [{ items: ["up.cf.d1", "up.cf.d2", "up.cf.d3", "up.cf.d4", "up.cf.d5"].map((k) => t(k)) }], ok: t("up.cf.ok"),
-    opener: opener || $("set-upc-btn"), env: "cloud", footWhere: upCloudWhere(cst), onOk: () => { upCloudSend(); }, onCancel: () => { trackFeature("cloud_upd_cancel"); } });
+    opener: opener || $("set-upc-btn"), env: "cloud", footWhere: upCloudWhere(cst), onOk: () => { upCloudSend(opener); }, onCancel: () => { trackFeature("cloud_upd_cancel"); } });
 }
-async function upCloudSend() {
+function upCloudAnchor(opener) { return opener && opener.isConnected ? opener.closest(".set-up-row") || opener : $("set-upc"); }
+// 按鈕下那一格(同回合擋路那一句的位置):text null = 收掉
+function upCloudSay(text, opener) {
+  const slot = busySlot("upc-why", upCloudAnchor(opener));
+  slot.textContent = text || ""; slot.hidden = !text;
+}
+async function upCloudSend(opener) {
   const p = upNow();   // 確認框開著的期間可能已經換檔 / 有回合開跑:再看一次
   if (!(p.cloud && p.cloud.link && !p.cloud.link.disabled)) return;
+  const cst = TR_BAGS.cloud.st, c = (cst && cst.cloud) || {}, now = Date.now();
+  if (upDirect(cst)) { await upCloudDirect(c, cst, now, opener); return; }
+  trackFeature("cloud_upd_legacy");   // 舊 runtime:照舊開本機回合經 MCP(看它歸零再拿掉這條)
   if (typeof paneSt !== "undefined" && paneSt.chat.off) paneToggle("chat", false);   // 聊天欄收著就先展開:過程在那裡
-  const c = (TR_BAGS.cloud.st && TR_BAGS.cloud.st.cloud) || {}, now = Date.now();
   Object.assign(UPD, { done: null, cloudSid: null, session: { startAt: now, lastTurnAt: now, fromCv: c.config_version || null, nv: c.latest_config_version || null } });
   const sending = csSendAway(t("up.c.msg"), { viewing: { env: "cloud" } }), sid = CS.away.sid;
-  UPD.cloudSid = sid;
+  UPD.cloudSid = sid; UPD.sayTo = sid;   // 舊路:結果行寫進送出那一句的那一條(眼前這條在跑就是新開的那條)
   const sentOk = await sending;
-  if (sentOk) trackFeature("cloud_upd_ok");
   // 沒送出去(版本被停用等)、或那一條在回來之前就結束了(同步拋錯):不進更新期間。只看送出的那一條,別條在跑不算
   const T = CS.tabs.get(sid), alive = T ? tabRun(T) : upLocalTurn();
-  if (!sentOk || !alive) { if (UPD.cloudSid === sid) { UPD.cloudSid = null; UPD.session = null; } }
+  if (!sentOk || !alive) { if (UPD.cloudSid === sid) { UPD.cloudSid = null; UPD.session = null; UPD.sayTo = null; } }
+}
+/* 直接指令:ack ok = 機器收下、開始跑(不是更新完);結果從報告的 workspace_update 讀(upObserve 認)。
+   UPDATE_RUNNING = 已經在更新(別台電腦、或對話那條):不出錯誤句,當成更新中畫 */
+async function upCloudDirect(c, cst, now, opener) {
+  const prev = upWu(cst && cst.report);
+  Object.assign(UPD, { done: null, cloudSid: null, wuResult: null, sayTo: CS.cur ? CS.cur.sid : null,
+    session: { startAt: now, fromCv: c.config_version || null, nv: c.latest_config_version || null, direct: true, prevTs: prev ? prev.ts : null, sawApplying: false } });
+  upCloudSay(null, opener); upPaint();
+  let res = null;
+  try { res = await window.blave.cloudSend("workspace_update", {}, null); } catch (_) { res = null; }
+  const e = res && res.error ? String(res.error) : "";
+  if (res && res.ok) trackFeature("cloud_upd_ok");
+  else if (!/UPDATE_RUNNING/.test(e)) {
+    // 送出了沒收到回條(unknown):機器可能已經在跑,更新期間留著(結果照樣從報告認),句子照講
+    if (!(res && res.kind === "unknown") && UPD.session && UPD.session.direct && UPD.session.startAt === now) { UPD.session = null; UPD.sayTo = null; }
+    upCloudSay(/NO_GIT/.test(e) ? t("up.err.noGit") : /START_FAILED/.test(e) ? t("up.done.failedNone") : trSendError(res, "update", "cloud"), opener);
+  }
+  upPaint();
 }
 async function upInstall(opts) {
   if (upLocalTurn()) return;   // 主行程也擋一次(update-install):回合在跑不重開(重開會把它斷掉)
@@ -1640,6 +1721,13 @@ function upPillClick(btn) {
   if (!p.show || p.kind === "restarting") return;
   const anchor = $("foot-why");   // 原因句出在列的上方:插在列前面那個錨點後面,列本身不動
   if (busyLocked(btn)) {   // 回合中是鎖:講原因(lock_update)。細軌 44 寬寫不下一句:先把側欄展開,句子出在列上方
+    // 雲端沒主機、系統代收的細軌展不開:原因走細軌既有的 tooltip(title)＋ aria-describedby 指到同一句,不寫進藏著的列(複稽 b)
+    if (btn.id === "up-rail" && typeof paneSideAuto !== "undefined" && paneSideAuto) {
+      let d = $("up-rail-why"); if (!d) { d = document.createElement("span"); d.id = "up-rail-why"; d.className = "sr-only"; btn.after(d); }
+      d.textContent = t("busy.update"); btn.title = t("busy.update"); btn.setAttribute("aria-describedby", "up-rail-why");
+      srSay(t("busy.update")); busyHit("update");
+      return;
+    }
     const opened = btn.id === "up-rail" && typeof paneSt !== "undefined" && paneSt.side.off;
     if (opened) paneToggle("side", false);
     busyTell(busySlot("up-pill-why", anchor), "update");
@@ -2458,8 +2546,28 @@ function rpPaintHead(B) {
    沒有邏輯(舊策略、舊快取)或看舊版(versions.js 把 #rp-desc 收起:說明與邏輯寫的都是目前版)時那顆字不出,頁首跟今天一樣 */
 const RP_LOGIC_KEY = "ws_logic_open";
 const RP_LOGIC_LABEL = { entry: "rp.logic.entry", exit: "rp.logic.exit", stop: "rp.logic.stop" };
+/* 策略庫裝的那支:依介面語言換成上架時寫的說明(spec strategy-logic-i18n-0159 §7.4)。只有安裝檔解出的邏輯跟上架碼解出的一模一樣時才換——
+   用戶或 agent 改過策略就繼續顯示自己的字。api 沒部署、沒譯文、讀不到都照舊讀碼。結果依 (id, 語言) 收在 RP_LOGIC_I18N,拿到就重畫 */
+const RP_LOGIC_I18N = new Map();   // `${id}:${LANG}` → { logic, logicCode } | null(問過、沒有)
+function rpSameLogic(a, b) {
+  if (!a || !b) return !a && !b;
+  if (typeof a.text === "string" || typeof b.text === "string") return a.text === b.text;
+  const same = (x, y) => (x || []).length === (y || []).length && (x || []).every((r, i) => r === y[i]);
+  return same(a.entry, b.entry) && same(a.exit, b.exit) && same(a.stop, b.stop);
+}
+function rpLogicOf(d) {
+  if (!Number.isInteger(d.sourceId) || d.sourceId <= 0) return d.logic;
+  const k = d.sourceId + ":" + LANG;
+  if (!RP_LOGIC_I18N.has(k)) {
+    RP_LOGIC_I18N.set(k, null);
+    Promise.resolve(window.blave.strategyLogicI18n(d.sourceId, LANG)).then((v) => { RP_LOGIC_I18N.set(k, v || null); if (v && v.logic) rpPaintLogic(); }, () => {});
+    return d.logic;
+  }
+  const v = RP_LOGIC_I18N.get(k);
+  return v && v.logic && rpSameLogic(d.logic, v.logicCode) ? v.logic : d.logic;
+}
 function rpPaintLogic() {
-  const B = rpBag(), d = (B && B.data) || {}, lg = d.logic, tog = $("rp-logic-tog"), body = $("rp-logic");
+  const B = rpBag(), d = (B && B.data) || {}, lg = rpLogicOf(d), tog = $("rp-logic-tog"), body = $("rp-logic");
   const show = !!lg && !$("rp-desc").hidden, open = show && lsGet(RP_LOGIC_KEY) === "1";
   tog.hidden = !show; tog.setAttribute("aria-expanded", String(open));
   $("rp").classList.toggle("is-logic-open", open);
@@ -2835,6 +2943,9 @@ function tabsMoreWire(box, more, tabSel) {
     // 捷徑一冒出來分頁段就少它的寬:開報告時先捲好的那顆會被切一半,要照新寬度再捲一次
     if (was !== more.hidden) rpTabReveal(box.querySelector(tabSel + '[aria-selected="true"]'));
     if (over) more.classList.toggle("is-back", box.scrollLeft >= box.scrollWidth - box.clientWidth - 1);
+    // 右緣淡出(canon navigation › 放不下時的右緣):切一半的分頁名會被讀成另一個字。可捲寬度不到 24 不出、捲到底收掉;淡出貼在捷徑左邊
+    const span = box.scrollWidth - box.clientWidth;
+    box.classList.toggle("is-fade", span >= 24 && box.scrollLeft < span - 1);
   };
   more.addEventListener("click", () => {
     const back = more.classList.contains("is-back");
@@ -2900,12 +3011,16 @@ function csStartNew(o) {
    比對:用模板字串本身組出前後錨定的 regex(不另抄一份模板),{name} = 最短的任意字串、{lookback}/{step} = 數字,整則吻合才算;
    zh / en 兩種模板都試(舊對話、送出後換了介面語言都認得),摘要照現在的語言。用戶自己逐字打出同一整句也會顯示摘要——
    那句要 agent 做的就是這件事,可以接受。fixedMatch 是純函式(tests/check_shell_wf.js 從原文切出來跑) */
-const FIXED_PROMPTS = [["wf.msgRun", "wf.msgRunLabel", "wf.msgRunTitle"], ["rob.msgScan", "rob.msgScanLabel", "rob.msgScanTitle"], ["rob.msgRescan", "rob.msgRescanLabel", "rob.msgScanTitle"], ["rob.msgRescan1", "rob.msgRescanLabel", "rob.msgScanTitle"], ["lib.msgLocal", "lib.msgTitle", "lib.msgTitle"], ["lib.msg", "lib.msgTitle", "lib.msgTitle"], ["lib.msgPaid", "lib.msgTitle", "lib.msgTitle"]];   // 策略庫的安裝句:對話名與泡泡走「{名稱} · 安裝並回測」
+const FIXED_PROMPTS = [["wf.msgRun", "wf.msgRunLabel", "wf.msgRunTitle"], ["rob.msgScan", "rob.msgScanLabel", "rob.msgScanTitle"], ["rob.msgRescan", "rob.msgRescanLabel", "rob.msgScanTitle"], ["rob.msgRescan1", "rob.msgRescanLabel", "rob.msgScanTitle"], ["lib.msgLocal", "lib.msgTitle", "lib.msgTitle"], ["lib.msg", "lib.msgTitle", "lib.msgTitle"], ["lib.msgPaid", "lib.msgTitle", "lib.msgTitle"], ["xp.msg.xq", "xp.msgLabel.xq", "xp.msgLabel.xq"], ["xp.msg.mc", "xp.msgLabel.mc", "xp.msgLabel.mc"], ["xp.msg.pine", "xp.msgLabel.pine", "xp.msgLabel.pine"]];   // 策略庫的安裝句:對話名與泡泡走「{名稱} · 安裝並回測」
 function fixedMatch(text, strings) {
   if (typeof text !== "string" || !text) return null;
-  for (const [src, label, title] of FIXED_PROMPTS) for (const l of ["zh", "en"]) for (const legacy of [false, true]) {
+  // 11-23 以前的重新掃描句(scan_grid 流程、「延伸一次」):舊對話裡的原句照樣認得
+  const before1123 = (tpl) => tpl.replace("scan_until_interior", "scan_grid → find_plateau").replace("\u5ef6\u4f38\u91cd\u6383\uff0c\u76f4\u5230\u4e0d\u5728\u908a\u4e0a\u3002", "\u5ef6\u4f38\u4e00\u6b21\u3002")   // 「延伸重掃,直到不在邊上。」→「延伸一次。」,跳脫寫法:比對用的資料不是畫面字
+    .replace("extend and rescan per the lib rule until it is off the edge.", "extend once per the lib rule.");
+  for (const [src, label, title] of FIXED_PROMPTS) for (const l of ["zh", "en"]) for (const era of [false, true]) for (const legacy of [false, true]) {
     let tpl = strings && strings[l] && strings[l][src];
     if (typeof tpl !== "string" || !tpl) continue;
+    if (era) { const old = before1123(tpl); if (old === tpl) continue; tpl = old; }
     // 0.1.45 以前的掃描句只寫代號:舊對話裡的原句照樣認得
     if (legacy) { const old = tpl.replace("「{display_name}」({name})", " {name}").replace("{display_name} ({name})", "{name}"); if (old === tpl) continue; tpl = old; }
     const keys = [];
@@ -3181,7 +3296,9 @@ function confirmBox({ title, lines, ok, onOk, opener, alt, mark, markKind, extra
     choices.forEach((c) => {
       const row = mk("label", "cf-opt" + (c.disabled ? " off" : "")), r = mk("input");
       r.type = "radio"; r.name = "cf-choice"; r.value = c.id; r.disabled = !!c.disabled; r.checked = !!c.checked && !c.disabled;
-      const d = mk("span", "cf-opt-d", c.disabled && c.why ? c.why : c.desc);
+      // why 可以是節點(啟動框等訊號那一句帶轉圈或〔重新整理〕):呼叫端自己用 textContent 建
+      const dv = c.disabled && c.why ? c.why : c.desc, d = mk("span", "cf-opt-d", typeof dv === "string" ? dv : null);
+      if (dv && typeof dv !== "string") d.appendChild(dv);
       if (c.disabled && c.why) { d.id = "cf-why-" + c.id; r.setAttribute("aria-describedby", d.id); }
       row.append(r, mk("span", "cf-opt-t", c.title), d);
       if (c.list && !c.disabled) row.appendChild(mk("span", "cf-opt-l", c.list));   // 這一條會下的單:另起一行、主墨,按下前唯一要核對的東西(啟動下單框的補齊)
@@ -3529,42 +3646,113 @@ function chatCopy(e) {
 $("chat-scroll").addEventListener("copy", chatCopy);
 
 /* 圖片放大(lightbox):點圖開、點任何地方 / Esc / ✕ 關。焦點關掉後回到原本那張圖。 */
-let lbOpener = null;
-function lbOpen(src, alt, opener) {
-  lbOpener = opener;
-  $("lb-img").src = src; $("lb-img").alt = alt;
+/* 放大檢視(canon chat-shell › agent 貼的圖;spec chat-image-strip-0160 §5):序列是這條對話畫面上所有 agent 圖,打開時照 DOM 順序收,不另存;
+   ← → 與兩顆鈕切換、走到頭停用不循環;Tab 只在關閉／上一張／下一張之間轉;關掉後焦點回到當下看的那張 */
+const LB = { list: [], i: 0 };
+function lbItems() { return [...chatEl().querySelectorAll(".msg.img .img-zoom, .img-strip .img-zoom")]; }
+function lbOpen(opener) {
+  LB.list = lbItems(); LB.i = Math.max(0, LB.list.indexOf(opener));
+  if (!LB.list.length) LB.list = [opener];
+  lbShow();
   $("view-ws").inert = true;
   const sc = $("lb-scrim"); sc.hidden = false;
   requestAnimationFrame(() => sc.classList.add("open"));
   $("lb-close").focus();
+  trackFeature("chat_img_zoom");
+}
+function lbShow() {
+  const b = LB.list[LB.i], im = b.querySelector("img"), n = LB.list.length, cap = b.dataset.cap || "";
+  $("lb-img").src = im.src; $("lb-img").alt = im.alt;
+  $("lb-n").hidden = n < 2; $("lb-n").textContent = LB.i + 1 + " / " + n;
+  $("lb-prev").hidden = $("lb-next").hidden = n < 2;
+  $("lb-prev").disabled = LB.i === 0; $("lb-next").disabled = LB.i === n - 1;
+  $("lb-cap").hidden = !cap; $("lb-cap").textContent = cap;
+}
+function lbStep(d) {
+  const j = LB.i + d; if (j < 0 || j >= LB.list.length) return;
+  LB.i = j; lbShow();
+  const a = document.activeElement;   // 走到頭那顆鈕停用了:焦點移到另一顆,沒有就回關閉,不掉到 BODY
+  if (a && a.disabled) { const o = $(a.id === "lb-prev" ? "lb-next" : "lb-prev"); (o.hidden || o.disabled ? $("lb-close") : o).focus(); }
 }
 function lbClose() {
   const sc = $("lb-scrim"); if (sc.hidden) return;
   sc.classList.remove("open"); sc.hidden = true; $("lb-img").removeAttribute("src");
   $("view-ws").inert = false;
-  if (lbOpener && lbOpener.isConnected) lbOpener.focus();
-  lbOpener = null;
+  const cur = LB.list[LB.i];
+  if (cur && cur.isConnected) { cur.focus(); cur.scrollIntoView({ block: "nearest", inline: "nearest" }); }
+  LB.list = [];
 }
 $("lb-scrim").addEventListener("click", lbClose);
+["lb-img", "lb-cap", "lb-n"].forEach((id) => $(id).addEventListener("click", (e) => e.stopPropagation()));   // 點圖以外的地方才關
+$("lb-prev").addEventListener("click", (e) => { e.stopPropagation(); lbStep(-1); });
+$("lb-next").addEventListener("click", (e) => { e.stopPropagation(); lbStep(1); });
 $("lb-scrim").addEventListener("keydown", (e) => {
-  if (e.key === "Tab") e.preventDefault();      // 裡面只有一顆鈕,焦點不離開
+  if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); lbStep(e.key === "ArrowLeft" ? -1 : 1); return; }
+  if (e.key !== "Tab") return;
+  e.preventDefault();
+  const ring = ["lb-close", "lb-prev", "lb-next"].map($).filter((b) => !b.hidden && !b.disabled);
+  const k = ring.indexOf(document.activeElement);
+  ring[(k + (e.shiftKey ? -1 : 1) + ring.length) % ring.length].focus();
 });
 
-/* agent 送來的圖(回測權益圖、熱圖、它自己畫的)。src 一律是主行程給的 data: URL。 */
-function addImage(src, caption) {
-  const el = document.createElement("figure");
-  el.className = "msg img";
-  const im = document.createElement("img");
-  im.src = src; im.alt = caption || t("chat.imageAlt");
-  im.addEventListener("load", scrollChat);       // 解碼完才知道高度
-  // 聊天欄最窄 320,圖上的軸字看不清楚——點一下放大看原尺寸。包成 button 才有鍵盤可達
-  const zb = document.createElement("button");
-  zb.type = "button"; zb.className = "img-zoom"; zb.setAttribute("aria-label", t("chat.imageZoom"));
+/* agent 送來的圖(回測權益圖、熱圖、它自己畫的)。src 一律是主行程給的 data: URL。
+   一張:限高 280。相鄰(中間沒有文字)兩張以上:併成一條橫向膠捲,第二張進來時第一張就地換成膠捲的一格、不動畫、不自動往右捲;
+   重載照同一套(canon chat-shell › agent 貼的圖;spec chat-image-strip-0160)。說明字只進 alt 與放大檢視 */
+function chatImgPrev() { let n = chatEl().lastElementChild; while (n && busy && n === busy.el) n = n.previousElementSibling; return n; }
+function chatImgBtn(src, caption) {
+  const zb = document.createElement("button"), im = document.createElement("img");
+  zb.type = "button"; zb.className = "img-zoom"; zb.setAttribute("aria-haspopup", "dialog"); zb.dataset.cap = caption || "";
+  im.src = src; im.alt = caption || t("chat.imageAlt"); im.draggable = false;
+  im.addEventListener("load", () => { scrollChat(); const st = zb.closest(".img-strip"); if (st && st.blaveSync) st.blaveSync(); });   // 解碼完才知道高度與寬
   zb.appendChild(im);
-  zb.addEventListener("click", () => lbOpen(src, im.alt, zb));
-  el.appendChild(zb);
-  if (caption) { const c = document.createElement("figcaption"); c.textContent = caption; el.appendChild(c); }
-  chatEl().appendChild(el);
+  zb.addEventListener("click", () => { if (zb.closest(".img-strip") && zb.closest(".img-strip").blaveDragged) return; lbOpen(zb); });
+  return zb;
+}
+const IMG_DRAG_PX = 8;
+function chatImgStrip() {
+  const el = document.createElement("div"), sc = document.createElement("div"), fade = document.createElement("div");
+  el.className = "msg img-strip"; el.setAttribute("role", "group");
+  sc.className = "img-strip-sc"; fade.className = "img-strip-fade"; fade.setAttribute("aria-hidden", "true"); fade.hidden = true;
+  el.append(sc, fade);
+  let told = false;
+  const sync = () => { const span = sc.scrollWidth - sc.clientWidth; fade.hidden = span < 24 || sc.scrollLeft >= span - 1; };
+  el.blaveSync = sync;
+  sc.addEventListener("scroll", () => { sync(); if (!told && !el.blaveSilent) { told = true; trackFeature("chat_img_scroll"); } }, { passive: true });
+  // Tab 走到露一半的那張:整張捲進來(扣掉右緣淡出),框不落在淡出底下
+  sc.addEventListener("focusin", (e) => { const b = e.target.closest(".img-zoom"); if (b) b.scrollIntoView({ block: "nearest", inline: "nearest" }); });
+  // 滑鼠按住拖(Scroll row):超過 8px 才算拖,拖曳中暫停 snap,放開後那一下不開放大
+  let drag = null;
+  sc.addEventListener("pointerdown", (e) => { if (e.pointerType !== "mouse" || e.button !== 0) return; drag = { x: e.clientX, left: sc.scrollLeft, on: false }; el.blaveDragged = false; });
+  sc.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    if (!drag.on && Math.abs(e.clientX - drag.x) > IMG_DRAG_PX) { drag.on = true; sc.style.scrollSnapType = "none"; try { sc.setPointerCapture(e.pointerId); } catch (_) { } }
+    if (drag.on) sc.scrollLeft = drag.left - (e.clientX - drag.x);
+  });
+  const end = () => { if (!drag) return; if (drag.on) { el.blaveDragged = true; sc.style.scrollSnapType = ""; setTimeout(() => { el.blaveDragged = false; }, 0); } drag = null; };
+  sc.addEventListener("pointerup", end); sc.addEventListener("pointercancel", end);
+  if (typeof ResizeObserver === "function") new ResizeObserver(sync).observe(sc);
+  return el;
+}
+function chatImgRelabel(strip) {
+  const bs = [...strip.querySelectorAll(".img-zoom")];
+  bs.forEach((b, i) => { if (!b.dataset.cap) b.querySelector("img").alt = t("chat.imageN", { n: i + 1 }); });
+  strip.setAttribute("aria-label", t("chat.imageCount", { n: bs.length }));
+}
+function addImage(src, caption) {
+  const prev = chatImgPrev(), zb = chatImgBtn(src, caption);
+  let el;
+  if (prev && prev.classList.contains("img-strip")) { el = prev; el.querySelector(".img-strip-sc").appendChild(zb); }
+  else if (prev && prev.classList.contains("img") && prev.tagName === "FIGURE") {
+    el = chatImgStrip(); el.blaveSilent = true;
+    const first = prev.querySelector(".img-zoom"), had = document.activeElement === first;
+    el.querySelector(".img-strip-sc").append(first, zb); prev.replaceWith(el);
+    if (had) first.focus({ preventScroll: true });
+    requestAnimationFrame(() => { el.blaveSilent = false; });
+  } else {
+    el = document.createElement("figure"); el.className = "msg img"; el.appendChild(zb);
+    chatEl().appendChild(el);
+  }
+  if (el.classList.contains("img-strip")) { chatImgRelabel(el); el.blaveSync(); }
   busyPin(); scrollChat();
   return el;
 }
@@ -4049,7 +4237,7 @@ function busyEnd(faulted, stopped) {
     b.el.hidden = false;
     b.el.classList.add("is-done");
     b.live.removeAttribute("role"); b.live.removeAttribute("aria-live");
-    b.verb.textContent = t("turn.process"); b.obj.textContent = ""; b.obj.hidden = true;
+    b.verb.dataset.i18n = "turn.process"; b.verb.textContent = t("turn.process"); b.obj.textContent = ""; b.obj.hidden = true;   // 掛 data-i18n:切語言時跟收據那顆一起重畫(QA 0159 R4-7)
     b.elapsed.textContent = fmtDur((Date.now() - b.start) / 1000);
     b.elapsed.removeAttribute("aria-hidden");   // 結束了不再每秒跳:按鈕名稱才會是「思考過程 4m 12s」
     busyHasFoldOf(b);
@@ -4070,7 +4258,7 @@ function busyHoldReason(b) {
   if (b.held || !b.reason.textContent.trim()) return;
   b.held = true; b.el.classList.add("reason-held");
   const show = document.createElement("button");
-  show.type = "button"; show.className = "btn-quiet think-reason-show"; show.textContent = t("turn.showReason");
+  show.type = "button"; show.className = "btn-quiet hit44 think-reason-show"; show.textContent = t("turn.showReason");
   show.addEventListener("click", () => { b.el.classList.remove("reason-held"); show.remove(); b.reason.setAttribute("tabindex", "-1"); b.reason.focus(); });   // 鈕消失,焦點接到剛出來的字
   b.reason.before(show);
 }
@@ -4096,14 +4284,17 @@ function taWaitShow(on) {
 function sendBtnSync() {
   if (tabBg()) { CS.dirtyUi = true; return; }   // 送出鈕是眼前分頁的:背景那條換回時重畫
   const b = $("btn-send");
-  b.classList.toggle("is-stop", running);
-  b.classList.toggle("is-stopping", running && turnStopping);
+  /* 雲端視角沒開好(輸入框停用)時不出本機回合的停止鈕:用戶看不出停的是哪一邊;送出鈕跟輸入框一起真 disabled(QA 0159 #7、0158 P2-5)。
+     回合照跑,切回這台電腦就看得到、停得了 */
+  const gated = !!$("ta").disabled, stop = running && !gated;
+  b.classList.toggle("is-stop", stop);
+  b.classList.toggle("is-stopping", stop && turnStopping);
   // 排隊中的停止 = 取消排隊(同 web sendBtnSync):句子撤回、放回輸入框;排隊行本身不放鈕
-  const queued = running && !!(CS.loaded && CS.loaded.queued);
-  b.dataset.i18nAria = queued ? "tabs.queueCancel" : running ? "ws.stop" : "ws.send";
+  const queued = stop && !!(CS.loaded && CS.loaded.queued);
+  b.dataset.i18nAria = queued ? "tabs.queueCancel" : stop ? "ws.stop" : "ws.send";
   b.setAttribute("aria-label", t(b.dataset.i18nAria));
   if (queued) b.title = t("tabs.queueCancelTitle"); else b.removeAttribute("title");
-  b.disabled = $("ta").disabled && !b.classList.contains("is-stop");   // 雲端沒開好才停用;這顆是停止鈕時照常能按
+  b.disabled = gated;
   if (!running) taWaitShow(false);
 }
 async function stopTurn() {
@@ -5151,6 +5342,15 @@ function planStateText() {
   if (view === "running") return planTrialCx(v) ? t("pv.st.trialCancelled", v) : planTrialOn(v) ? t("pv.st.trial", v) : t("pv.st.planOn");
   const s = planStateOf(view, v); return s ? s[1] : "";
 }
+// 選單列尾的短字(spec sidebar-row-0160 §2.1):選單 240 寬放得下;完整那句(planStateText)進 title
+function planStateShort() {
+  if (!sideBooted) return "";
+  const view = planView(), v = planVars();
+  if (view === "trial") return t(acct && acct.trial_cancel_at_end === true ? "am.st.ends" : "side.trial", v);
+  if (view === "running") return planTrialCx(v) ? t("am.st.ends", v) : planTrialOn(v) ? t("side.trial", v) : t("pv.st.planOn");
+  if (view === "stopped") return t("side.stopped");
+  return planStateText();
+}
 let planLoginBusy = false, planLastView = null;
 let planLoginOut = false;   // 這次 planLogin 是從設定外面開始的(planSignIn 沒帶 inSettings):關設定不取消它
 function planPaint() {
@@ -5206,11 +5406,12 @@ function planPaint() {
   const trialBtn = () => (tCx ? btn("btn-quiet", t("plan.trialResume"), () => { trackFeature("trial_resume_web"); window.blave.openExternal(planPayUrl()); })
     : pl.no_auto_payment || pl.next_charge_source === "free" || pl.next_charge_source === "none" ? null
     : btn("btn-quiet", t("plan.trialCancel"), () => { trackFeature("trial_cancel_web"); window.blave.openExternal(planPayUrl()); }));
-  /* v3 試用格(spec host-card-relayout D1;Wei 11-20):頭是方案名＋試用徽章＋扣款那一列(p3TrialHead),鈕上方最多兩行(續扣、開主機會結束試用),
+  /* v3 試用格(spec host-card-relayout D1;Wei 11-20):頭是方案名＋試用徽章＋扣款那一列(p3TrialHead),鈕上方只一行「開雲端主機會結束試用」
+     (Wei 11-23 Q1:續扣與今天付多少交給加購框,框裡 p3.h.next／p3.h.trialEnd 已經寫了),
      〔到網站取消／恢復試用〕緊接在倒數徽章後面,鈕列只剩〔開雲端主機〕。到期不會扣的人(trialBtn 為 null)沒有扣款列與續扣句 */
   const t3 = view === "trial" && typeof p3TrialV3 === "function" && p3TrialV3() ? trialBtn() : null;
   if (t3) t3.dataset.k = "trial:head";   // 重畫後焦點還得回來(planPaint 底下照 dataset.k 找)
-  const t3Charge = !!t3 && !tCx, t3pd = (pl.next_cycle || pl.cycle) === "annual" ? v.yd : v.pd;
+  const t3Charge = !!t3 && !tCx;
   const V = {
     out:      { h: offerH, lead: mo ? "" : hasNum ? offerLead() : t(pvK("pv.d.noPrice")), list: mo ? offerList() : null, rule: hasNum && pvPriced(pvK("pv.f.out"), v) ? t(pvK("pv.f.out"), v) : "",
                 wait: planLoginBusy ? t("pv.w.waiting") : t(mo && cur !== "blave" ? "pv.w.out.cli" : "pv.w.out"),
@@ -5225,7 +5426,7 @@ function planPaint() {
     /* 試用中:取消／恢復試用在網站用量頁(電腦版沒有寫入端點,外開)。已取消(api trial_cancel_at_end):狀態講哪天結束;
        方案制講到期不收第一期,切換前講到期不轉成方案、之後照目前的計費——兩種時期各自是真話 */
     trial:    typeof p3TrialV3 === "function" && p3TrialV3() ? { head: p3TrialHead(v, tCx, t3Charge, t3), say: t("p3.a.title") + " · " + v.c,
-                          rules: (t3Charge ? [t3pd ? t("p3.f.renew", { pd: t3pd }) : t("p3.f.renewNoNum")] : []).concat(t("p3.f.trialConvertNoNum")),
+                          rules: [t("p3.f.trialEnds")],
                           acts: [btn("btn-out", t("p3.h.title"), cloudWebGo)] }
             : trialCx ? { h: "pv.h.ready", lead: trialLead(), rule: t(mo ? "pv.f.trialCancelled.m" : "pv.f.trialCancelled", v),
                           acts: [btn("btn-quiet", t("plan.trialResume"), () => { trackFeature("trial_resume_web"); window.blave.openExternal(planPayUrl()); }), mo ? btn("btn-out", t((typeof p3Live === "function" && p3Live()) ? "p3.h.title" : "plan.cloudWeb"), cloudWebGo) : btn("btn-out", t("plan.start"), planAsk, !planPriceOk(v))] }
@@ -5523,8 +5724,9 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 /* ── 左下第一格與它的選單(spec first-strategy-sidebar §A3–A6)──────────────
    第一格:沒登入(或登入失效、還沒讀到 token)是齒輪,已登入是帳號鈕(email 第一個字,讀不到 email 畫 user 圖示);按下去開選單。
    列裡那顆(#ws-conn)與細軌那顆(#rail-set)同一套,選單開在看得到的那顆後面(DOM 緊接第一格,Tab 順序＝畫面順序)。
-   新報告的點:旗標在 reports.js(RPT.mark),選單關著畫在第一格、開著畫在「報告」那一列,同時只在一個地方 */
-const AM = { note: "", gear: null, dotDay: "" };
+   第一格的點(中性灰點,設計師 spec cloud-update-dot-0160):新報告(reports.js RPT.mark)或雲端主機有新版(upDotNow)任一成立就畫一顆,
+   選單開著也留著;選單裡「報告」列只放點、「設定」列點＋「雲端主機有新版」 */
+const AM = { note: "", gear: null, dotDay: "", cloudDotDay: "" };
 const AM_USER = ["M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2", "M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"];   // lucide user
 function amSignedIn() { if (!sideBooted || !hasToken) return false; const v = planView(); return v !== "out" && v !== "revoked"; }
 function amAnchor() { return document.documentElement.classList.contains("ws-sc") ? $("rail-set") : $("ws-conn"); }
@@ -5535,7 +5737,9 @@ function docsHomeUrl() { return "https://blave.org/docs/" + LANG + "?from=deskto
 function amFirstPaint() {
   const inn = amSignedIn(), email = inn && acct && typeof acct.email === "string" ? acct.email.trim() : "";
   const ch = email ? Array.from(email)[0].toUpperCase() : "", sep = LANG === "zh" ? "，" : ", ";
-  const dot = amMark() && !amIsOpen(), base = t(inn ? "am.acct" : "am.menu") + (amMark() ? sep + t("rpt.newMark") : "");
+  // 一格一顆中性點,原因幾件念幾件(新報告、雲端主機有新版);選單開著時點留著(canon Attention dot › 傳遞)
+  const cloudDot = upDotNow().on, dot = amMark() || cloudDot;
+  const base = t(inn ? "am.acct" : "am.menu") + (amMark() ? sep + t("rpt.newMark") : "") + (cloudDot ? sep + t("up.dot") : "");
   [["ws-conn", AM.note], ["rail-set", ""]].forEach(([id, note]) => {
     const b = $(id); if (!b) return;
     const name = note ? base + sep + note : base;
@@ -5554,7 +5758,9 @@ function amFirstPaint() {
   });
   // 點真的被看見才算(視窗看得到、那顆排得出來);每天一次,同 SIDE_CV_DAY
   const day = new Date().toDateString();
-  if (dot && document.visibilityState === "visible" && amAnchor().offsetParent !== null && AM.dotDay !== day) { AM.dotDay = day; trackFeature("rpt_dot_shown"); }
+  const seen = document.visibilityState === "visible" && amAnchor().offsetParent !== null;
+  if (amMark() && seen && AM.dotDay !== day) { AM.dotDay = day; trackFeature("rpt_dot_shown"); }
+  if (cloudDot && seen && AM.cloudDotDay !== day) { AM.cloudDotDay = day; trackFeature("cloud_upd_dot"); }   // 只看雲端那件事,不因為點同時代表新報告多記或少記
 }
 // 選單內容:每次打開重畫(登入狀態、方案字、報告頁開著沒、新報告的點)。字一律 textContent
 function amPaint() {
@@ -5574,10 +5780,16 @@ function amPaint() {
   const rpt = item("rpt.nav", () => rptMenuGo(), dot);
   if (dot) rpt.setAttribute("aria-label", t("rpt.nav") + sep + t("rpt.newMark"));
   if (typeof rptBag === "function" && rptBag().open && !$("rpt").hidden) rpt.setAttribute("aria-current", "page");
-  kids.push(rpt, gap(), item("ws.settings", () => { trackFeature("side_menu_set"); setOpen(); }));
+  // 「設定」列:雲端主機有新版時點＋值(設計師 spec §3;列名講不出那件事,不能只放點),按了落在一般、焦點在〔更新雲端主機〕
+  const cd = upDotNow().on;
+  let sv = null;
+  if (cd) { sv = mk("span", "v"); const d = mk("span", "nav-new"); d.setAttribute("aria-hidden", "true"); sv.append(d, t("up.dot")); sv.title = t("up.dot"); }
+  const set = item("ws.settings", () => { trackFeature("side_menu_set"); if (cd) { trackFeature("cloud_upd_dot_go"); rpWfUpdate(); } else setOpen(); }, sv);
+  if (cd) set.setAttribute("aria-label", t("ws.settings") + sep + t("up.dot"));
+  kids.push(rpt, gap(), set);
   if (inn) {
-    const st = planStateText(); let v = null;
-    if (st) { v = mk("span", "v", st); v.title = st; }
+    const st = planStateShort(), full = planStateText(); let v = null;
+    if (st) { v = mk("span", "v", st); if (full && full !== st) v.title = full; }
     kids.push(item("set.cat.plan", () => { trackFeature("side_menu_plan"); planOpen(); }, v),
       item("pv.usage", () => { trackFeature("side_menu_usage"); window.blave.openExternal(usageUrl()); }, libExtIcon()));
   }
@@ -5598,7 +5810,7 @@ function amOpen() {
   m.style.left = Math.max(8, Math.min(r.left, window.innerWidth - m.offsetWidth - 8)) + "px";
   m.style.bottom = window.innerHeight - r.top + 8 + "px";
   a.setAttribute("aria-expanded", "true");
-  amFirstPaint();   // 點從第一格搬到「報告」那一列
+  amFirstPaint();
   trackFeature("side_menu_open");
   const f = m.querySelector(".am-i"); if (f) f.focus();
 }
@@ -5939,19 +6151,36 @@ function turnEndPost(r, pre, d) {
 }
 
 /* 側欄 / 聊天欄:拖拉調寬 + 收合(雲端工作頁那套移植,數字相同)。
-   側欄 236(180–400)、聊天 452(336–720)、中間保底 480 —— 上限是動態的。
+   側欄 236(180–400)、聊天預設 clamp(452, 30vw, 620)(336–720)、中間保底 480 —— 上限是動態的。
    收合:hover 分隔線浮出把手點一下,或把欄拖過門檻(側欄 <110、聊天 <240);
-   側欄收成 44px 細軌、聊天收成 24px 邊條。雙擊分隔線回預設。
+   側欄收成 44px 細軌、聊天收成 24px 邊條。雙擊分隔線(或聚焦時按 Home)回預設(聊天欄回到跟著視窗走)。
    這是每台電腦自己的偏好,放 localStorage;讀寫失敗就用預設。
-   want = 用戶自己拉的寬,w = 照視窗夾過、真的畫出來的寬:視窗縮小只夾 w,拉回來照 want 還原(0.1.39 Mac 實測縮到 1024 再拉回停在 364) */
+   want = 用戶自己拉的寬,w = 照視窗夾過、真的畫出來的寬:視窗縮小只夾 w,拉回來照 want 還原(0.1.39 Mac 實測縮到 1024 再拉回停在 364)。
+   want 為 null = 沒拉過、照 auto 跟著視窗寬(designer desktop-widescreen-2026-11-24 A):上限 620 = 13px 的 44em 572 加左右內距 48。
+   舊版存下的 want 452 分不出是預設還是剛好拖到 452,一律當沒拉過 */
 const PANES = {
   side: { div: "div-side", prop: "--side-w", cls: "ws-sc", def: 236, min: 180, max: 400, snap: 110, off: 44, dir: 1 },
-  chat: { div: "div-chat", prop: "--chat-w", cls: "ws-cc", def: 452, min: 336, max: 720, snap: 240, off: 24, dir: -1 },
+  chat: { div: "div-chat", prop: "--chat-w", cls: "ws-cc", def: 452, min: 336, max: 720, snap: 240, off: 24, dir: -1,
+    auto: (vw) => Math.max(452, Math.min(0.3 * vw, 620)) },
 };
 const MAIN_MIN = 480;
-const paneSt = { side: { w: PANES.side.def, want: PANES.side.def, off: false }, chat: { w: PANES.chat.def, want: PANES.chat.def, off: false } };
+const paneSt = { side: { w: PANES.side.def, want: PANES.side.def, off: false }, chat: { w: PANES.chat.def, want: null, off: false } };
+function paneWant(key) { const p = PANES[key], v = paneSt[key].want; return v != null ? v : p.auto ? p.auto(window.innerWidth) : p.def; }
+/* 兩欄夾寬跑兩輪:第一輪算側欄時用的是聊天欄舊的寬,視窗一次縮很多(離開全螢幕)時側欄會被多夾;第二輪照兩邊的新寬重夾,側欄拿回原寬 */
+function panesFit(skip) { for (let i = 0; i < 2; i++) Object.keys(PANES).forEach((k) => { if (!skip(k)) paneSt[k].w = paneClamp(k, paneWant(k)); }); }
+/* 系統代收側欄(設計師裁定 0.1.60 #7):雲端視角沒有主機時左欄沒有東西可列,收成細軌(齒輪、帳號留著)。
+   不寫進用戶的收合偏好(paneSt.side.off 不動、不存);切回本機或主機開好就回到他原本的樣子 */
+let paneSideAuto = false;
+function paneOff(key) { return paneSt[key].off || (key === "side" && paneSideAuto); }
+/* 狀態一換就照新的側欄寬把兩欄各夾一次:代收時視窗縮過,結束時側欄回原寬,中欄不能被擠到 480 以下(複稽 c) */
+function paneSideForce(on) {
+  if (paneSideAuto === !!on) return;
+  paneSideAuto = !!on;
+  panesFit(paneOff);
+  panesRender(false);
+}
 
-function paneEdge(key) { return paneSt[key].off ? PANES[key].off : paneSt[key].w; }
+function paneEdge(key) { return paneOff(key) ? PANES[key].off : paneSt[key].w; }
 function paneClamp(key, w) {
   const p = PANES[key];
   const room = window.innerWidth - paneEdge(key === "side" ? "chat" : "side") - MAIN_MIN;
@@ -5959,19 +6188,23 @@ function paneClamp(key, w) {
 }
 function panesRender(save) {
   Object.keys(PANES).forEach((key) => {
-    const p = PANES[key], st = paneSt[key], d = $(p.div);
-    document.documentElement.classList.toggle(p.cls, st.off);
+    const p = PANES[key], st = paneSt[key], d = $(p.div), off = paneOff(key);
+    document.documentElement.classList.toggle(p.cls, off);
     document.documentElement.style.setProperty(p.prop, st.w + "px");
-    d.classList.toggle("pane-off", st.off);
-    d.setAttribute("aria-valuenow", st.off ? 0 : st.w);
+    d.classList.toggle("pane-off", off);
+    d.setAttribute("aria-valuenow", off ? 0 : st.w);
+    // 系統代收時分隔線不可操作(拖、鍵盤、雙擊都不改用戶的寬度與收合偏好;複稽 a)
+    const locked = key === "side" && paneSideAuto;
+    d.tabIndex = locked ? -1 : 0; if (locked) d.setAttribute("aria-disabled", "true"); else d.removeAttribute("aria-disabled");
     d.setAttribute("aria-valuemin", p.min);
     d.setAttribute("aria-valuemax", p.max);
   });
+  document.documentElement.classList.toggle("ws-sc-auto", paneSideAuto);   // 系統代收時細軌不給〔展開〕:展開了也沒東西
   if (save) { try { localStorage.setItem("ws_layout", JSON.stringify(paneSt)); } catch (_) {} }
 }
 function paneToggle(key, off) {
   paneSt[key].off = off;
-  if (!off) paneSt[key].w = paneClamp(key, paneSt[key].want);
+  if (!off) paneSt[key].w = paneClamp(key, paneWant(key));
   panesRender(true);
   if (key === "chat" && !off && typeof phNoticeTrack === "function") phNoticeTrack();   // 聊天欄展開:輸入框上方那一列這時才看得到
 }
@@ -5982,23 +6215,28 @@ function panesInit() {
       const s = saved[key];
       if (!s || typeof s !== "object") return;
       paneSt[key].off = !!s.off;
-      paneSt[key].want = Number(s.want) || Number(s.w) || PANES[key].def;
+      // 0.1.60 以前收合一次就把預設 452 一起存成 want:等於預設的當作沒拉過
+      let v = s.want === null ? null : Number(s.want) || Number(s.w) || null;
+      if (PANES[key].auto && v === PANES[key].def) v = null;
+      paneSt[key].want = v != null || PANES[key].auto ? v : PANES[key].def;
     });
   } catch (_) {}
-  Object.keys(PANES).forEach((key) => { paneSt[key].w = paneClamp(key, paneSt[key].want); });
+  panesFit(() => false);
   panesRender(false);
 
   let handleAt = 0;   // 連點把手不算分隔線雙擊
   Object.keys(PANES).forEach((key) => {
     const p = PANES[key], st = paneSt[key], d = $(p.div);
-    let down = false, dragging = false, fromHandle = false, x0 = 0, w0 = 0;
+    let down = false, dragging = false, moved = false, fromHandle = false, x0 = 0, w0 = 0;
     const begin = () => { dragging = true; d.classList.add("active"); document.body.classList.add("resizing"); };
+    const locked = () => key === "side" && paneSideAuto;
     d.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || locked()) return;
       e.preventDefault();
       d.setPointerCapture(e.pointerId);
-      down = true; dragging = false;
-      // 把手正好浮在游標處,用戶常從那裡起手拖:位移 >3px 才算拖,原地放開才算點
+      down = true; dragging = false; moved = false;
+      // 把手正好浮在游標處,用戶常從那裡起手拖:位移 >3px 才算拖,原地放開才算點。
+      // 分隔線本體按下就亮(active),但一樣要位移 >3px 才改寬:觸控板按壓的零點幾 px 不該把跟著視窗走的寬釘成固定寬
       fromHandle = !!e.target.closest(".handle");
       x0 = e.clientX; w0 = paneEdge(key);
       if (!fromHandle) begin();
@@ -6006,7 +6244,7 @@ function panesInit() {
     d.addEventListener("pointermove", (e) => {
       if (!down) return;
       const dx = e.clientX - x0;
-      if (!dragging) { if (Math.abs(dx) <= 3) return; begin(); }
+      if (!moved) { if (Math.abs(dx) <= 3) return; moved = true; if (!dragging) begin(); }
       const raw = w0 + dx * p.dir;
       st.off = raw < p.snap;
       // 拖過門檻收合時,寬度留在起手前那個值 —— 不然再展開只剩最小寬
@@ -6030,13 +6268,15 @@ function panesInit() {
     };
     d.addEventListener("pointerup", end);
     d.addEventListener("pointercancel", end);
+    const reset = () => { st.off = false; st.want = p.auto ? null : p.def; st.w = paneClamp(key, paneWant(key)); panesRender(true); };
     d.addEventListener("dblclick", () => {
-      if (Date.now() - handleAt < 500) return;
-      st.off = false; st.want = p.def; st.w = paneClamp(key, p.def);
-      panesRender(true);
+      if (Date.now() - handleAt < 500 || locked()) return;
+      reset();
     });
     d.addEventListener("keydown", (e) => {
+      if (locked()) return;
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); paneToggle(key, !st.off); return; }
+      if (e.key === "Home") { e.preventDefault(); reset(); return; }   // 鍵盤版的雙擊
       const step = e.key === "ArrowRight" ? 16 : e.key === "ArrowLeft" ? -16 : 0;
       if (!step) return;
       e.preventDefault();
@@ -6048,10 +6288,15 @@ function panesInit() {
   });
   $("rail-open").addEventListener("click", () => paneToggle("side", false));
   $("chat-strip").addEventListener("click", () => paneToggle("chat", false));
-  // 視窗縮小時重新夾一次,中間那欄才不會被擠到 480 以下
+  // 視窗縮小時重新夾一次,中間那欄才不會被擠到 480 以下;沒拉過的聊天欄照視窗寬重算。
+  // 跟著視窗變的寬不吃緩動(只有收合、展開走 --motion-base),等畫完兩幀再把 transition 還回去
+  let snapRaf = 0;
   window.addEventListener("resize", () => {
-    Object.keys(PANES).forEach((k) => { if (!paneSt[k].off) paneSt[k].w = paneClamp(k, paneSt[k].want); });
+    document.documentElement.classList.add("ws-snap");
+    panesFit((k) => paneSt[k].off);
     panesRender(false);
+    cancelAnimationFrame(snapRaf);
+    snapRaf = requestAnimationFrame(() => { snapRaf = requestAnimationFrame(() => document.documentElement.classList.remove("ws-snap")); });
   });
 }
 panesInit();

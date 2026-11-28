@@ -1569,7 +1569,8 @@ msgstr "API 權限勾選行情、帳務、交易（永豐的金鑰沒有提領�
 msgid "tr.acct.stock"
 msgstr "現股"
 
-msgid "tr.acct.cash"
+# (2026-11-28) 上游 0.1.60 拿 tr.acct.cash 當一般錢包「現金」:永豐金的交割戶改用自己的 key
+msgid "tr.acct.settle"
 msgstr "交割戶"
 
 # 頂列記號與視窗標題:券商自己的模擬環境(永豐金沒開實盤;AutoTradeSys fork)
@@ -1665,7 +1666,7 @@ msgid "tr.autoOn"
 msgstr "自動下單執行中"
 
 msgid "tr.presAwake"
-msgstr "統一有 {n} 口在倉，接著電源時電腦保持清醒"
+msgstr "統一有 {n} 口在倉"
 
 msgid "tr.halted"
 msgstr "已暫停"
@@ -2077,7 +2078,7 @@ msgid "set.awake.leadOff"
 msgstr "電腦睡著時，自動下單停止。"
 
 msgid "set.awake.leadOffWin"
-msgstr "電腦睡著時，自動下單停止。統一期貨有部位時，接著電源的電腦仍會保持清醒。"
+msgstr "電腦睡著時，自動下單停止。統一、群益有部位時，電腦仍不會自動睡眠。"
 
 # {broker} = 綁的那家台灣期貨券商全名(cap.venue / pres.venue)
 msgid "tr.quote.live"
@@ -2256,6 +2257,14 @@ msgstr "金額（{ccy}）"
 msgid "tr.noStrategies"
 msgstr "還沒有可以下單的策略。先請 agent 做一支，回測完就能設金額。"
 
+# 配置表上存了必被拒(US_SYMBOL)的美股訊號列:金額格鎖住,沒存過的這一列存檔時不送(trade.js trUsSaveRefused)
+msgid "tr.usLockNew"
+msgstr "存檔時不會加進策略組合。"
+
+# 同上,但已經存在設定裡的舊列:照送、整份存檔會被拒,出口是取消勾選
+msgid "tr.usLockStored"
+msgstr "存檔會被擋，先到「選擇策略」取消勾選。"
+
 msgid "tr.typeC"
 msgstr "Blave 要先更新"
 
@@ -2263,10 +2272,10 @@ msgid "tr.typeCHost"
 msgstr "主機程式要先更新"
 
 msgid "tr.typeCNext"
-msgstr "投資組合策略要等這台電腦的 Blave 更新後，才能自動下單。"
+msgstr "多標的策略要等這台電腦的 Blave 更新後，才能自動下單。"
 
 msgid "tr.typeCNextHost"
-msgstr "投資組合策略要等主機的程式更新後，才能自動下單。"
+msgstr "多標的策略要等主機的程式更新後，才能自動下單。"
 
 msgid "tr.pick.twd"
 msgstr "模擬交易要等主機的程式更新後，才能下台股"
@@ -2397,7 +2406,7 @@ msgid "tr.exec.noteChase"
 msgstr "限價追價會掛限價單跟著盤口移動，成交價通常比市價單好，追不到會自動轉市價保證成交。"
 
 msgid "tr.exec.tw"
-msgstr "統一期貨、群益期貨的單一律以市價送出，TWAP 與限價追價不適用。"
+msgstr "台灣期貨一律以市價下單。"
 
 msgid "tr.exec.unread"
 msgstr "設定檔暫時讀不到，下單方式先不能改。下一份回報讀到就恢復。"
@@ -2461,6 +2470,10 @@ msgstr "跟單"
 
 msgid "tr.acct.spot"
 msgstr "現貨"
+
+# 資產頁錢包名:模擬帳戶等回報的 cash 錢包(沒翻譯會原樣印英文小寫 cash,QA 0159 #4)
+msgid "tr.acct.cash"
+msgstr "現金"
 
 msgid "tr.acct.fund"
 msgstr "資金"
@@ -3120,6 +3133,10 @@ msgstr "交易所拒絕了這筆單，打開 Blave 看原因"
 msgid "env.aria"
 msgstr "環境"
 
+# 中欄頂列首頁鈕的可及名稱(只給 aria-label;不加 tooltip,spec home-button-0160 §4)
+msgid "nav.home"
+msgstr "首頁"
+
 msgid "env.local"
 msgstr "這台電腦"
 
@@ -3184,7 +3201,7 @@ msgid "env.open.tagPlan"
 msgstr "方案有效到 {u}"
 
 msgid "env.open.pend"
-msgstr "{id} 等著上雲端。"
+msgstr "「{id}」等著上雲端。"
 
 msgid "env.open.trialOffer"
 msgstr "首次綁卡試用 {t} 天，期間取消不扣。"
@@ -3296,6 +3313,9 @@ msgstr "暫停沒送到，雲端還在交易。再按一次，一直失敗就到
 
 msgid "tr.cloud.cmdRejected"
 msgstr "雲端主機沒有接受這個指令（{err}）。"
+
+msgid "tr.cloud.updRunning"
+msgstr "雲端主機正在更新，更新完再按「啟動下單」。"
 
 msgid "tr.cloud.noMachine"
 msgstr "現在沒有雲端主機，指令沒有送出。"
@@ -4236,7 +4256,7 @@ msgid "sg.headAria"
 msgstr "{name}，{n} 支"
 
 msgid "sg.headLive"
-msgstr "，{m} 支上線中"
+msgstr "，{m} 支已配置"
 
 msgid "sg.more"
 msgstr "{name}選項"
@@ -4573,6 +4593,9 @@ msgstr "群益"
 msgid "tr.ov.brokerPresident"
 msgstr "統一"
 
+msgid "tr.ov.brokerSinopac"
+msgstr "永豐"
+
 msgid "tr.ov.brokerOther"
 msgstr "這家券商"
 
@@ -4891,10 +4914,10 @@ msgid "up.cf.title"
 msgstr "把雲端主機更新到最新版"
 
 msgid "up.cf.lede"
-msgstr "雲端主機會從 {cv} 換到 {lv}。過程要幾分鐘，在聊天裡跑，做完會說一聲。"
+msgstr "雲端主機會從 {cv} 換到 {lv}，要幾分鐘。"
 
 msgid "up.cf.ledeBare"
-msgstr "雲端主機會換成最新版。過程要幾分鐘，在聊天裡跑，做完會說一聲。"
+msgstr "雲端主機會換成最新版，要幾分鐘。"
 
 msgid "up.cf.body1"
 msgstr "自動下單正在跑：動到下單程式時，會等沒有單在送出的空檔，再用新版重新啟動。"
@@ -4912,7 +4935,7 @@ msgid "up.cf.d2"
 msgstr "一直等不到空檔，就只換檔，自動下單先留在舊版。"
 
 msgid "up.cf.d3"
-msgstr "沒更新完成會在聊天說明原因，再按一次就會接著做。"
+msgstr "沒更新完成，再按一次就會接著做。"
 
 msgid "up.cf.d4"
 msgstr "你改過的官方檔會換成官方版，舊檔備份在主機的 .official-backup/。"
@@ -4925,9 +4948,6 @@ msgstr "開始更新"
 
 msgid "up.restart"
 msgstr "重新啟動以完成更新"
-
-msgid "up.applying"
-msgstr "更新中…"
 
 # 按了「重新啟動以完成更新」並確認、主行程正在收工 / 安裝(main.js restarting):聊天那一格、關於列、選單列那一行都換這句,停用(設計複驗 0.1.10)
 msgid "up.restarting"
@@ -4980,10 +5000,22 @@ msgid "up.done.replaced"
 msgstr "你改過的 {n} 個官方檔換成了官方版，舊的在 {dir}（{view}）。"
 
 msgid "up.done.restartFailed"
-msgstr "雲端主機的新檔已就位，但自動下單重新啟動失敗，仍在跑舊版。再說一次「更新」就會再試。"
+msgstr "雲端主機的新檔已就位，但自動下單重新啟動失敗，仍在跑舊版。再按一次「更新雲端主機」就會再試。"
 
 msgid "up.done.restartDeferred"
-msgstr "雲端主機的新檔已就位，但自動下單仍在跑舊版；等這筆單完成後再說一次「更新」就會重啟。"
+msgstr "雲端主機的新檔已就位，自動下單仍在跑舊版。這筆單完成後，再按一次「更新雲端主機」就會重啟。"
+
+msgid "up.done.failedNone"
+msgstr "雲端主機沒有更新，什麼都沒動。再按一次「更新雲端主機」。"
+
+msgid "up.done.failedPartial"
+msgstr "雲端主機沒更新完成。再按一次「更新雲端主機」就會接著做。"
+
+msgid "up.err.noGit"
+msgstr "雲端主機少了更新要用的元件，請聯繫我們。"
+
+msgid "up.dot"
+msgstr "雲端主機有新版"
 
 msgid "up.done.view"
 msgstr "查看"
@@ -5175,7 +5207,7 @@ msgid "rob.cfNoteFirst"
 msgstr "通常要幾分鐘，期間越長、格子越多越久。"
 
 msgid "rob.msgRescan"
-msgstr "請重新掃描策略「{display_name}」({name}) 的參數（lib.param_scan：scan_grid → find_plateau → write_scan → plot_heatmap）。期間與交易成本照目前回測：{start} → {end}、交易成本 {fee}%；兩軸沿用上次的 {rp}（{r0}–{r1}）與 {cp}（{c0}–{c1}），穩健點落在邊上時照 lib 規則往外延伸一次。掃完回報尖峰與穩健點。"
+msgstr "請重新掃描策略「{display_name}」({name}) 的參數（lib.param_scan：scan_until_interior → write_scan → plot_heatmap）。期間與交易成本照目前回測：{start} → {end}、交易成本 {fee}%；兩軸沿用上次的 {rp}（{r0}–{r1}）與 {cp}（{c0}–{c1}），穩健點落在邊上時照 lib 規則往外延伸重掃，直到不在邊上。掃完回報尖峰與穩健點。"
 
 msgid "rob.msgRescanLabel"
 msgstr "重新掃描 {name} 的參數"
@@ -5205,7 +5237,7 @@ msgid "rob.cfRangeVal"
 msgstr "{rp} {r0}–{r1}（{R} 格）"
 
 msgid "rob.msgRescan1"
-msgstr "請重新掃描策略「{display_name}」({name}) 的參數（lib.param_scan：scan_grid → find_plateau → write_scan → plot_heatmap，單參數照 lib 文件的一格第二軸寫法）。期間與交易成本照目前回測：{start} → {end}、交易成本 {fee}%；只有一個參數 {rp}，範圍沿用上次的 {r0}–{r1}，穩健點落在邊上時照 lib 規則往外延伸一次。掃完回報尖峰與穩健點。"
+msgstr "請重新掃描策略「{display_name}」({name}) 的參數（lib.param_scan：scan_until_interior → write_scan → plot_heatmap，單參數照 lib 文件的一格第二軸寫法）。期間與交易成本照目前回測：{start} → {end}、交易成本 {fee}%；只有一個參數 {rp}，範圍沿用上次的 {r0}–{r1}，穩健點落在邊上時照 lib 規則往外延伸重掃，直到不在邊上。掃完回報尖峰與穩健點。"
 
 msgid "rob.tag.atPlateau1"
 msgstr "目前參數：就是穩健參數"
@@ -5559,6 +5591,28 @@ msgstr "安裝"
 msgid "lib.sampleYrs"
 msgstr "{n} 年"
 
+# 策略庫「上架以來」(library-oos SPEC-v3 §4.4,方向 A):詳情第二欄標題與提示泡、天數、今天上架、報酬、圖例那一段;歡迎卡一行。同 web bc_mp_since_*
+msgid "lib.since.title"
+msgstr "上架以來"
+
+msgid "lib.since.tip"
+msgstr "上架後程式碼固定，有改動我們會發現並停止更新。這段照回測的規則每天重算，不是實單成交。"
+
+msgid "lib.since.days"
+msgstr "{n} 天"
+
+msgid "lib.since.line"
+msgstr "上架以來 {n} 天"
+
+msgid "lib.since.today"
+msgstr "今天上架"
+
+msgid "lib.since.return"
+msgstr "報酬"
+
+msgid "lib.since.zone"
+msgstr "上架以來 {from} 至 {to}"
+
 # 策略庫詳情「回測」對照表的欄名(spec library-benchmark-2026-10-27 B):指標｜策略｜{sym} 持有;只在 /report 有買進持有基準時出現。同 web workspace_lib_cmp_strategy
 msgid "lib.cmp.strategy"
 msgstr "策略"
@@ -5805,6 +5859,9 @@ msgstr "方案已經開通，{p} 在錢包。"
 msgid "lib.bb.hasServer"
 msgstr "你名下已有主機，不用另開方案。"
 
+msgid "lib.bb.cuNeedPlan"
+msgstr "這支要方案才能跑。"
+
 msgid "lib.bb.unsettled"
 msgstr "扣款還在確認，不會重複扣。稍後再回來看。"
 
@@ -5816,9 +5873,6 @@ msgstr "登入並使用"
 
 msgid "lib.bb.loginInstall"
 msgstr "登入並安裝"
-
-msgid "lib.bb.loginUseNote"
-msgstr "方案每 30 天 {p}，新用戶可試用 {t} 天。"
 
 msgid "lib.bb.renewNote"
 msgstr "之後每 30 天 {p}，可隨時取消。"
@@ -6049,6 +6103,10 @@ msgstr "讀不到這份報告。"
 msgid "rpt.note.pending"
 msgstr "進度在右邊的對話。"
 
+# 報告頁訊息槽:框送出的那一輪沒寫出報告、知道是哪一條對話時,後面接〔查看〕(busy.fix.view)切回那一條,不寫位置詞
+msgid "rpt.err.noNewView"
+msgstr "這一輪沒有產出新報告。"
+
 msgid "rpt.err.noNew"
 msgstr "這一輪沒有產出新報告，原因在右邊的對話。"
 
@@ -6065,9 +6123,9 @@ msgstr "研究"
 msgid "rpt.newMark"
 msgstr "有新報告"
 
-# 左下第一格的選單(app.js amPaint):說明文件那一項;第一格的名稱沒登入是 am.menu、已登入是 am.acct
+# 左下第一格的選單(app.js amPaint):使用教學那一項(外開網站的使用教學首頁);第一格的名稱沒登入是 am.menu、已登入是 am.acct
 msgid "am.docs"
-msgstr "說明文件"
+msgstr "使用教學"
 
 msgid "am.menu"
 msgstr "選單"
@@ -6612,7 +6670,7 @@ msgid "idea.cost"
 msgstr "這一輪按 Blave AI 的用量從餘額扣，讀的網頁越多用量越大。"
 
 msgid "idea.msg"
-msgstr "上網幫我找 3 個{mkt}可以回測的策略點子{topic}。每個用一兩句講邏輯，標出會影響我挑選的提醒，並附來源網址；所有點子共通的事開頭講一次就好。進出場細節等我挑了再給。最後推薦一個，告訴我回數字就開始回測。先不要寫程式，也不要給今天的多空判斷。"
+msgstr "上網幫我找 3 個{mkt}可以回測的策略點子{topic}。每個用一兩句講邏輯，標出會影響我挑選的提醒，並附來源網址；所有點子共通的事開頭講一次就好。進出場細節等我挑了再給。最後推薦一個，讓我挑一個開始回測。先不要寫程式，也不要給今天的多空判斷。"
 
 # en 的 {mkt} 尾端帶一個空白、{topic} 前面帶一個空白(句子本身不留空白)
 msgid "idea.mkt.crypto"
@@ -6958,6 +7016,12 @@ msgstr "要重新開機才能裝完，開機後再試一次。"
 msgid "capl.setupFailCode"
 msgstr "群益元件沒裝好（代碼 {code}）。"
 
+msgid "capl.setupChanged"
+msgstr "群益更新了元件，要等 Blave 更新後才能安裝。"
+
+msgid "capl.setupNet"
+msgstr "連不上群益的下載網站。檢查網路後再試一次。"
+
 msgid "cap.tryAgain"
 msgstr "再試一次"
 
@@ -7265,14 +7329,26 @@ msgstr "轉出的程式碼請先在 {platform} 編譯並回測，確認無誤再
 msgid "xp.cf.ok"
 msgstr "轉出"
 
+# 轉出句在對話泡泡與對話名的顯示(FIXED_PROMPTS):{name} 換成策略名稱,不顯示資料夾代號
+msgid "xp.msgLabel.xq"
+msgstr "把「{name}」轉成 XQ XS 版"
+
 msgid "xp.msg.xq"
-msgstr "把策略 {id} 轉成 XQ XS 版，存成 workspace 檔案。"
+msgstr "把策略「{display_name}」（{name}）轉成 XQ XS 版，存成 workspace 檔案。"
+
+# 轉出句在對話泡泡與對話名的顯示(FIXED_PROMPTS):{name} 換成策略名稱,不顯示資料夾代號
+msgid "xp.msgLabel.mc"
+msgstr "把「{name}」轉成 MultiCharts PowerLanguage 版"
 
 msgid "xp.msg.mc"
-msgstr "把策略 {id} 轉成 MultiCharts PowerLanguage 版，存成 workspace 檔案。"
+msgstr "把策略「{display_name}」（{name}）轉成 MultiCharts PowerLanguage 版，存成 workspace 檔案。"
+
+# 轉出句在對話泡泡與對話名的顯示(FIXED_PROMPTS):{name} 換成策略名稱,不顯示資料夾代號
+msgid "xp.msgLabel.pine"
+msgstr "把「{name}」轉成 TradingView Pine Script 版"
 
 msgid "xp.msg.pine"
-msgstr "把策略 {id} 轉成 TradingView Pine Script 版，存成 workspace 檔案。"
+msgstr "把策略「{display_name}」（{name}）轉成 TradingView Pine Script 版，存成 workspace 檔案。"
 
 msgid "xp.dl"
 msgstr "下載"
@@ -7379,11 +7455,12 @@ msgstr "版本"
 msgid "ver.current"
 msgstr "目前"
 
+# 版本選單目前版的徽章(目前版且有下單金額;暫停中、只有模擬也會出)。只講設定、不暗示真錢在跑;內部名詞「上線中」不改(spec p3-0160 §4a,web 同改)
 msgid "ver.live"
-msgstr "上線中"
+msgstr "已配置"
 
 msgid "ver.drift"
-msgstr "上線中 · 檔案已改"
+msgstr "已配置 · 檔案已改"
 
 msgid "ver.driftLocal"
 msgstr "strategy.py 已經和這一版不同：檔案被直接改過、卻沒有重跑回測。"
@@ -8918,6 +8995,10 @@ msgstr "這一步要到網站做：你的方案是別的階，或主機要在網
 msgid "cf.m.okTrial"
 msgstr "開通，{d}起扣 {x} TWD"
 
+# 帳號選單「帳號與方案」列尾:試用已取消的短字(spec sidebar-row-0160 §2.1);完整那句 pv.st.trialCancelled 進 title
+msgid "am.st.ends"
+msgstr "{d}結束"
+
 msgid "pv.st.trialCancelled"
 msgstr "已取消試用 · {d}結束"
 
@@ -9085,9 +9166,6 @@ msgstr "優化"
 msgid "po.secAmounts"
 msgstr "策略與金額"
 
-msgid "po.help"
-msgstr "看教學"
-
 msgid "po.signalsPaused"
 msgstr "訊號暫停更新"
 
@@ -9203,8 +9281,9 @@ msgstr "{prod}平倉"
 msgid "mg.apply"
 msgstr "套用金額"
 
+# 優化這組跟配置不是同一組時〔套用金額〕下的原因句(spec p3-0160 §3,取代舊的兩條檔數句);句尾是連結字 mg.why.alloc,要原樣出現在句中
 msgid "mg.applyDiffSet"
-msgstr "配置 {a} 檔、這裡 {b} 檔"
+msgstr "這組策略跟配置不同，把配置改成這組"
 
 msgid "mg.askAgent"
 msgstr "跟 agent 討論"
@@ -9567,8 +9646,9 @@ msgstr "等「{name}」等 {n} 支更新績效…"
 msgid "mg.runNow"
 msgstr "先用目前數字跑"
 
+# 設定 › 一般的顯示幣別:只管雲端視角,本機的策略組合與自動下單不跟著換,label 講出範圍(QA 0159 R3-8;spec p3-0160 §11)。選項 = api 列的＋帳號目前的值(ccyOptions);預設 USDT 選不回是 api _BASE_CURRENCY_OPTIONS 的事
 msgid "set.ccy"
-msgstr "顯示幣別"
+msgstr "雲端顯示幣別"
 
 msgid "set.ccyFail"
 msgstr "切換失敗，稍後再試。"
@@ -9751,9 +9831,9 @@ msgstr "和另外 {n} 支"
 msgid "tr.marketVenue.crypto"
 msgstr "「{name}」{more}是{market}策略，加密貨幣交易所下不了。改綁台灣期貨商，或到「選擇策略」取消勾選後再儲存。"
 
-# 美股訊號策略的存檔拒絕(runtime _us_signal_refusal):原句細因七八種,同 MARKET_VENUE 一碼一句;字同網頁 workspace_pf_rej_us_symbol／us_venue
+# 美股訊號策略的存檔拒絕(runtime _us_signal_refusal):原句細因七八種,同 MARKET_VENUE 一碼一句。0.1.60 改白話(QA R3-9);網頁 workspace_pf_rej_us_symbol 待前端同改
 msgid "tr.usSymbol.rejected"
-msgstr "「{name}」{more}用的是美股訊號：只能用 Type A 單一標的策略下單，SYMBOL 要寫成該檔的股票永續（例如 NVDA → NVDAUSDT）。改好後再儲存，或到「選擇策略」取消勾選。"
+msgstr "「{name}」{more}用美股訊號，現在還不能自動下單。到「選擇策略」取消勾選後再儲存。"
 
 msgid "tr.usVenue.rejected"
 msgstr "「{name}」{more}的下單標的在這家交易所沒有對應的股票永續。改綁有這檔股票永續的交易所，或到「選擇策略」取消勾選後再儲存。"
@@ -9825,17 +9905,15 @@ msgstr "資料不足，到〔方法〕縮短回看天數"
 msgid "mg.needTarget"
 msgstr "先填{t}"
 
-msgid "mg.applyDiffSetN"
-msgstr "配置有 {n} 檔不在這裡"
-
 msgid "mg.applyWhyUnread"
 msgstr "讀不到金額設定，更新後就能套用"
 
 msgid "sz.noVol"
 msgstr "近 90 天沒有波動資料，不能用目標波動"
 
+# 原因句裡的連結字:開配置的選擇策略框、預勾優化這組;方向寫進字(改的是配置那一邊)。是句中連結,不受鈕 6 字上限
 msgid "mg.why.alloc"
-msgstr "改配置"
+msgstr "把配置改成這組"
 
 msgid "mg.why.tbMethod"
 msgstr "〔方法〕"
@@ -9860,8 +9938,9 @@ msgstr "登入 Blave"
 msgid "mg.why.signinUpd"
 msgstr "登入 Blave 更新"
 
+# 從 mg.why.alloc 打開的選擇策略框標題:講明按確定改的是配置
 msgid "mg.why.pickTitle"
-msgstr "配置的策略"
+msgstr "改配置的策略"
 
 msgid "mg.sizeNoHist"
 msgstr "這份結果算不出目標波動"
@@ -10058,9 +10137,9 @@ msgstr "連上真實帳戶會取代模擬交易。"
 msgid "cx.replacePaperRun"
 msgstr "連上後模擬交易停止，自動下單先暫停。"
 
-# Mac 不出期貨磚,「台灣期貨」標籤下這一句
+# Mac 不出期貨磚,「台灣期貨」標籤下這一句,後面接文字鈕 cx.macTwGo(spec p3-0160 §11)
 msgid "cx.macTw"
-msgstr "群益、統一需要 Windows，可以改用 Windows 雲端主機。"
+msgstr "群益、統一需要 Windows。"
 
 # 期貨商(統一／群益)的第一行事實:期貨商用的是憑證、不是 API 金鑰
 msgid "cx.fact.cert"
@@ -11252,7 +11331,7 @@ msgid "ho.err.unknown"
 msgstr "還沒收到雲端的回覆，結果不確定。稍後看清單上有沒有 {to}。"
 
 msgid "ho.err.old"
-msgstr "雲端主機的程式還沒更新到這一版。它會自己更新，幾分鐘後再試。"
+msgstr "雲端主機的程式還不支援搬策略。通常幾分鐘內會自動補上，到時再試。"
 
 msgid "ho.err.retry"
 msgstr "這次沒搬成，稍後再試。"
@@ -11904,6 +11983,24 @@ msgstr "這個帳號不符合試用資格。{v} TWD 已存進錢包。"
 msgid "p3.w.trialNoEligNoNum"
 msgstr "這個帳號不符合試用資格。驗證金已存進錢包。"
 
+msgid "p3.w.cuPlan"
+msgstr "開通方案"
+
+msgid "p3.a.hasServer"
+msgstr "你名下有雲端主機：請到雲端主機頁按「繼續主機」，付這一期並開機。"
+
+msgid "p3.a.goCloud"
+msgstr "到雲端主機開機"
+
+msgid "p3.cu.tCard"
+msgstr "這張卡已經試用過"
+
+msgid "p3.cu.tAcct"
+msgstr "這個帳號不能再試用"
+
+msgid "p3.cu.lib"
+msgstr "策略買好了。這支要方案才能跑。"
+
 msgid "p3.a.oncePerCard"
 msgstr "每個帳號、每張卡都只能試用一次。"
 
@@ -12048,8 +12145,12 @@ msgstr "確認登入"
 msgid "sp.err.key"
 msgstr "永豐說金鑰不對。"
 
+# 設定列〔換金鑰〕開的表單,送出鈕正上方(送出那一下先停舊的下單程式,登入過了機器自己接回);首次開通、登入失敗回來的表單不出
+msgid "sp.rekeyNote"
+msgstr "連線會先中斷，新金鑰登入成功才恢復下單。"
+
 msgid "sp.fixKey"
-msgstr "改金鑰"
+msgstr "換金鑰"
 
 msgid "sp.err.noFut"
 msgstr "這把金鑰沒有勾期貨帳戶。"
@@ -12077,6 +12178,41 @@ msgstr "打開系統的自動設定時間。"
 
 msgid "sp.err.unknown"
 msgstr "永豐拒絕了登入，沒有說原因。"
+
+# 雲端主機的 runtime 已開永豐、workspace 還沒更新:整框(WORKSPACE_OLD,上傳前就擋)與登入那一列(probe.state not_open)。鈕名 = up.cloud.go
+msgid "sp.err.hostOld"
+msgstr "雲端主機的程式是舊版，先按「更新雲端主機」再試一次。"
+
+# 整框:主機回 NOT_OPEN／NOT_CAPABLE(runtime 還沒到開永豐那一版,發版後約 6 分鐘內自己換)
+msgid "sp.err.notOpen"
+msgstr "永豐期貨還沒開放，幾分鐘後再試一次。"
+
+# 整框:主機回 WORKER_RUNNING(下單程式已登入或在重試,同一組身分證一次只登入一個)
+msgid "sp.err.workerOn"
+msgstr "永豐下單程式正在連線，等一分鐘再按。"
+
+# 整框、回表單:主機回 NOT_BOUND(金鑰或憑證不在主機上)
+msgid "sp.err.notBound"
+msgstr "主機上找不到永豐的金鑰或憑證。重填一次再按「連接帳戶」。"
+
+# 整框:雲端那一包沒送到或主機拆不開(KEY_TIMEOUT／KEY_EXPIRED／KEY_INVALID／ENVELOPE_INVALID)
+msgid "sp.err.sendAgain"
+msgstr "資料沒有送到雲端主機，再按一次「連接帳戶」。"
+
+# 設定 › 帳戶 永豐那一列讀帳失敗(不是登入停了、不是重試中)的那一行,取代 lib 的工程英文。下單程式沒寫快照(lib [sinopac_worker_down])用 down,其他用 readFail
+msgid "sp.acct.down"
+msgstr "永豐下單程式沒有回應。重開 Blave 試試。"
+
+# 同 sp.acct.down,雲端視角:重開電腦版救不了主機上的程式;卡住或 timer 沒開時不會自己好,所以不承諾自動重啟,出口是聊天請 agent 查
+msgid "sp.acct.downCloud"
+msgstr "主機上的永豐下單程式沒有回應。一直這樣就在聊天請 agent 查。"
+
+msgid "sp.acct.readFail"
+msgstr "讀不到永豐帳戶，稍後會自動再讀。"
+
+# 自動下單 › 部位表底:永豐剛送單、部位還在等券商回報(SnapshotLag,ORDER_SETTLE_S 內),帳上與差額寫「—」;不是串接失敗
+msgid "sp.posPending"
+msgstr "等永豐回報中…"
 
 msgid "sp.err.notSigned"
 msgstr "永豐說帳戶還沒簽署或在審核中。"
@@ -12192,8 +12328,24 @@ msgstr "{side}{sym} {n}"
 msgid "tr.opt.catchNeedRead"
 msgstr "讀到帳戶後才能補齊。"
 
-msgid "tr.opt.catchNeedSignal"
-msgstr "策略算完訊號後才能補齊。"
+# 啟動框〔補齊部位〕讀到帳、訊號還沒算出來:框開著時 2 秒讀一次、最多 1 分鐘(前面有轉圈;spec add-then-start-0160 補記)
+msgid "tr.opt.catchComputing"
+msgstr "正在算訊號…"
+
+# 等了 1 分鐘還沒算出來:後面接〔重新整理〕(tr.opt.catchRetry)。原因待後端給,先只寫現況
+msgid "tr.opt.catchLate"
+msgstr "等了 1 分鐘還沒算出訊號。"
+
+msgid "tr.opt.catchRetry"
+msgstr "重新整理"
+
+# 啟動框〔補齊部位〕送單後等交易所回報部位(永豐 SnapshotLag)等了 1 分鐘:後面接〔重新整理〕。等的時候沿用 sp.posPending(spec 0162 a-start-catch §2)
+msgid "tr.opt.catchPosLate"
+msgstr "等了 1 分鐘，{venue}還沒回報部位。"
+
+# 啟動框〔補齊部位〕讀帳失敗(不是等快照):部位當未知、不列單、不轉圈(spec 0162 a-start-catch §3)
+msgid "tr.opt.catchReadErr"
+msgstr "讀不到{venue}的部位，讀到才能補齊。"
 
 msgid "p3.set.used"
 msgstr "已用 {p}%"
@@ -12208,13 +12360,6 @@ msgstr "試用結束扣第一期"
 msgid "p3.set.firstV"
 msgstr "{d} · {p} TWD"
 
-# 試用格鈕上方兩行的第一行(第二行是 p3.f.trialConvertNoNum);{pd} 跟著下一期的週期(年繳 365)
-msgid "p3.f.renew"
-msgstr "之後每 {pd} 天自動續扣。錢包夠就扣錢包，不夠就整筆刷卡。"
-
-msgid "p3.f.renewNoNum"
-msgstr "之後每期自動續扣。錢包夠就扣錢包，不夠就整筆刷卡。"
-
 # 「Blave 餘額」標籤的 tooltip(收掉原本餘額下面那句「AI 超額時自動儲值」)。第一句與網頁 bc_plan_wallet_fact 逐字相同(tests/check_web_desktop_parity.js)
 msgid "p3.set.balTip"
 msgstr "錢包用來付 Blave AI，也用來付方案費。"
@@ -12223,3 +12368,96 @@ msgstr "錢包用來付 Blave AI，也用來付方案費。"
 msgid "p3.set.topupTip"
 msgstr "錢包低於 {lo} TWD 時，刷綁定的卡補 {a} TWD。"
 
+# v3 試用格〔開雲端主機〕上方唯一一行(Wei 11-23 Q1):金額與續扣交給加購框講(p3.h.next／p3.h.trialEnd),卡上不重複
+msgid "p3.f.trialEnds"
+msgstr "開雲端主機會結束試用。"
+
+# 策略頁〔自動下單〕金額框、這支還沒在策略組合裡、存了會送單時的標題＝主鈕(不送單時用 po.add「加到策略組合」;canon confirm-modal)
+msgid "sp.cf.addFire"
+msgstr "加入並下單"
+
+# 策略頁金額框、這支還沒在策略組合裡、已連接且沒在跑也沒暫停時的標題＝主鈕:存完接著開啟動框(spec add-then-start-0160 A-1)
+msgid "sp.cf.addStart"
+msgstr "加入並啟動下單"
+
+# 策略頁說明行:這次從金額框加進來、還沒開始下單(取消了接著開的啟動框、或沒開成);開始下單或離開這支就收(A-3)
+msgid "sp.addedIdle"
+msgstr "已加進策略組合，還沒開始下單。"
+
+# 同上,下單暫停中
+msgid "sp.addedHalted"
+msgstr "已加進策略組合，下單暫停中。"
+
+# 策略頁金額框輸入格下:這支目前版的樣本外效率落在門檻下才出(沒跑過、過時不出)。只講事實、不寫建議(canon confirm-modal)
+msgid "sp.oosFail"
+msgstr "樣本外驗證沒過。"
+
+# 策略頁頁首狀態詞「不能自動下單」(tr.mkt.noAuto)的 tooltip 原因句;配置表那一列同一個標籤掛同一句。講法同 tr.usSymbol.rejected(spec p3-0160 R3-1;web SP_HEAD.us 同改)
+msgid "sp.usWhy"
+msgstr "用美股訊號，現在還不能自動下單。"
+
+# 膠捲裡沒有說明字的圖的 alt(＝按鈕名稱);{n} 是在那條膠捲裡的第幾張(spec chat-image-strip-0160 a11y)
+msgid "chat.imageN"
+msgstr "圖 {n}"
+
+# 膠捲 role=group 的 aria-label,只給讀屏;畫面上不寫張數(Wei 11-23 選 A)
+msgid "chat.imageCount"
+msgstr "{n} 張圖"
+
+# 放大檢視左右切換鈕的可及名稱
+msgid "chat.imagePrev"
+msgstr "上一張"
+
+msgid "chat.imageNext"
+msgstr "下一張"
+
+# 策略組合區段標籤旁的外連文字鈕(會開瀏覽器,不用 ?;canon strategy-report › 說明文章外連)
+msgid "po.guide"
+msgstr "說明"
+
+msgid "po.guideAria"
+msgstr "說明（在瀏覽器開啟）"
+
+# 選單「顯示」⌘1–⌘8 那幾列(主行程 appMenuTemplate 自己代 {n});⌘9 是 menu.tabLast
+msgid "menu.tabN"
+msgstr "對話分頁 {n}"
+
+msgid "menu.tabLast"
+msgstr "最後一個對話分頁"
+
+# 雲端開通卡在有一支等著上雲端(pid)時、〔開雲端主機〕下的文字鈕:取消這支的待送、切回本機視角、焦點回這支的策略頁頭(spec p3-0160 R5-5)
+msgid "env.open.stayLocal"
+msgstr "留在這台電腦"
+
+# 接在 cx.macTw 後的文字鈕:關連接框、開雲端主機加購框並預選 Windows
+msgid "cx.macTwGo"
+msgstr "改用雲端主機"
+
+
+# KOL 推薦碼延長試用(spec kol-referral-trial-2026-11-23 §8.5;設計 kol-trial-2026-11-23 v2 方向 D)。
+# 只在綁卡前、api 回的個人天數比公開天數長時出現:天數畫「原值刪除線 新值」,後面接這個 Mini tag。不露 KOL 名字。
+msgid "trial.kol.tag"
+msgstr "推薦碼加碼"
+
+# 方案框大字那列的讀屏整句(看得到的「14 30 天免費試用」與小標都 aria-hidden)
+msgid "p3.a.trialWasSr"
+msgstr "{t} 天免費試用，原本 {s} 天，{tag}"
+
+# 方案框 AI 額度那個勾的副字,api trial.ai_credit_boost 為真時取代 p3.tick.aiTrial;不寫額度數字
+msgid "p3.tick.aiTrialBoost"
+msgstr "試用期加倍，之後每期都有"
+
+# 聊天欄額度用完那張卡的標題,account_status trial_ai_credit_boost 為真時取代 p3.c.trialHNoNum
+msgid "p3.c.trialHBoost"
+msgstr "AI 額度加倍，加上 Blave 資料"
+
+# 策略庫綁卡即購買報價框試用那列,api trial_ai_credit_boost 為真時取代 lib.bb.trialRow;同網頁 bc_bindbuy_trial_boost
+msgid "lib.bb.trialRowBoost"
+msgstr "方案試用 {d} 天，AI 額度加倍"
+
+# 試用那列畫刪除線時的讀屏整句(看得到的那段與小標 aria-hidden);Boost 那句配 lib.bb.trialRowBoost
+msgid "lib.bb.trialRowSr"
+msgstr "方案試用 {d} 天，原本 {s} 天，{tag}"
+
+msgid "lib.bb.trialRowBoostSr"
+msgstr "方案試用 {d} 天，AI 額度加倍，原本 {s} 天，{tag}"

@@ -1,6 +1,7 @@
 // Modified by Mephisto-000 on 2026-10-26: cloud-connect refuses local-only venues (SinoPac 永豐金 binds on this computer only);
 //   shioaji (SinoPac's SDK) installs as an optional package group; tray label venueSinopac;
 //   (2026-10-31) the update box's 模擬／真錢 mark counts SinoPac's simulation environment as 模擬.
+//   (2026-11-28) SINOPAC_LOCAL_ON stays false: upstream 0.1.61 turned its SinoPac futures flow on; `sinopac` is the fork's stock venue.
 // Original work: Copyright 2025-2026 WuChi Technology Company Limited
 // Licensed under the Apache License, Version 2.0
 // Blave 電腦版 — Electron 主行程(v1 骨架)
@@ -1247,7 +1248,15 @@ const BUNDLED_PY = WIN ? path.join(process.resourcesPath || "", `python-${proces
 // 用戶自己那顆被解除安裝,venv 就跟著死)。開發版:tools/fetch-python.sh 抓到 shell/vendor/ 的那顆在就用它,版本才跟打包版一樣,
 // 沒有才退系統的(Homebrew 3.15 事件)。vendor 的目錄名照 electron-builder.config.js:Windows 是 python-win-x64
 const DEV_PY = path.join(__dirname, "vendor", WIN ? `python-win-${process.arch}` : `python-${process.arch}`, ...(WIN ? ["python.exe"] : ["bin", "python3"]));
-const basePython = () => (app.isPackaged ? BUNDLED_PY : fs.existsSync(DEV_PY) ? DEV_PY : WIN ? "python" : "python3");
+// 開發版找不到 vendor 那顆時講一次(主行程 log):11-23 永豐量測樹缺 shell/vendor,靜默跑在系統 Python 3.15 上
+let devPyWarned = false;
+const basePython = () => {
+  if (app.isPackaged) return BUNDLED_PY;
+  if (fs.existsSync(DEV_PY)) return DEV_PY;
+  const sys = WIN ? "python" : "python3";
+  if (!devPyWarned) { devPyWarned = true; console.error(`[python] dev build: ${DEV_PY} missing — falling back to the system ${sys}, not the bundled version; run shell/tools/fetch-python.sh`); }
+  return sys;
+};
 // 隨包 pip wheel(tools/fetch-python.sh 的 PIP_WHL,兩邊要一樣):打包版在 resources/pip-wheel/,開發版在 shell/vendor/pip-wheel/(gitignored,沒抓就不升級)。
 // enginesetup 用它離線升級 venv 的 pip,拿到 --resume-retries(斷線從斷點接續)
 const PIP_WHEEL_NAME = "pip-26.2.2-py3-none-any.whl";
@@ -1779,7 +1788,36 @@ function loadStrategy(name) {
   try { codeBuf = fs.readFileSync(path.join(dir, "strategy.py")); code = codeBuf.toString("utf8"); } catch (_) {}
   // 掃描／樣本外是哪一版碼跑的(lib 寫的 code_hash = lib.strategy.code_hash):跟現在的檔不同就不是這份碼的結論,畫面照過時畫。改名不算改碼
   if (codeBuf) for (const r of [scan, wf]) if (r && typeof r.code_hash === "string" && !codeHashMatches(codeBuf, r.code_hash)) r.code_stale = true;
-  return { name, stats, scan, wf, code, dataSources: stratDataSources(dir), missingSources: stratMissingSources(dir), versions: stratVersions(dir), perf: stratPerf(dir), ...stratMeta(code), exports: stratExports(dir, code), cryptoKline: stratUsesKline(dir), transfer: stratTransfer(dir) };
+  return { name, stats, scan, wf, code, sourceId: stratSourceId(dir, name), dataSources: stratDataSources(dir), missingSources: stratMissingSources(dir), versions: stratVersions(dir), perf: stratPerf(dir), ...stratMeta(code), exports: stratExports(dir, code), cryptoKline: stratUsesKline(dir), transfer: stratTransfer(dir) };
+}
+/* 這支是策略庫哪一支(策略邏輯多語用;spec strategy-logic-i18n-0159 §7.1):source.json 的 marketplace_id,規則照 runtime _read_source_id——
+   正整數、最多讀 4096 bytes,否則不算。source.json 缺(QA 0159 #20:agent 漏寫、還沒第一次回測補寫)就退回外殼自己記的「已安裝」對照表 */
+function stratSourceId(dir, name) {
+  try {
+    const buf = wsfile.read(path.join(dir, "source.json"), 4096);
+    const v = buf ? JSON.parse(buf.toString("utf8")) : null, id = v && typeof v === "object" ? v.marketplace_id : null;
+    if (Number.isInteger(id) && id > 0) return id;
+  } catch (_) { /* 沒有、太大、壞掉:看對照表 */ }
+  const hit = Object.entries(libraryInstalled()).find(([, n]) => n === name);
+  return hit ? Number(hit[0]) : null;
+}
+/* 策略庫那支的多語策略邏輯:GET /openclaw/marketplace/strategies/<id>?lang= 的 { logic, logic_code }(官方策略匿名就讀得到,不帶 token)。
+   每個 (id, lang) 這次開 app 只問一次;失敗也記著,10 分鐘內不重打。兩個值都過 cloud.js logicOf 同一套形狀檢查。
+   api 還沒部署這兩欄 = 都 null,畫面照舊讀碼(spec strategy-logic-i18n-0159 §7.2) */
+const LOGIC_I18N_RETRY_MS = 10 * 60 * 1000, logicI18nCache = new Map();   // `${id}:${lang}` → { at, v }
+async function strategyLogicI18n(id, langRaw) {
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const lang = langRaw === "en" ? "en" : "zh", ck = `${id}:${lang}`, hit = logicI18nCache.get(ck);
+  if (hit && (hit.v || Date.now() - hit.at < LOGIC_I18N_RETRY_MS)) return hit.v;
+  let v = null;
+  try {
+    const r = await getJSON(`${API_BASE}/openclaw/marketplace/strategies/${id}?lang=${lang}`, {});
+    const b = r && r.status === 200 && r.body && typeof r.body === "object" ? r.body : null, s = b && b.strategy && typeof b.strategy === "object" ? b.strategy : b;
+    const { logicOf } = require("./cloud");
+    if (s && ("logic" in s || "logic_code" in s)) v = { logic: logicOf(s.logic), logicCode: logicOf(s.logic_code) };
+  } catch (_) { v = null; }
+  logicI18nCache.set(ck, { at: Date.now(), v });
+  return v;
 }
 /* 拉回之後本機背景跑的狀態(runtime command_listener 寫的 transfer.json),形狀與淘汰規則同雲端 strategy_reporter._read_transfer:
    { kind, status, at, err?, exit?, stopped_after_s?, tail? };沒有、壞形狀、結束超過一週、或之後的回測已經寫出更新的 stats.json = null。
@@ -2918,6 +2956,7 @@ function libSanitize(body) {
       report = { total_return: fin(r.total_return), annual_return: fin(r.annual_return), sharpe: fin(r.sharpe), max_drawdown: fin(r.max_drawdown), symbol: str(r.symbol, LIB_STR_MAX), interval: str(r.interval, LIB_STR_MAX),
         gate_checks: gc && gc.mcpt && gc.robust && gc.fee ? gc : null, gates: gw ? { mcpt_p: fin(gw.mcpt_p), robust: { ratio: fin(rob.ratio) }, fee: { rate: fin(fee.rate), actual: fin(fee.actual) } } : null,
         spark: libCurveOk(r.spark, LIB_SPARK_MAX), equity_from: day(r.equity_from), equity_to: day(r.equity_to) };
+      Object.assign(report, libSinceFields(r, "spark_split", report.spark));
     }
     out.push({ id, title, summary: str(s.summary, LIB_TEXT_MAX, true), description: str(s.description, LIB_TEXT_MAX, true), price, category: str(s.category, LIB_STR_MAX),
       market: LIB_MARKETS.includes(s.market) ? s.market : null,   // 策略庫市場選單;舊 api 沒有 → null,renderer 退回 category
@@ -2930,6 +2969,15 @@ function libSanitize(body) {
       success_note_titles: libNoteLangs(s.success_note_titles, (v) => { const x = (str(v, LIB_TITLE_MAX) || "").trim(); return x || null; }) });
   }
   return out;
+}
+/* 上架以來(library-oos SPEC-v3 §4.2;只在 ?since_listing=1 的回應裡、只有官方有值):曲線延伸到哪天、上架日、分界在第幾點、
+   上架以來的天數／報酬／回撤(百分比,回撤 ≤ 0)。哪一欄壞了那欄 null;分界點要落在曲線裡;舊 api 沒有這幾欄 = 全 null,畫面照舊 */
+function libSinceFields(r, splitKey, curve) {
+  const sl = r.since_listing && typeof r.since_listing === "object" && !Array.isArray(r.since_listing) ? r.since_listing : null;
+  const split = r[splitKey], days = sl ? sl.days : null, mdd = sl ? libFin(sl.max_drawdown) : null;
+  return { updated_to: libDay(r.updated_to), listed_at: libDay(r.listed_at),
+    [splitKey]: curve && Number.isInteger(split) && split >= 0 && split < curve.length ? split : null,
+    since_listing: sl ? { days: Number.isInteger(days) && days >= 0 ? days : null, return: libFin(sl.return), max_drawdown: mdd !== null && mdd <= 0 ? mdd : null } : null };
 }
 // 成功筆記兩欄(spec-0.1.12-library-notes §2.2):只收 zh / en,值過 pick;一個都不剩 → null(舊 api 沒有 titles 那欄也是 null)
 function libNoteLangs(v, pick) {
@@ -2948,7 +2996,7 @@ async function libraryList(langRaw, force) {
   // why:拿不到資料的原因(no_card / no_balance / no_plan / plan_failed / unknown)——renderer 的 CTA 照它分流,不自己從 acct 再算一套
   const why = dataAccess && dataAccess !== "included" && dataAccess !== "billed" ? dataAccessWhy(signedIn) : null;
   if (!force && libCache && libCache.lang === lang && libCache.signedIn === signedIn && Date.now() - libCache.at < ACCT_FRESH_MS) return { strategies: libCache.strategies, signedIn, dataAccess, why };
-  const url = `${API_BASE}/openclaw/marketplace/strategies?lang=${lang}`;
+  const url = `${API_BASE}/openclaw/marketplace/strategies?lang=${lang}&since_listing=1`;
   const key = signedIn ? loadDataKey() : null;
   const ver = libVerHeader();   // api 拿它分新舊外殼:沒帶版本的匿名清單 blave_data 回 null(舊外殼才看得到登入鈕),新版一定要帶
   let r = null;
@@ -2962,12 +3010,13 @@ async function libraryList(langRaw, force) {
   libCache = { at: Date.now(), lang, signedIn, strategies };
   return { strategies, signedIn, dataAccess, why };
 }
-/* 詳情的完整報告:GET /openclaw/marketplace/strategies/<id>/report——只取 400 點權益曲線與回測期間(總報酬、關卡數值走清單:
+/* 詳情的完整報告:GET /openclaw/marketplace/strategies/<id>/report——只取 400 點權益曲線、回測期間與上架以來那幾欄(總報酬、關卡數值走清單:
    一支資料一個來源)。公開策略匿名也拿得到;內容不隨身分變,快取 5 分鐘 per (id, lang)、登出 / 購買不用清。非 200 / 形狀不對 → null。 */
 function libReportSanitize(body) {
   if (!body || typeof body !== "object") return null;
   const r = { equity: libCurveOk(body.equity, LIB_EQUITY_MAX), equity_from: libDay(body.equity_from), equity_to: libDay(body.equity_to), backtest_start: libDay(body.backtest_start), backtest_end: libDay(body.backtest_end) };
   r.benchmark = libBenchSanitize(body.benchmark, r.equity);
+  Object.assign(r, libSinceFields(body, "equity_split", r.equity));
   return r.equity || r.backtest_start || r.backtest_end ? r : null;   // 全空(S3 暫時讀不到時 api 回 200 + 全 null)= 沒東西可套:當失敗、不進快取,下次再問
 }
 /* 買進持有基準(api marketplace._benchmark_payload):哪一欄壞了就整個 null、報告照用;曲線要跟策略那條同長,第 i 點才是同一天。
@@ -2984,7 +3033,7 @@ async function libraryReport(id, langRaw) {
   if (!Number.isInteger(id) || id <= 0) return null;
   const lang = langRaw === "en" ? "en" : "zh", ck = `${id}:${lang}`, hit = libReportCache.get(ck);
   if (hit && Date.now() - hit.at < ACCT_FRESH_MS) return hit.report;
-  const url = `${API_BASE}/openclaw/marketplace/strategies/${id}/report?lang=${lang}`;
+  const url = `${API_BASE}/openclaw/marketplace/strategies/${id}/report?lang=${lang}&since_listing=1`;
   const key = loadToken() ? loadDataKey() : null;
   let r = null;
   try {
@@ -3036,6 +3085,7 @@ function libBindBuyBody(b) {
   if (!b || typeof b !== "object") return null;
   const s = (v) => (typeof v === "string" ? v.slice(0, 200) : null), n = (v) => (typeof v === "number" && isFinite(v) ? v : null);
   return { error: s(b.error), error_code: s(b.error_code), price_twd: n(b.price_twd), trial: b.trial === true, trial_days: n(b.trial_days),
+    trial_days_standard: n(b.trial_days_standard), trial_ai_credit_boost: b.trial_ai_credit_boost === true,
     plan_monthly_twd: n(b.plan_monthly_twd), plan_due_twd: n(b.plan_due_twd), plan_renews_card: b.plan_renews_card === true,
     // 0.1.50 帶 accept_plan 的報價(spec library-free-data-one-step §5.1):方案第一期＋策略一筆刷
     plan: b.plan === true, plan_twd: n(b.plan_twd), total_twd: n(b.total_twd), plan_renews_on: libDay(typeof b.plan_renews_on === "string" ? b.plan_renews_on.slice(0, 10) : null) };
@@ -3114,7 +3164,9 @@ function libBindResultOut(b) {
   if (!r || typeof r !== "object" || !["pending", "ok", "wallet", "failed"].includes(r.status) || !Number.isInteger(r.strategy_id)) return null;
   const n = typeof r.amount_twd === "number" && isFinite(r.amount_twd) && r.amount_twd > 0 ? r.amount_twd : null;
   const until = typeof r.trial_until === "string" && /^\d{4}-\d{2}-\d{2}/.test(r.trial_until) ? r.trial_until.slice(0, 40) : null;
-  const out = { status: r.status, strategy_id: r.strategy_id, amount_twd: n, reason: libCode(r.reason), reason_code: libCode(r.reason_code), trial_until: until };
+  // trial_reason_code:這張單鎖了試用、卡用過或帳號沒資格所以沒開(策略照買、方案也沒開);只認兩個值
+  const miss = ["TRIAL_CARD_USED", "TRIAL_NOT_ELIGIBLE"].includes(r.trial_reason_code) ? r.trial_reason_code : null;
+  const out = { status: r.status, strategy_id: r.strategy_id, amount_twd: n, reason: libCode(r.reason), reason_code: libCode(r.reason_code), trial_until: until, trial_reason_code: miss };
   if (r.plan !== true) return out;
   // 方案單(0.1.50):amount_twd 是刷的總額;留在錢包的是 wallet_twd(null = 分不出來,不寫數字)
   const f = (v) => (typeof v === "number" && isFinite(v) && v >= 0 ? v : null);
@@ -3134,6 +3186,7 @@ function libCheckoutBody(b) {
     plan_required: b.plan_required === true, data_included: b.data_included === true, needs_data: b.needs_data !== false,
     plan_blocked: code(b.plan_blocked), has_card: b.has_card === true, card_last4: typeof b.card_last4 === "string" && /^\d{4}$/.test(b.card_last4) ? b.card_last4 : null,
     balance: n(b.balance), trial_eligible: b.trial_eligible === true, trial_days: n(b.trial_days),
+    trial_days_standard: n(b.trial_days_standard), trial_ai_credit_boost: b.trial_ai_credit_boost === true,
     plan_renews_on: libDay(typeof b.plan_renews_on === "string" ? b.plan_renews_on.slice(0, 10) : null),
     plan_source: src(b.plan_source), price_source: src(b.price_source),
     plan_status: ["ok", "active", "none", "failed"].includes(b.plan_status) ? b.plan_status : null,
@@ -3588,6 +3641,7 @@ function capitalLocal() {
    送給 daemon 時用它這次啟動的 secret 封裝(daemon.sealSinopac),機器端只放記憶體、經 stdin 交給下單程式。Mac 與 Windows 都走得到。
    旗標關 = IPC 不註冊、補交不跑(解除連接除外);翻開要跟 runtime 的期貨閘門(venue_traits verified_modes)同一版 */
 // = renderer/trade.js SINOPAC_LOCAL_ON(tests/check_shell_sinopac_local.js 釘兩處相同)
+// AutoTradeSys fork:上游 0.1.61 打開;fork 關著(sinopac 是 fork 的永豐金現股,runtime 期貨閘門也關著)。= trade.js 那一行
 const SINOPAC_LOCAL_ON = false;
 let _sinopac = null, _spCloud = null;
 function sinopac() {
@@ -4069,8 +4123,9 @@ async function runTurn(rec, { sessionId, message, model: rawModel, effort: rawEf
   // 都算——它們都是這台電腦上的人按的;renderer 的 typed 旗標不傳過來,這裡不分。要帶 false 的是「沒有人在這台電腦按送出」的回合:
   // 排程回合、雲端主機那邊發起的回合、手機來的回合(startTurn origin "mobile",通道還沒上線)、任何自動回合——
   // 由 rec.origin 決定:只有 desktop 帶 true。雲端視角(viewing.env === "cloud")另外用 noUser 標:人在,但畫面上不是這台電腦的對話
+  // noVerify:報告框兩個代號的回合遇搜尋驗證不等人(QA R3-14;TURN_NOTES 新代號不自動繼承)
   if (fakeVerify) fakeVerify.arm();   // 這一輪的第一次搜尋先去假頁
-  try { brMount = await browser().beginTurn(win, sessionId, { userSent: rec.origin === "desktop", noUser: !!viewing && viewing.env === "cloud" }); } catch (_) { brMount = null; }
+  try { brMount = await browser().beginTurn(win, sessionId, { userSent: rec.origin === "desktop", noUser: !!viewing && viewing.env === "cloud", noVerify: note === "report_once" || note === "report_recur" }); } catch (_) { brMount = null; }
   if (brMount) { require("./mcpcode").removeConfig(mcpFile); mcpFile = require("./mcpcode").writeConfig(mcpDir(), mcpMount, brMount); }
   const mcpServers = mcpFile ? [...(mcpMount ? ["blave"] : []), ...(brMount ? ["blave_browser"] : [])] : [];
   // 上網只有內建瀏覽器一條路(e2e 0.1.8 #125):runtime 看到這個變數就把引擎自己的 WebSearch / WebFetch 關掉,
@@ -4448,6 +4503,7 @@ app.whenReady().then(() => {
   handle("delete-session", (_e, id) => deleteSession(id));
   handle("list-strategies", () => listStrategies());
   handle("load-strategy", (_e, name) => loadStrategy(String(name || "")));
+  handle("strategy-logic-i18n", (_e, id, lang) => strategyLogicI18n(Number(id), String(lang || "")));
   handle("save-export", (e, ref) => saveExport(BrowserWindow.fromWebContents(e.sender), ref && typeof ref === "object" ? ref : null), { ok: false });
   handle("load-session-exports", (_e, id) => loadSessionExports(id));
   handle("reveal-export", (_e, token) => { const p = savedExports.get(String(token || "")); if (!p || !fs.existsSync(p)) return false; shell.showItemInFolder(p); return true; }, false);
@@ -4552,9 +4608,9 @@ app.whenReady().then(() => {
      最低版本閘不套在這裡:它擋的是**這台電腦**的下單碼,雲端跑的是主機上的 runtime(規格 §4.2-1)。 */
   const cloudDenied = { ok: false, error: "NOT_ALLOWED", kind: "undelivered" };
   const CLOUD_ONLY = require("./cloudcmd").CLOUD_ONLY_COMMANDS;
-  // 沒有 update:用本機 app 不觸發雲端 agent 回合(Wei 09-22),雲端更新改由本機 agent 經 MCP 去做。
+  // 沒有 update:它開雲端 agent 回合(Wei 09-22),已收掉;更新雲端主機走 workspace_update 直接指令,不開任何回合。
   // 沒有 restart_reconciler:主機重開後對帳器停著的情況,機器端的 resume / resume_wait 自己會把它起來(command_listener._start_after_restart_stop)
-  const CLOUD_SHIPPED = ["halt", "close_all", "resume", "resume_wait", "amounts", "execution", "delete_strategy", "credentials_remove", "close_then_unbind", "retest_accounts", "book_account_confirm", "version_restore", "stats_refresh", "manage_optimize", "manage_backtest", "manage_cancel", "rename_strategy"];
+  const CLOUD_SHIPPED = ["halt", "close_all", "resume", "resume_wait", "amounts", "execution", "delete_strategy", "credentials_remove", "close_then_unbind", "retest_accounts", "book_account_confirm", "version_restore", "stats_refresh", "manage_optimize", "manage_backtest", "manage_cancel", "rename_strategy", "workspace_update"];
   handle("cloud-send", async (_e, cmd, args, requestId) => {
     if (typeof cmd !== "string" || cmd === "credentials" || !(require("./daemon").UI_COMMANDS.has(cmd) || CLOUD_ONLY.indexOf(cmd) >= 0) || CLOUD_SHIPPED.indexOf(cmd) < 0) return cloudDenied;
     const rid = typeof requestId === "string" && require("./cloudcmd").REQUEST_ID_RE.test(requestId) ? requestId : null;
@@ -4956,7 +5012,7 @@ const MENU_EN = { menuAbout: "About Blave", menuServices: "Services", menuHide: 
   menuCopy: "Copy", menuPaste: "Paste", menuPasteStyle: "Paste and Match Style", menuDelete: "Delete", menuSelectAll: "Select All",
   menuView: "View", menuLocal: "This Computer", menuCloud: "Cloud", menuActualSize: "Actual Size", menuZoomIn: "Zoom In", menuZoomOut: "Zoom Out",
   menuFullEnter: "Enter Full Screen", menuFullExit: "Exit Full Screen", menuWindow: "Window", menuMinimize: "Minimize", menuZoom: "Zoom",
-  menuFront: "Bring All to Front", menuHelp: "Help", menuSite: "Blave Website", menuCopyLink: "Copy Link" };
+  menuFront: "Bring All to Front", menuHelp: "Help", menuSite: "Blave Website", menuCopyLink: "Copy Link", menuTabN: "Chat Tab {n}", menuTabLast: "Last Chat Tab" };
 // draftOk = 這一次離開已經問過「還沒儲存，要離開嗎」(或沒有草稿);結束被取消、改成收起來、或開了新視窗就收回。
 // draftNote = 有草稿、但後面那道框(下單中 / 回合中 / 統一有部位)本來就會問:草稿那句併進那個框,不連跳兩個
 let draftOk = false, draftNote = false;
@@ -4972,7 +5028,7 @@ function setRestarting(v) {
   try { const st = { ...updater().state(), backup: _officialBackup, restarting: !!v }; for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send("update-state", st); } catch (_) { /* 畫面壞掉不擋重開 */ }
   startStep("tray", traySync);
 }
-let tmLabels = { running: "Auto trading is running", paperVenue: "Paper trading", pause: "Pause trading (keep positions)", open: "Open Blave", quit: "Quit Blave…",
+let tmLabels = { running: "Auto trading is running", paperVenue: "Paper trading", pause: "Pause Trading (Keep Positions)", open: "Open Blave", quit: "Quit Blave…",
   notifTitle: "Trading paused", notifBody: "Positions were not touched.", pauseFail: "The pause command didn’t go through. Trading may still be running.",
   phoneHalt: "Trading paused from your phone", phoneHaltFail: "The pause from your phone didn’t go through",
   phoneHaltUnsure: "Pause from your phone not confirmed", phoneHaltUnsureBody: "It has most likely taken effect. Open Blave to check.",
@@ -5002,7 +5058,7 @@ let tmLabels = { running: "Auto trading is running", paperVenue: "Paper trading"
   dur_min: "{m} min", dur_hour: "{h} h", dur_hour_min: "{h} h {m} min",
   ev_execution_fallback_market: "Switched to a market order", ev_execution_fallback_market_n: "The configured order style could not run; the fill price may differ.",
   ev_execution_stuck: "Execution is stuck", ev_execution_stuck_n: "Later orders for this symbol are waiting on it.",
-  ev_machine_restart_stopped: "Machine restarted — trading paused", ev_machine_restart_stopped_n: "No orders are going out — nothing is managing your positions, and exits and stops won't run. Press Start trading to resume.",
+  ev_machine_restart_stopped: "Machine restarted — trading paused", ev_machine_restart_stopped_n: "No orders are going out — nothing is managing your positions, and exits and stops won't run. Press Start Trading to resume.",
   ev_venue_stops_missing: "Bitget positions without a stop-loss", ev_venue_stops_missing_n: "After the account switch some positions have no stop-loss on Bitget. Trading continues; Blave won’t re-place them.",
   ev_data_gap_exposed: "No new bars, open position not managed", ev_data_gap_exposed_n: "The signal is stuck on the last bar, so the strategy won't adjust its open position. Check the position.",
   ev_venue_login_blocked: "President login stopped", ev_venue_login_blocked_n: "New orders and closes can't go out. Press Sign In Again on the auto-trading page.",
@@ -5012,15 +5068,15 @@ let tmLabels = { running: "Auto trading is running", paperVenue: "Paper trading"
   ev_exchange_unreachable_sinopac: "Can't reach SinoPac for {hours} h", ev_exchange_unreachable_sinopac_n: "SinoPac strategies place no orders and no closes meanwhile. To manage positions, trade at SinoPac directly.",
   ev_exchange_unreachable_capital: "Capital account unreadable for {hours} h",
   ev_exchange_unreachable_capital_n: "Capital strategies place no orders and no closes meanwhile. Check the Capital connection, or restart Blave.",
-  ev_halt_unconfirmed_n: "An order may have filled, so nothing goes out. Don't place it again yourself: tell your agent how much filled, then press Start trading.",
+  ev_halt_unconfirmed_n: "An order may have filled, so nothing goes out. Don't place it again yourself: tell your agent how much filled, then press Start Trading.",
   ev_halt_unexplained: "Position mismatch",
-  ev_order_unconfirmed_close_all: "Not closed with the rest", ev_order_unconfirmed_close_all_n: "An order here has an unknown outcome and was left out of this close. Don't trade it yourself: tell your agent how much filled, then press Pause and close positions again.",
+  ev_order_unconfirmed_close_all: "Not closed with the rest", ev_order_unconfirmed_close_all_n: "An order here has an unknown outcome and was left out of this close. Don't trade it yourself: tell your agent how much filled, then press Pause and Close Positions again.",
   ev_order_unconfirmed: "Order outcome unknown", ev_order_unconfirmed_n: "This order may have filled — don't place it again yourself. New entries on this symbol are paused; closes still run.",
   ev_clock_skew_hold: "TAIEX futures entries paused", ev_clock_skew_hold_n: "This computer’s clock is off, so TAIEX futures entries are paused; closes still run. Open Blave to see how to fix it.",
   ev_manual_close_required: "Capital positions still open", ev_manual_close_required_n: "This computer can't sign in to Capital's order API. Close them in Capital's trading software.",
-  ev_manual_close_required_lag: "Positions not closed", ev_manual_close_required_lag_n: "Position data lags the last order. In a minute, press “Pause and close positions” again, or close at your broker.",
-  ev_manual_close_required_queued: "Capital positions not closed", ev_manual_close_required_queued_n: "The last close is not reported yet. Press “Pause and close positions” again after {at} (Taiwan time), or check your orders in Capital's trading software before closing there.",
-  ev_manual_close_required_queued_soon_n: "The last close is not reported yet. Press “Pause and close positions” again in a few minutes, or check your orders in Capital's trading software before closing there.",
+  ev_manual_close_required_lag: "Positions not closed", ev_manual_close_required_lag_n: "Position data lags the last order. In a minute, press “Pause and Close Positions” again, or close at your broker.",
+  ev_manual_close_required_queued: "Capital positions not closed", ev_manual_close_required_queued_n: "The last close is not reported yet. Press “Pause and Close Positions” again after {at} (Taiwan time), or check your orders in Capital's trading software before closing there.",
+  ev_manual_close_required_queued_soon_n: "The last close is not reported yet. Press “Pause and Close Positions” again in a few minutes, or check your orders in Capital's trading software before closing there.",
   ev_tw_entry_hold: "New entries paused", ev_tw_entry_hold_n: "TAIEX futures entries are paused; closes still run. Open Blave to see what to check.",
   ev_tw_clock_unchecked: "TAIEX futures clock unverified", ev_tw_clock_unchecked_n: "TAIEX futures closes wait until this computer’s clock shows the market open. Turn on automatic time.",
   ev_tw_clock_unchecked_unmeasured_n: "Blave can't measure the trading computer's clock. Closes wait until it shows the market open. Turn on automatic time.",
@@ -5091,6 +5147,11 @@ function appMenuTemplate(L, dev, full, onEnv, onSite, onFull, ask = false) {
     { label: l("menuView"), submenu: [
       { label: l("menuLocal"), accelerator: "Cmd+Shift+1", click: () => onEnv("local") },
       { label: l("menuCloud"), accelerator: "Cmd+Shift+2", click: () => onEnv("cloud") },
+      sep,
+      /* ⌘1–⌘9 切對話分頁也列在這裡,跟上面 ⇧⌘1／⇧⌘2 放一起才分得出兩組(QA 0159 R4-10)。按鍵照舊由畫面的 keydown 接(chattabs.js),
+         選單只顯示不註冊(registerAccelerator:false),不然選單先吃掉、畫面那條就不會跑;用滑鼠點照樣切 */
+      ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({ label: n === 9 ? l("menuTabLast") : l("menuTabN").replace("{n}", String(n)), accelerator: "CmdOrCtrl+" + n, registerAccelerator: false,
+        click: () => { const w = turnWin(); if (w) w.webContents.send("tab-go", n); } })),
       sep,
       ...(dev ? [{ role: "reload" }, { role: "forceReload" }, { role: "toggleDevTools" }, sep] : []),   // 開發版才有,維持英文
       r("resetZoom", "menuActualSize"), r("zoomIn", "menuZoomIn"), r("zoomOut", "menuZoomOut"), sep,
@@ -5585,7 +5646,7 @@ const p1Quiet = (e) => e.kind === "broker_session_closed" && e.exchange === "pre
 function p1ManualClose(e) {
   if (!e || e.kind !== "manual_close_required") return null;
   const r = e.reason == null ? "identity" : e.reason;
-  if (!((e.exchange === "capital" && ["identity", "snapshot_lag", "queued"].indexOf(r) >= 0) || (e.exchange === "president" && r === "snapshot_lag"))) return null;
+  if (!((e.exchange === "capital" && ["identity", "snapshot_lag", "queued"].indexOf(r) >= 0) || ((e.exchange === "president" || e.exchange === "sinopac") && r === "snapshot_lag"))) return null;
   return { reason: r, until: typeof e.until === "number" && isFinite(e.until) && e.until > 0 ? e.until : null };
 }
 function p1TwClock(sec) { return new Date(sec * 1000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Taipei" }); }
