@@ -145,7 +145,8 @@ app.whenReady().then(async () => {
   ok("④ 頂列記號與視窗標題:「永豐金證券（模擬）」、模擬的樣式", tb.t === "永豐金證券（模擬）" && /\bpaper\b/.test(tb.c) && !tb.hidden && tb.title.indexOf("永豐金證券（模擬）") >= 0, tb);
   const ex = await js(`({ opts: [...$("tr-exec-sel").options].map((o) => o.value), note: ($("tr-set").querySelector(".tr-exec-note") || {}).textContent, want: t("tr.exec.sino") })`);
   ok("④ 下單方式:永豐不列「限價追價」(會變市價);市價、TWAP、自訂入口照列;下面一行講為什麼", J(ex.opts) === J(["market", "twap", "custom-ask"]) && ex.note === ex.want && /限價追價/.test(ex.want), ex);
-  await js(`window.__box = null; confirmBox = (o) => { window.__box = o; }; trAskStart(null)`); await wait(200);
+  // 上游 0.1.6x 起 trAskStart 在框上記 delCtx.startBox:替身框也要留一個 delCtx(真的 confirmBox 會設)
+  await js(`window.__box = null; confirmBox = (o) => { window.__box = o; delCtx = {}; }; trAskStart(null)`); await wait(200);
   const sb = await js(`window.__box && { mark: window.__box.mark, kind: window.__box.markKind, want: t("tr.mode.paper") }`);
   ok("④ 啟動下單確認框(模擬環境):記號是「模擬」", !!sb && sb.mark === sb.want && sb.kind === "paper", sb);
 

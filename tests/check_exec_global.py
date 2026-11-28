@@ -1,3 +1,7 @@
+# Modified by Mephisto-000 on 2026-11-28: the AutoTradeSys fork keeps upstream's 永豐 futures gate shut —
+#   `sinopac` is its auto-wired TW-stock venue, not a hand-wired broker.
+# Original work: Copyright 2025-2026 WuChi Technology Company Limited
+# Licensed under the Apache License, Version 2.0
 """下單方式:整個組合一種(0.1.26)。
 
   1. lib/execute 與 runtime/exec_style 的兩支共用函式逐字相同(runtime 不 import workspace lib)
@@ -325,8 +329,9 @@ check(all(old_lib_resolve([{"strategy": n, "contribution": 1}], c) == ex.resolve
 import venue_traits  # noqa: E402  (runtime copy — same table as lib/venue_traits)
 from lib import venue_traits as lvt  # noqa: E402
 hw = lvt.venues("hand_wired")
-check(hw == {"capital", "president", "sinopac"} and venue_traits.venues("hand_wired") == hw,
-      f"6 hand_wired 的券商剛好是群益、統一、永豐({sorted(hw)})")
+# AutoTradeSys fork: sinopac stays the auto-wired TW-stock venue (upstream 0.1.61 hand-wires its futures)
+check(hw == {"capital", "president"} and venue_traits.venues("hand_wired") == hw,
+      f"6 hand_wired 的券商剛好是群益、統一(fork:永豐金是自動接線的現股)({sorted(hw)})")
 src = open(os.path.join(ROOT, "manager", "reconciler.py"), encoding="utf-8").read()
 po = src[src.index("def place_order("):]
 po = po[:po.index("\ndef ", 1)]

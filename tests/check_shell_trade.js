@@ -1,3 +1,7 @@
+// Modified by Mephisto-000 on 2026-11-28: the AutoTradeSys fork keeps SINOPAC_LOCAL_ON off — `sinopac` is its
+//   TW-stock venue, so the SinoPac rows below expect the stock behaviour.
+// Original work: Copyright 2025-2026 WuChi Technology Company Limited
+// Licensed under the Apache License, Version 2.0
 // shell/renderer/trade.js 的純邏輯(不碰 DOM 的那一段),從原文切出來跑:
 //   trExecState   狀態字判定(雲端 pfExecState 的移植 + 電腦版的「狀態檔還沒有」「常駐程式不在」)
 //   trAmountsToSend / trZoneTotals / trParseAmount   金額表:送出去的 membership、依計價分區的合計與倍數、輸入解析
@@ -258,10 +262,12 @@ ok("§9.3 區順序:固定 USDT → USDC → 其他(字母序)→ TWD → 台指
 ok("§9.3 綁加密所:帳戶幣那一區第一、其他加密區跟著,台股與台指期照固定序在後;綁台灣券商:口數區第一",
   J(trZoneOrder(["TWD", "USDT", "USDC", TR_ZONE_LOTS], "binance", "USDC")) === J(["USDC", "USDT", "TWD", TR_ZONE_LOTS])
   && J(trZoneOrder(["USDT", "TWD", TR_ZONE_LOTS, TR_ZONE_UNKNOWN], "capital", TR_ZONE_LOTS)) === J([TR_ZONE_LOTS, "USDT", "TWD", TR_ZONE_UNKNOWN]));
-ok("永豐(sinopac)同群益／統一是台灣期貨券商:口數區、區排序、口數單、只算台指期策略的金額(trTwFutVenue)",
-  trMultZone("sinopac", "TWD", []) === TR_ZONE_LOTS && J(trZoneOrder(["USDT", "TWD", TR_ZONE_LOTS], "sinopac", TR_ZONE_LOTS)) === J([TR_ZONE_LOTS, "USDT", "TWD"])
-  && trOrderLots({ exchange: "sinopac", symbol: "X" })
-  && trTradableFunded({ venues: { sinopac: { credentials: true, pair: true, order: true, account: true } }, config: { amounts: { a: 100, b: 100 } }, states: { a: { symbol: "BTCUSDT" }, b: { symbol: "TXF" } } }) === 1);
+// AutoTradeSys fork:旗標關著(這裡切出來跑、沒有 SINOPAC_LOCAL_ON)時 sinopac 是 fork 的永豐金現股,不是台灣期貨券商:
+//   沒有口數區、不是口數單、股票策略的金額照算(上游 0.1.61 起永豐期貨在旗標開時才走 trTwFutVenue 那條)
+ok("永豐(sinopac,AutoTradeSys fork 的現股)旗標關時不是台灣期貨券商:沒有口數區、不是口數單、股票策略的金額照算(trTwFutVenue)",
+  !trTwFutVenue("sinopac") && trTwFutVenue("capital") && trTwFutVenue("president") && trMultZone("sinopac", "TWD", []) !== TR_ZONE_LOTS
+  && !trOrderLots({ exchange: "sinopac", symbol: "2330@spot" })
+  && trTradableFunded({ venues: { sinopac: { credentials: true, pair: true, order: true, account: true } }, config: { amounts: { a: 100, b: 100 } }, states: { a: { symbol: "2330@spot" }, b: { symbol: "0050@spot" } } }) === 2);
 ok("§9.3 帳戶幣那一區(排序用):加密所 = 帳戶幣;OKX 回 USD、表上只有 USDT → USDT 區(平台匯率兩者同為 1);台灣券商 = 口數區(帳戶幣要是 TWD);沒綁 / 帳戶幣未知 = null",
   trMultZone("binance", "USDT", ["USDT"]) === "USDT" && trMultZone("okx", "USD", ["USDT", "TWD"]) === "USDT" && trMultZone("okx", "USD", ["USD"]) === "USD"
   && trMultZone("capital", "TWD", []) === TR_ZONE_LOTS && trMultZone("president", "USDT", []) === null && trMultZone(null, "USDT", ["USDT"]) === null && trMultZone("myex", null, ["USDT"]) === null
@@ -449,7 +455,7 @@ ok("lib 的錯誤 token:[okx_account_mode] / [gateio_price_deviated] 認得出�
 { const f = src.slice(src.indexOf("function trOrderErrText("), src.indexOf("\n}\n", src.indexOf("function trOrderErrText(")));
   ok("拒單那一句:兩個 token 各有在地化的句子(表底紅字、灰字「上次」、總覽事件列都走 trOrderErrText)",
     /p\.kind === "okx_account_mode"\) return t\("tr\.err\.okxMode", \{ sym \}\)/.test(f) && /p\.kind === "gateio_price_deviated"\) return t\("tr\.err\.gateDeviated", \{ sym \}\)/.test(f));
-  ok("帳戶讀取失敗(設定分頁)帶 [okx_account_mode]:講怎麼改,不出 cx.fail 的原文", /else if \(trErrToken\(ae\.msg\) === "okx_account_mode"\) box\.appendChild\(errLine\(t\("cx\.err\.okxMode"\)\)\);\n\s*\/\/[^\n]*\n\s*else if \(id === "sinopac"\) box\.appendChild\(errLine\(t\(spAcctErrKey\(ae\.msg, ro\)\)\)\);\n\s*\/\/[^\n]*\n\s*else box\.appendChild\(errLine\(ae\.stage === "—" \? ae\.msg\.slice\(0, 200\) : t\("cx\.fail"/.test(src)); }
+  ok("帳戶讀取失敗(設定分頁)帶 [okx_account_mode]:講怎麼改,不出 cx.fail 的原文", /else if \(trErrToken\(ae\.msg\) === "okx_account_mode"\) box\.appendChild\(errLine\(t\("cx\.err\.okxMode"\)\)\);\n\s*\/\/[^\n]*\n\s*else if \(id === "sinopac" && SINOPAC_LOCAL_ON\) box\.appendChild\(errLine\(t\(spAcctErrKey\(ae\.msg, ro\)\)\)\);\n\s*\/\/[^\n]*\n\s*else box\.appendChild\(errLine\(ae\.stage === "—" \? ae\.msg\.slice\(0, 200\) : t\("cx\.fail"/.test(src)); }
 ok("dead 分兩種:監督者被叫去跑(wanted:true)= 異常;沒有 wanted / 舊狀態檔 / 雲端沒有 daemon 區塊 = 你還沒按啟動", trDeadKind({ daemon: { reconciler: { wanted: true, running: false } } }) === "died" && trDeadKind({ daemon: { reconciler: { wanted: false } } }) === "off"
   && trDeadKind({ daemon: { reconciler: {} } }) === "off" && trDeadKind({ daemon: {} }) === "off" && trDeadKind({}) === "off" && trDeadKind(null) === "off" && trDeadKind({ daemon: { reconciler: { wanted: "true" } } }) === "off");
 { const S = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "strings.js"), "utf8"), html = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "index.html"), "utf8"), appSrc = fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "app.js"), "utf8");
@@ -2577,7 +2583,7 @@ process.on("beforeExit", () => { console.log("FAIL  非同步測試沒有跑到�
         ctx.trEquity = () => null; }
     }
     ok("接線:連接框「台灣期貨」那組磚雲端列群益(永豐旗標開才多列永豐;0.1.58 隨附、旗標關著)、這台電腦(Windows)列群益本機(CAPL_LOCAL_ON)與統一(PRES_LOCAL_ON)、永豐金現股(AutoTradeSys fork,這台電腦任何系統,cxTiles 另加);cx.cap.local* 已刪;交易所磚不預選、點了就進那一家;框頂沒有事實列(權限句在步驟 1、金鑰去向是欄位下那句提示泡;「不經過 AI」那行 Wei 10-21 拿掉)",
-      /if \(env !== "local"\) return \[\[CAPITAL, "cap\.venue"\], sp\]\.filter\(Boolean\);/.test(src) && /const sp = SINOPAC_LOCAL_ON \? \["sinopac", "sp\.venue"\] : null;/.test(src) && /group\("tw", "cap\.group\.tw", tw\.map\(/.test(src) && !/go\.hidden = !cloud && CXF\.venue === CAPITAL;/.test(src)
+      /if \(env !== "local"\) return \[\[CAPITAL, "cap\.venue"\], sp\]\.filter\(Boolean\);/.test(src) && /const sp = SINOPAC_LOCAL_ON \? \["sinopac", "sp\.venue"\] : null;/.test(src) && /const items = \(tw \|\| \[\]\)\.map\(\(\[id, k\]\) => \[id, t\(k\)\]\)\.concat\(sino\);/.test(src) && /group\("tw", "cap\.group\.tw", items\);/.test(src) && !/go\.hidden = !cloud && CXF\.venue === CAPITAL;/.test(src)
       && !/cx\.cap\.local/.test(src) && !/cx\.cap\.local/.test(fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "strings.js"), "utf8"))
       && /b\.addEventListener\("click", \(\) => cxPick\(L, id\)\);/.test(src)
       && !/cx\.acct\.meta/.test(src + fs.readFileSync(path.join(__dirname, "..", "shell", "renderer", "strings.js"), "utf8"))

@@ -1,3 +1,7 @@
+// Modified by Mephisto-000 on 2026-11-28: the AutoTradeSys fork keeps SINOPAC_LOCAL_ON off — `sinopac` is its
+//   TW-stock venue, so the SinoPac rows below expect the stock behaviour.
+// Original work: Copyright 2025-2026 WuChi Technology Company Limited
+// Licensed under the Apache License, Version 2.0
 // 台指期休市時全部平倉照送、被拒就是失敗(spec txf-close-or-fail,Wei 11-15/16)在電腦版畫面上的樣子:
 //   trade.js:延後列只剩 0.1.53 雲端 lib 會寫的那兩種(trCloseDeferred)、拒單 token market_closed 換白話句、
 //            停止框與啟動框不再講台指期休市、新 lib(txf_close_refuses)解除連接照樣給平倉鈕
@@ -24,8 +28,10 @@ const line = (re) => { const m = re.exec(trade); if (!m) throw new Error("找不
     const d = (clock, cloud) => M.trCloseDeferred({ symbol: "TXF", exchange: "president", kind: "market_closed_deferred", clock }, cloud);
     return d("far").title === "tr.ov.evDeferFut" && d("far").note === "tr.ov.evDeferClockFarNote" && d("far").rowNote === d("far").note
       && d("unmeasured", true).note === "tr.cloud.ov.evDeferClockNote" && d("far", true).note === "tr.cloud.ov.evDeferClockFarNote" && d(undefined, true).note === "tr.ov.evDeferNote"; })());
-  ok("永豐(只做期貨)的延後與取消列是台指期那組標題", M.trCloseDeferred({ symbol: "X", exchange: "sinopac", kind: "market_closed_deferred" }).title === "tr.ov.evDeferFut"
-    && M.trCloseDeferred({ symbol: "X", exchange: "sinopac", kind: "close_deferred_cancelled" }).title === "tr.ov.evDeferCancelFut");
+  // AutoTradeSys fork:旗標關著時 sinopac 是 fork 的永豐金現股 → 延後與取消列是台股那組標題(台指期代號照樣認得)
+  ok("永豐(AutoTradeSys fork 的現股,旗標關著)的延後與取消列是台股那組標題;代號是台指期時照樣是台指期", M.trCloseDeferred({ symbol: "2330", exchange: "sinopac", kind: "market_closed_deferred" }).title === "tr.ov.evDeferStock"
+    && M.trCloseDeferred({ symbol: "2330", exchange: "sinopac", kind: "close_deferred_cancelled" }).title === "tr.ov.evDeferCancelStock"
+    && M.trCloseDeferred({ symbol: "TXF", exchange: "sinopac", kind: "market_closed_deferred" }).title === "tr.ov.evDeferFut");
   ok("新機器的拒單列不會被認成延後或取消", M.trCloseDeferred({ symbol: "TXF", exchange: "president",
     error: "[order_reject:market_closed] close-all: 休市中沒有平倉，部位還在、沒有停損，開盤後要自己平" }) === null
     && M.trCloseDeferred({ symbol: "TXF", exchange: "president", error: "close-all: 更新後取消等開盤的平倉，部位還在、沒有停損，要自己平" }) === null); }

@@ -1,6 +1,7 @@
 # Modified by Mephisto-000 on 2026-10-25: SinoPac's own files and its auto-wire.
 #   (2026-11-18) upstream's gated-off 永豐 futures row is replaced by the fork's stock row: sinopac
 #   ships as a wired venue (no verified_modes cell, never dormant) with lib/account_sinopac.py.
+#   (2026-11-28) upstream 0.1.61 opened its 永豐 futures row: the fork keeps the stock row, label 永豐金.
 """Taiwan-broker branches go through lib/venue_traits.py — no network.
 
 1. Enumeration: every string constant equal to a TW broker id in manager/,
@@ -111,11 +112,13 @@ check(venue_traits.venues("native_units") == {"capital", "president"}, "native_u
 check(venue_traits.venues("windows_identity") == {"capital"}, "windows_identity venues")
 check(all(venue_traits.get(v, "label") for v in venue_traits.venues("auto_wire", False)),
       "every TW broker has a label for user-facing messages (flatten never says 群益 for another broker)")
-check(venue_traits.get("sinopac", "label") == "永豐期貨",
-      "sinopac label is 永豐期貨 (the futures firm the user opened, not 永豐金)", venue_traits.get("sinopac", "label"))
+# AutoTradeSys fork: upstream 0.1.61 renamed the label and its docs 永豐期貨 (its futures firm); the fork's
+# sinopac is the TW-stock venue at 永豐金證券, so the label and the agent docs keep 永豐金
+check(venue_traits.get("sinopac", "label") == "永豐金",
+      "sinopac label is 永豐金 (the fork's stock venue, not upstream's 永豐期貨)", venue_traits.get("sinopac", "label"))
 for doc in ("AGENTS.md", os.path.join("references", "sinopac-broker.md")):
     with open(os.path.join(ROOT, doc), encoding="utf-8") as fh:
-        check("永豐金" not in fh.read(), f"{doc} names SinoPac 永豐期貨, not 永豐金 (the agent may quote it to the user)")
+        check("SinoPac (永豐期貨)" not in fh.read(), f"{doc} does not call the fork's SinoPac 永豐期貨 (the agent may quote it to the user)")
 check(venue_traits.hand_wired_routed(["binance", "capital"]) == "capital"
       and venue_traits.hand_wired_routed(["binance", ""]) is None
       and venue_traits.hand_wired_routed(["Capital"]) is None,

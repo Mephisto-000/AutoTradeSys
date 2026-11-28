@@ -1,3 +1,7 @@
+# Modified by Mephisto-000 on 2026-11-28: skipped whole in the AutoTradeSys fork — upstream's 永豐 futures
+#   gate stays shut there and lib/order_sinopac is the fork's TW-stock lib.
+# Original work: Copyright 2025-2026 WuChi Technology Company Limited
+# Licensed under the Apache License, Version 2.0
 """永豐 worker lifecycle: the cloud shim (runtime/sinopac_service.py) and the desktop supervisor
 (runtime/sinopac_local.py) — real child processes running a stand-in worker, no shioaji, no login.
 
@@ -26,6 +30,15 @@ import os
 import shutil
 import subprocess
 import sys
+
+# AutoTradeSys fork: the `sinopac` venue is the TW-stock lib here and upstream's futures gate stays shut
+# (lib/venue_traits _SINOPAC_MODES = ()); this file drives the futures worker with the gate open, so it is a
+# whole-file SKIP (tests/_run_all.py). The fork's own bind path is tests/check_sinopac_bind_gate.py.
+with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib", "order_sinopac.py"),
+          encoding="utf-8") as _f:
+    if "def place_futures_market_order(" not in _f.read():
+        print("SKIP 永豐期貨: lib/order_sinopac is the AutoTradeSys fork's TW-stock lib (futures gate shut)")
+        sys.exit(0)
 import tempfile
 import threading
 import time

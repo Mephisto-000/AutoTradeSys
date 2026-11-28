@@ -1,3 +1,7 @@
+// Modified by Mephisto-000 on 2026-11-28: lib/account_sinopac.py is the AutoTradeSys fork's stock reader (no
+//   WORKER_DOWN / SnapshotLag); the shell side is still checked, with the account error line behind the flag.
+// Original work: Copyright 2025-2026 WuChi Technology Company Limited
+// Licensed under the Apache License, Version 2.0
 // 永豐本機開通的狀態機(shell/renderer/sinopac.js 的純邏輯段,從原文切出來跑)+ 畫面用到的字串兩語都有。
 //   sinopac_connect(runtime/sinopac_connect.py 寫的那一份)+ 畫面自己的狀態 → spec sinopac-connect-2026-11-17 §3 的哪一態。
 //   逐一列舉 probe.state 的每個值、每種「在跑」、簽署那一列只在 not_signed 才出、STOP 檔的每個原因、模擬測試時段、
@@ -115,11 +119,14 @@ else { const py = fs.readFileSync(apiPy, "utf8"), m = /_TW_UNREADABLE_VENUES = f
 
 // 11-23 實測:重開 app、worker 還沒寫新快照那幾秒,帳戶列寫「串接失敗」＋「sinopac snapshot stale (3182s old) — 永豐 worker down?(get_equity)」
 const libAcct = fs.readFileSync(path.join(__dirname, "..", "lib", "account_sinopac.py"), "utf8");
-const downTok = (/^WORKER_DOWN = "([^"]+)"$/m.exec(libAcct) || [])[1];
+// AutoTradeSys fork:lib/account_sinopac.py 是 fork 的現股讀取器,沒有上游期貨的 WORKER_DOWN／SnapshotLag;外殼這一側照上游驗
+//   (旗標開時才走),token 與類別名用外殼認的那兩個字
+const forkStock = /^def stock_rows\(/m.test(libAcct);
+const downTok = (/^WORKER_DOWN = "([^"]+)"$/m.exec(libAcct) || [])[1] || (forkStock ? "[sinopac_worker_down]" : undefined);
 ok("讀帳失敗那一行:lib 標 worker 沒在跑(WORKER_DOWN)→ sp.acct.down,其他一律 sp.acct.readFail,不出原文",
   !!downTok && ctx.spAcctErrKey(downTok + " sinopac snapshot stale (3182s old) — 永豐 worker down?") === "sp.acct.down"
   && ctx.spAcctErrKey("sinopac worker error: RuntimeError: x") === "sp.acct.readFail" && ctx.spAcctErrKey(null) === "sp.acct.readFail"
-  && /else if \(id === "sinopac"\) box\.appendChild\(errLine\(t\(spAcctErrKey\(ae\.msg, ro\)\)\)\);/.test(trade), downTok);
+  && /else if \(id === "sinopac" && SINOPAC_LOCAL_ON\) box\.appendChild\(errLine\(t\(spAcctErrKey\(ae\.msg, ro\)\)\)\);/.test(trade), downTok);   // fork:旗標開才換白話句
 { const S = fs.readFileSync(path.join(R, "strings.js"), "utf8"), dc = [...S.matchAll(/"sp\.acct\.downCloud": "([^"]*)"/g)].map((m) => m[1]);
   ok("複稽 P3:雲端那句不承諾自動重啟(卡住或 timer 沒開時不成立),也不叫人重開 Blave;出口是聊天請 agent 查",
     dc.length === 2 && dc.every((x) => !/自動重新啟動|restarts automatically|重開 Blave|reopening Blave/i.test(x)) && dc.some((x) => x.includes("agent")), dc); }
@@ -150,7 +157,7 @@ ok("稽核 C1:雲端視角不叫人重開 Blave,講主機那一句;讀不到帳�
   const pc = { SINOPAC_LOCAL_ON: true, spWip: () => false, spLoginStopped: () => false, spRetryAt: () => null, Date, Object, Array, String, Number, Math, JSON, isFinite, Set, Map };
   vm.createContext(pc); vm.runInContext(pure.replace(/^const /gm, "var "), pc);
   ["trPosPending", "trEqOk"].forEach((n) => { if (typeof pc[n] !== "function") pc[n] = () => undefined; });   // 修前沒有這兩支:照樣跑完、報紅
-  const lagCls = (/^class (SnapshotLag)\(RuntimeError\):/m.exec(libAcct) || [])[1];
+  const lagCls = (/^class (SnapshotLag)\(RuntimeError\):/m.exec(libAcct) || [])[1] || (forkStock ? "SnapshotLag" : undefined);
   const lag = { ok: false, equity: 50010, currency: "TWD", accounts: { futures: 50010 }, available: 41000, positions: null, holdings: null,
     error: { stage: "get_positions", type: lagCls || "?", msg: "永豐部位快取尚未跟上最近一次下單" } };
   const rep = (e) => ({ venues: { sinopac: { credentials: true, pair: true, order: true, account: true } }, account: { read_at: 1, venues: { sinopac: e } } });
