@@ -137,4 +137,27 @@
     （workspace VERSION `2026-11-22-b`），再執行 `tools/sinopac_deploy.py --apply`；App 要用本 fork build 的版本
     （上面 runtime 與外殼的修正都隨 App 出貨，官方 App 0.1.58 起綁不了永豐股票）
 
+- 2026-11-28：同步上游 `main` 至 `8812ca21`（電腦版 0.1.60–0.1.64，runtime 1.1.176，VERSION `2026-11-28`）
+  - 上游這版：**永豐期貨正式開放**（0.1.61：runtime／lib 期貨閘門打開、外殼旗標 `SINOPAC_LOCAL_ON` 打開、期貨帳戶讀取器改名
+    `lib/account_sinopac.py`、標籤改「永豐期貨」、存檔時擋非台指期、換金鑰、斷線重登、更新後重啟 worker）；另有參數掃描高原
+    延伸、樣本外驗證時間上限、Type C 報酬下限、台股全市場寬表 `fetch_twstock_wide`、台股日線 CDN 落後時向 Blave 補尾巴、
+    策略版本導讀、寬螢幕版面、啟動下單框等永豐回報、策略庫上架以來、資料金鑰自動寫入、憑證檔 Bash 守門等
+  - 與 fork 的永豐金**現股**撞名（同一個 `sinopac` id），照 2026-11-18 的決定保留股票版、上游期貨維持關閉：
+    `lib/venue_traits.py`／`runtime/venue_traits.py` 保留現股那一列並寫 `_SINOPAC_MODES = ()`（上游 `sinopac_connect`
+    以文字讀這行）；`lib/account_sinopac.py`、`lib/order_sinopac.py`、`README.md`、`references/sinopac-broker.md` 保留 fork 版；
+    `AGENTS.md` 索引維持「SinoPac (永豐金)」；`shell/main.js`、`shell/renderer/trade.js` 的 `SINOPAC_LOCAL_ON` 維持 `false`
+  - `shell/renderer/trade.js`：上游新的 `trTwFutVenue` 把 `sinopac` 一律當台指期券商，只跑永豐股票時「啟動下單」會被停用、
+    帳戶區變口數區；改成旗標開才算永豐（`trCloseDeferred` 標題、帳戶讀取失敗那行同理）。Mac 的台股組改成永豐金磚在上、
+    「台灣期貨要 Windows」那行（含上游新的〔改用雲端主機〕）接在磚下，熱區不蓋進磚
+  - 字串：上游 0.1.60 把 `tr.acct.cash` 當一般錢包「現金」，與 fork 的「交割戶」撞 key；fork 的改用 `tr.acct.settle`，
+    只在永豐金那幾列使用
+  - `runtime/secret_code.py` 凍結清單合併（上游已列 `lib/account_sinopac.py`，fork 補 `lib/sinopac_session.py`）；
+    `references/lib.md` 的 fork 段改寫上游期貨讀取器改名的說明
+  - 測試：上游假設永豐期貨已開的測試配合 fork 調整（`check_shell_trade.js`、`check_shell_txf_close_or_fail.js`、
+    `check_exec_global.py`、`check_venue_traits.py`、`check_shell_sinopac_view.js`、`check_shell_connect_venues.js`、
+    `check_capital_flatten_identity.py`）；期貨 worker 的 `check_sinopac_local.py` 整支 SKIP；`check_sinopac_shell.js` 替身框補 `delCtx`
+  - 注意：此次同步尚未 build 成 App，也暫不部署到電腦版（`~/Blave/workspace`）。之後要部署需先等 app 更新到 0.1.64
+    （workspace VERSION `2026-11-28`），再執行 `tools/sinopac_deploy.py --apply`；App 要用本 fork build 的版本
+    （官方 App 0.1.61 起把 `sinopac` 當永豐期貨，`lib/account_sinopac.py` 也會換成期貨讀取器）
+
 詳細差異請以 `git log` 與 `git diff upstream/main` 為準。
