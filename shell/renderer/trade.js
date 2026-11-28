@@ -2,7 +2,8 @@
 //   (2026-11-07) the unbind dialog (upstream 0.1.45 close-then-unbind) marks SinoPac's simulation environment 模擬 too.
 //   (2026-11-18) upstream's tile-based connect dialog: a SinoPac tile under 台股 on this computer (Mac included), its
 //   permission line and simulation note in steps 1–2, and the passphrase field guarded (SinoPac is not in CX_VENUES).
-//   (2026-11-28) upstream 0.1.61 turned the flag on: the fork keeps it off; tr.acct.settle for SinoPac's cash wallet.
+//   (2026-11-28) upstream 0.1.61 turned the flag on and made trTwFutVenue (lots, zones, symbol locks) count sinopac
+//   always: the fork keeps the flag off and counts sinopac there only with it on; tr.acct.settle for its cash wallet.
 //   (2026-11-24) upstream 0.1.58's SinoPac futures dialog sits behind SINOPAC_LOCAL_ON (off): cxConnect, cxKeysBlank
 //   and the unbind dialog's sp.ub.x0 line only take that path with the flag on; the stock tile keeps venue-connect.
 // Original work: Copyright 2025-2026 WuChi Technology Company Limited
@@ -160,7 +161,7 @@ function trCloseDeferred(e, cloud) {
   if (!e || typeof e !== "object") return null;
   const cancel = e.kind === "close_deferred_cancelled" || (e.kind == null && TR_DEFER_CANCEL_RE.test(String(e.error || "")));
   if (!cancel && e.kind !== "market_closed_deferred") return null;
-  const fut = e.exchange === "capital" || e.exchange === "president" || e.exchange === "sinopac" || TR_TWFUT_RE.test(trCanonSym(String(e.symbol || "").split(",")[0]));
+  const fut = e.exchange === "capital" || e.exchange === "president" || (e.exchange === "sinopac" && typeof SINOPAC_LOCAL_ON !== "undefined" && SINOPAC_LOCAL_ON) || TR_TWFUT_RE.test(trCanonSym(String(e.symbol || "").split(",")[0]));
   const note = cancel ? "tr.ov.evDeferCancelNote" : e.clock === "unmeasured" ? (cloud ? "tr.cloud.ov.evDeferClockNote" : "tr.ov.evDeferClockNote")
     : e.clock === "far" ? (cloud ? "tr.cloud.ov.evDeferClockFarNote" : "tr.ov.evDeferClockFarNote") : "tr.ov.evDeferNote";
   return { cancel, title: cancel ? (fut ? "tr.ov.evDeferCancelFut" : "tr.ov.evDeferCancelStock") : (fut ? "tr.ov.evDeferFut" : "tr.ov.evDeferStock"), note, rowNote: note };
@@ -409,7 +410,8 @@ function trRouteDirty(r) {
    模擬交易的台股(台指期照機器支援)。回幾支。加密策略有金額、改綁統一 = 0:Z,「啟動下單」停用,原因行叫人先去策略組合。
    規則跟 runtime 存金額時的 NOT_TXF 同一條(command_listener):標的看得出來、而且確定不是台指期才不算;看不出來(清單與回報都沒有)算能下 */
 // 台灣期貨券商(群益、統一、永豐;同網頁 TW_FUT_VENUES):純邏輯區用這條,不看 SINOPAC_LOCAL_ON——永豐沒開時不會有 sinopac 的帳戶與下單紀錄
-function trTwFutVenue(id) { return id === "capital" || id === "president" || id === "sinopac"; }
+// AutoTradeSys fork:fork 的 sinopac 是永豐金現股,旗標關時有帳戶與下單紀錄、不是台指期 → 永豐只在旗標開時算(typeof:測試把函式切進 vm)
+function trTwFutVenue(id) { return id === "capital" || id === "president" || (id === "sinopac" && typeof SINOPAC_LOCAL_ON !== "undefined" && SINOPAC_LOCAL_ON); }
 function trTradableFunded(r) {
   const a = r && r.config && r.config.amounts; if (!a || typeof a !== "object") return 0;
   const vid = trVenueIds(r)[0] || null, list = typeof TR !== "undefined" && TR && Array.isArray(TR.list) ? TR.list : [], st = r.states || {};
@@ -5450,8 +5452,8 @@ function trPaintSet() {
     if (trErrToken(ae.msg) === "bitget_uta_unsupported") box.appendChild(errLine(t("cx.err.bitgetUtaBound")));
     else if (trErrToken(ae.msg) === "bitget_copy_trading_key") box.appendChild(errLine(t("cx.err.bitgetCopyKeyBound")));
     else if (trErrToken(ae.msg) === "okx_account_mode") box.appendChild(errLine(t("cx.err.okxMode")));
-    // 永豐:原文是 lib 的工程英文(快照過舊、get_equity 這類),換成白話一句
-    else if (id === "sinopac") box.appendChild(errLine(t(spAcctErrKey(ae.msg, ro))));
+    // 永豐:原文是 lib 的工程英文(快照過舊、get_equity 這類),換成白話一句(上游期貨;fork 的永豐金現股照下面原因原文)
+    else if (id === "sinopac" && SINOPAC_LOCAL_ON) box.appendChild(errLine(t(spAcctErrKey(ae.msg, ro))));
     // 列上已有「串接失敗」記號與交易所名:這一行只留原因,有階段代碼才帶括號(設計稽核 desktop-10-08 #5)
     else box.appendChild(errLine(ae.stage === "—" ? ae.msg.slice(0, 200) : t("cx.fail", { stage: ae.stage, msg: ae.msg.slice(0, 200) })));
   }
